@@ -82,11 +82,7 @@ PowerShell:Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshito
 bash(WSL/Linux/Git Bash):Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-init.ps1" -OutFile "claude-init.ps1"
 .\claude-init.ps1
 
-対話で聞かれる項目:
-- 評価スクリプトの実行コマンド(例: uv run python -m src.eval.eval_burnability --split val)
-- 主要モデル定義の場所(例: src/models/unet.py)
-
-展開されると .claude/agents/, .claude/commands/, CLAUDE.md が作られる。
+展開されると .claude/agents/, .claude/commands/, CLAUDE.md が作られる。
 
 ### 4-2. 動作確認
 claude
