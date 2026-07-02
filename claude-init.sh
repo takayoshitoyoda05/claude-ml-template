@@ -19,20 +19,11 @@ echo "OK: .claude/ を展開しました"
 if [ -f CLAUDE.md ]; then
   echo "OK: CLAUDE.md は既存のものを保持します"
 else
-  PROJECT_NAME=$(basename "$PWD")
-  read -p "評価スクリプトの実行コマンド [uv run python -m src.eval.eval]: " EVAL_CMD
-  EVAL_CMD=${EVAL_CMD:-"uv run python -m src.eval.eval"}
-  read -p "主要モデル定義の場所 [src/models/]: " MODEL_PATH
-  MODEL_PATH=${MODEL_PATH:-"src/models/"}
   INIT_DATE=$(date +%Y-%m-%d)
-
-  sed -e "s|{{PROJECT_NAME}}|$PROJECT_NAME|g" \
-      -e "s|{{EVAL_CMD}}|$EVAL_CMD|g" \
-      -e "s|{{MODEL_PATH}}|$MODEL_PATH|g" \
-      -e "s|{{INIT_DATE}}|$INIT_DATE|g" \
+  sed -e "s|{{INIT_DATE}}|$INIT_DATE|g" \
       "$TMP/templates/CLAUDE.md.template" > CLAUDE.md
   echo "OK: CLAUDE.md を生成しました"
 fi
 
 echo ""
-echo "完了。claude を起動して /agents で確認できます"
+echo "完了。claude を起動してサブエージェントが認識されているか確認できます"
