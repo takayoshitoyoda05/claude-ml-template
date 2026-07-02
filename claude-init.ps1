@@ -1,8 +1,8 @@
-param()
+﻿param()
 
 $ErrorActionPreference = "Stop"
 
-$TemplateRepo = "https://github.com/<あなたのユーザー名>/claude-ml-template.git"
+$TemplateRepo = "https://github.com/takayoshitoyoda05/claude-ml-template.git"
 
 if (Test-Path ".claude") {
     $ans = Read-Host ".claude が既に存在します。上書きしますか? [y/N]"
@@ -20,10 +20,10 @@ try {
     git clone --depth 1 --quiet $TemplateRepo $Tmp
 
     Copy-Item -Path (Join-Path $Tmp ".claude") -Destination "." -Recurse -Force
-    Write-Host "✓ .claude/ を展開しました"
+    Write-Host "OK: .claude/ を展開しました"
 
     if (Test-Path "CLAUDE.md") {
-        Write-Host "✓ CLAUDE.md は既存のものを保持します"
+        Write-Host "OK: CLAUDE.md は既存のものを保持します"
     } else {
         $ProjectName = Split-Path -Leaf (Get-Location)
         $EvalCmd = Read-Host "評価スクリプトの実行コマンド [uv run python -m src.eval.eval]"
@@ -40,11 +40,11 @@ try {
             -replace "\{\{INIT_DATE\}\}", $InitDate `
             | Out-File -FilePath "CLAUDE.md" -Encoding utf8
 
-        Write-Host "✓ CLAUDE.md を生成しました"
+        Write-Host "OK: CLAUDE.md を生成しました"
     }
 
     Write-Host ""
-    Write-Host "完了！ claude を起動して /agents で確認できます"
+    Write-Host "完了。claude を起動して /agents で確認できます"
 }
 finally {
     Remove-Item -Path $Tmp -Recurse -Force

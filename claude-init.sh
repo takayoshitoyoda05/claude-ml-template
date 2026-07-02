@@ -1,7 +1,7 @@
-#!/bin/bash
+﻿#!/bin/bash
 set -euo pipefail
 
-TEMPLATE_REPO="https://github.com/<あなたのユーザー名>/claude-ml-template.git"
+TEMPLATE_REPO="https://github.com/takayoshitoyoda05/claude-ml-template.git"
 
 if [ -d ".claude" ]; then
   read -p ".claude が既に存在します。上書きしますか? [y/N] " ans
@@ -14,10 +14,10 @@ echo "テンプレートを取得中..."
 git clone --depth 1 --quiet "$TEMPLATE_REPO" "$TMP"
 
 cp -r "$TMP/.claude" ./
-echo "✓ .claude/ を展開しました"
+echo "OK: .claude/ を展開しました"
 
 if [ -f CLAUDE.md ]; then
-  echo "✓ CLAUDE.md は既存のものを保持します"
+  echo "OK: CLAUDE.md は既存のものを保持します"
 else
   PROJECT_NAME=$(basename "$PWD")
   read -p "評価スクリプトの実行コマンド [uv run python -m src.eval.eval]: " EVAL_CMD
@@ -31,8 +31,8 @@ else
       -e "s|{{MODEL_PATH}}|$MODEL_PATH|g" \
       -e "s|{{INIT_DATE}}|$INIT_DATE|g" \
       "$TMP/templates/CLAUDE.md.template" > CLAUDE.md
-  echo "✓ CLAUDE.md を生成しました"
+  echo "OK: CLAUDE.md を生成しました"
 fi
 
 echo ""
-echo "完了！ claude を起動して /agents で確認できます"
+echo "完了。claude を起動して /agents で確認できます"
