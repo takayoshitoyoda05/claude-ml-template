@@ -72,6 +72,20 @@ Research_materials のように1つのリポジトリに複数プロジェクト
 
 ---
 
+## 前提条件(Requirements)
+
+このテンプレートを使うには以下が必要です。
+
+| ツール | 用途 | 確認コマンド |
+|---|---|---|
+| uv | フックの実行(uv run python)・Python環境管理 | uv --version |
+| git | テンプレート取得・バージョン管理 | git --version |
+| Claude Code | 本体 | claude --version |
+
+- フック(.claude/hooks/)はすべて uv run python 経由で動くため、uv が無い環境では
+  フックが機能しない。claude-init 実行時に uv/git の有無をチェックし、無ければ停止する。
+- ruff は任意(auto_format 用)。無い場合は自動整形がスキップされるだけで、他は動く。
+
 ## 4. 使い方(新プロジェクトで導入)
 
 ### 4-1. プロジェクトのルートで展開
@@ -149,6 +163,37 @@ New-Item -ItemType Directory -Path "a", "b", "c" -Force
 ### git pushでブランチ名がmasterのままになる
 git branch -M main
 で明示的にmainへ変更してからpush。
+
+## 7.5 フックによる堅牢化(自動ガード)
+
+プロンプトによる「お願い」ではなく、確定的に実行されるフックで以下を強制する。
+フックは .claude/hooks/ に置き、.claude/settings.json で配線される。
+全フックは `uv run python` 経由で実行するため、Windows/Mac/Linux で同一に動作する。
+
+| フック | イベント | 役割 |
+|---|---|---|
+| guard_scope.py | PreToolUse (Edit/Write) | スコープ外・生成物(.pth, checkpoints/等)への書き込みを物理ブロック |
+| guard_bash.py | PreToolUse (Bash) | rm -rf 等の危険コマンド、大容量ファイルの git add をブロック |
+| auto_format.py | PostToolUse (Edit/Write) | .py 編集後に ruff format を自動実行(ruff が無ければスルー) |
+| enforce_eval.py | Stop | 評価コマンドを実行し、失敗なら続行を促す(フラグON時のみ) |
+
+これはプロンプト側のスコープ制約(各エージェント定義に記載)と二重防御の関係にある。
+プロンプトで意図を伝え、フックで物理的に最終ブロックする。
+
+### 制御用の環境変数(claude 起動前に設定)
+| 変数 | 意味 | 例 |
+|---|---|---|
+| CLAUDE_WORK_SCOPE | 書き込み許可範囲。未設定ならカレントディレクトリ | projects/Deep_MIL |
+| CLAUDE_ENFORCE_EVAL | 1 のとき評価強制ON | 1 |
+| CLAUDE_EVAL_CMD | 評価強制で実行するコマンド | uv run python -m pytest projects/Deep_MIL/tests/ -q |
+
+### 無効化
+.claude/settings.json に "disableAllHooks": true を追加するか、
+環境変数を設定せずに起動する(評価強制はOFFになる)。
+
+### 前提と速度
+全フックは uv に依存する(uv run python で実行)。全環境に uv がある前提。
+速度が気になる場合、高頻度の guard_scope/guard_bash のみ将来 bash へ移植する余地がある。
 
 ---
 

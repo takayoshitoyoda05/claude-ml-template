@@ -2,6 +2,25 @@
 
 3エージェントでモデル/評価コードの修正を実行します。
 
+## 事前準備(重要: claude 起動前にシェルで設定)
+フック(スコープ制限・評価強制)を有効にするには、claude 起動前に
+環境変数を設定します。
+
+PowerShell (Windows):
+$env:CLAUDE_WORK_SCOPE = "projects/Deep_MIL"
+$env:CLAUDE_ENFORCE_EVAL = "1"
+$env:CLAUDE_EVAL_CMD = "uv run python -m pytest projects/Deep_MIL/tests/ -q"
+claude
+
+bash (Linux/Mac):
+export CLAUDE_WORK_SCOPE="projects/Deep_MIL"
+export CLAUDE_ENFORCE_EVAL="1"
+export CLAUDE_EVAL_CMD="uv run python -m pytest projects/Deep_MIL/tests/ -q"
+claude
+
+設定しない場合でも動作するが、スコープ制限はカレントディレクトリ基準になり、
+評価強制は無効になる(Evaluatorのプロンプトによる確認のみ)。
+
 ## 前提: 作業スコープの確定
 - $ARGUMENTS の冒頭で作業ディレクトリ(例: projects/Deep_MIL)が指定されていれば、それを作業スコープとする。
 - 指定がなければ、着手前にユーザーに「どのプロジェクトディレクトリで作業するか」を必ず確認する。

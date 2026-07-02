@@ -2,6 +2,14 @@
 
 $ErrorActionPreference = "Stop"
 
+# 前提ツールの確認
+foreach ($tool in @("uv", "git")) {
+    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+        Write-Host "エラー: '$tool' が見つかりません。インストールしてから再実行してください。"
+        exit 1
+    }
+}
+
 $TemplateRepo = "https://github.com/takayoshitoyoda05/claude-ml-template.git"
 
 if (Test-Path ".claude") {

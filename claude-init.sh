@@ -1,6 +1,13 @@
 ﻿#!/bin/bash
 set -euo pipefail
 
+for tool in uv git; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "エラー: '$tool' が見つかりません。インストールしてから再実行してください。"
+    exit 1
+  fi
+done
+
 TEMPLATE_REPO="https://github.com/takayoshitoyoda05/claude-ml-template.git"
 
 if [ -d ".claude" ]; then
