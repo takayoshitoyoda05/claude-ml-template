@@ -37,6 +37,21 @@ try {
     if (Test-Path $settingsSrc) {
         Copy-Item -Path $settingsSrc -Destination ".claude\settings.json" -Force
         Write-Host "OK: .claude/settings.json を更新しました"
+	# .gitignore に .claude/checkpoints/ を追加(冪等)
+    	$gitignorePath = ".gitignore"
+    	$ignoreEntry = ".claude/checkpoints/"
+    	if (-not (Test-Path $gitignorePath)) {
+        	$ignoreEntry | Out-File -FilePath $gitignorePath -Encoding utf8
+        	Write-Host "OK: .gitignore を作成しました"
+    	} else {
+        	$existing = Get-Content $gitignorePath -Raw -ErrorAction SilentlyContinue
+        	if ($existing -notmatch [regex]::Escape($ignoreEntry)) {
+            	Add-Content $gitignorePath "`n$ignoreEntry"
+            	Write-Host "OK: .gitignore に $ignoreEntry を追加しました"
+        	} else {
+            	Write-Host "OK: .gitignore は既に設定済みです"
+        	}
+    	}
     }
 
     Write-Host ""

@@ -29,7 +29,21 @@ try {
 
     Copy-Item -Path (Join-Path $Tmp ".claude") -Destination "." -Recurse -Force
     Write-Host "OK: .claude/ を展開しました"
-
+    # .gitignore に .claude/checkpoints/ を追加(冪等)
+    $gitignorePath = ".gitignore"
+    $ignoreEntry = ".claude/checkpoints/"
+    if (-not (Test-Path $gitignorePath)) {
+        $ignoreEntry | Out-File -FilePath $gitignorePath -Encoding utf8
+        Write-Host "OK: .gitignore を作成しました"
+    } else {
+        $existing = Get-Content $gitignorePath -Raw -ErrorAction SilentlyContinue
+        if ($existing -notmatch [regex]::Escape($ignoreEntry)) {
+            Add-Content $gitignorePath "`n$ignoreEntry"
+            Write-Host "OK: .gitignore に $ignoreEntry を追加しました"
+        } else {
+            Write-Host "OK: .gitignore は既に設定済みです"
+        }
+    }
     if (Test-Path "CLAUDE.md") {
         Write-Host "OK: CLAUDE.md は既存のものを保持します"
     } else {

@@ -32,6 +32,19 @@ done
 if [ -f "$TMP/.claude/settings.json" ]; then
   cp "$TMP/.claude/settings.json" .claude/settings.json
   echo "OK: .claude/settings.json を更新しました"
+  # .gitignore に .claude/checkpoints/ を追加(冪等)
+  IGNORE_ENTRY=".claude/checkpoints/"
+  if [ ! -f ".gitignore" ]; then
+	  echo "$IGNORE_ENTRY" > .gitignore
+	  echo "OK: .gitignore を作成しました"
+  else
+	  if ! grep -qF "$IGNORE_ENTRY" .gitignore; then
+		  printf "\n%s\n" "$IGNORE_ENTRY" >> .gitignore
+		  echo "OK: .gitignore に $IGNORE_ENTRY を追加しました"
+	  else
+		  echo "OK: .gitignore は既に設定済みです"
+	  fi
+  fi
 fi
 
 echo ""

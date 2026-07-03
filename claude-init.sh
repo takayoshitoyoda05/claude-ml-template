@@ -23,6 +23,20 @@ git clone --depth 1 --quiet "$TEMPLATE_REPO" "$TMP"
 cp -r "$TMP/.claude" ./
 echo "OK: .claude/ を展開しました"
 
+# .gitignore に .claude/checkpoints/ を追加(冪等)
+IGNORE_ENTRY=".claude/checkpoints/"
+if [ ! -f ".gitignore" ]; then
+  echo "$IGNORE_ENTRY" > .gitignore
+  echo "OK: .gitignore を作成しました"
+else
+  if ! grep -qF "$IGNORE_ENTRY" .gitignore; then
+    printf "\n%s\n" "$IGNORE_ENTRY" >> .gitignore
+    echo "OK: .gitignore に $IGNORE_ENTRY を追加しました"
+  else
+    echo "OK: .gitignore は既に設定済みです"
+  fi
+fi
+
 if [ -f CLAUDE.md ]; then
   echo "OK: CLAUDE.md は既存のものを保持します"
 else
