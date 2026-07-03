@@ -136,6 +136,25 @@ outputs/に出る画像が真っ黒になる問題を解消したい
 
 ---
 
+### 4-5. 設計書を渡す場合
+
+事前に書いた設計書(docs/配下)を元に計画を作らせたい場合は、そのファイルパスを
+指定してパイプラインを実行する。
+/ml-pipeline projects/Deep_MIL docs/drafts/20260703_attention_mil.md の設計書に沿って実装したい
+
+Planner は以下を自動で行う。
+
+1. docs/drafts/, docs/active/, docs/archive/ が無ければ作成する
+2. 渡された設計書が docs/drafts/ にあれば docs/active/ へ移動してから計画を作成する
+3. 計画ファイルの先頭に、参照した設計書のパスを記録する
+
+Evaluator が PASS を出すと、参照された設計書は docs/active/ から
+docs/archive/YYYYMMDD_<元のファイル名> に自動で移動される。
+
+この仕組みにより、「今検討中の設計書(drafts)」「今まさに実装中の設計書(active)」
+「完了・ボツになった設計書(archive)」が自然に整理され、docs/ が無秩序に
+散らからない。
+
 ## 5. 運用サイクル(育て方)
 
 1. 実プロジェクトで `/ml-pipeline` を使う
