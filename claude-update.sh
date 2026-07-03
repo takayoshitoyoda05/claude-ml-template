@@ -32,19 +32,28 @@ done
 if [ -f "$TMP/.claude/settings.json" ]; then
   cp "$TMP/.claude/settings.json" .claude/settings.json
   echo "OK: .claude/settings.json を更新しました"
-  # .gitignore に .claude/checkpoints/ を追加(冪等)
-  IGNORE_ENTRY=".claude/checkpoints/"
-  if [ ! -f ".gitignore" ]; then
-	  echo "$IGNORE_ENTRY" > .gitignore
-	  echo "OK: .gitignore を作成しました"
-  else
-	  if ! grep -qF "$IGNORE_ENTRY" .gitignore; then
-		  printf "\n%s\n" "$IGNORE_ENTRY" >> .gitignore
-		  echo "OK: .gitignore に $IGNORE_ENTRY を追加しました"
-	  else
-		  echo "OK: .gitignore は既に設定済みです"
-	  fi
-  fi
+  # .gitignore に除外エントリを追加(冪等)
+  for IGNORE_ENTRY in ".claude/checkpoints/" ".claude/settings.local.json"; do
+    if [ ! -f ".gitignore" ]; then
+      echo "$IGNORE_ENTRY" > .gitignore
+      echo "OK: .gitignore を作成しました($IGNORE_ENTRY)"
+    else
+      if ! grep -qF "$IGNORE_ENTRY" .gitignore; then
+        printf "\n%s\n" "$IGNORE_ENTRY" >> .gitignore
+        echo "OK: .gitignore に $IGNORE_ENTRY を追加しました"
+      else
+        echo "OK: .gitignore は既に設定済みです($IGNORE_ENTRY)"
+      fi
+    fi
+  done
+fi
+
+# フック用環境変数の雛形(既存なら保持)
+if [ -f ".claude/settings.local.json" ]; then
+  echo "OK: .claude/settings.local.json は既存のものを保持します"
+else
+  cp "$TMP/templates/settings.local.json.template" .claude/settings.local.json
+  echo "OK: .claude/settings.local.json を生成しました(env の値を記入するとフックが有効になります)"
 fi
 
 echo ""

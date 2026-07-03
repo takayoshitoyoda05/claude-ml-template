@@ -29,20 +29,28 @@ try {
 
     Copy-Item -Path (Join-Path $Tmp ".claude") -Destination "." -Recurse -Force
     Write-Host "OK: .claude/ を展開しました"
-    # .gitignore に .claude/checkpoints/ を追加(冪等)
+    # .gitignore に除外エントリを追加(冪等)
     $gitignorePath = ".gitignore"
-    $ignoreEntry = ".claude/checkpoints/"
-    if (-not (Test-Path $gitignorePath)) {
-        $ignoreEntry | Out-File -FilePath $gitignorePath -Encoding utf8
-        Write-Host "OK: .gitignore を作成しました"
-    } else {
-        $existing = Get-Content $gitignorePath -Raw -ErrorAction SilentlyContinue
-        if ($existing -notmatch [regex]::Escape($ignoreEntry)) {
-            Add-Content $gitignorePath "`n$ignoreEntry"
-            Write-Host "OK: .gitignore に $ignoreEntry を追加しました"
+    foreach ($ignoreEntry in @(".claude/checkpoints/", ".claude/settings.local.json")) {
+        if (-not (Test-Path $gitignorePath)) {
+            $ignoreEntry | Out-File -FilePath $gitignorePath -Encoding utf8
+            Write-Host "OK: .gitignore を作成しました($ignoreEntry)"
         } else {
-            Write-Host "OK: .gitignore は既に設定済みです"
+            $existing = Get-Content $gitignorePath -Raw -ErrorAction SilentlyContinue
+            if ($existing -notmatch [regex]::Escape($ignoreEntry)) {
+                Add-Content $gitignorePath "`n$ignoreEntry"
+                Write-Host "OK: .gitignore に $ignoreEntry を追加しました"
+            } else {
+                Write-Host "OK: .gitignore は既に設定済みです($ignoreEntry)"
+            }
         }
+    }
+    # フック用環境変数の雛形(既存なら保持)
+    if (Test-Path ".claude\settings.local.json") {
+        Write-Host "OK: .claude/settings.local.json は既存のものを保持します"
+    } else {
+        Copy-Item (Join-Path $Tmp "templates\settings.local.json.template") ".claude\settings.local.json"
+        Write-Host "OK: .claude/settings.local.json を生成しました(env の値を記入するとフックが有効になります)"
     }
     if (Test-Path "CLAUDE.md") {
         Write-Host "OK: CLAUDE.md は既存のものを保持します"
