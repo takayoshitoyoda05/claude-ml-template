@@ -1,1 +1,2 @@
-﻿.claude/checkpoints/
+.claude/checkpoints/
+__pycache__/

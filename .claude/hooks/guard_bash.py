@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
 """PreToolUse: 危険な Bash コマンド・大容量/秘密情報ファイルの git add・
-コミットメッセージ規約をチェックする。"""
+リダイレクトによる秘密情報ファイルへの書き込み・コミットメッセージ規約を
+チェックする。
+
+コミットメッセージ規約(ステップ番号必須)は CLAUDE_COMMIT_STEP_RULE=1 の
+ときのみ有効(ml-pipeline実行時を想定。通常の手動コミットを妨げないため)。
+"""
 import json
 import os
 import re
 import sys
+
+from _common import (
+    ARTIFACT_EXTENSIONS,
+    BLOCKED_EXTENSIONS,
+    BLOCKED_FILENAMES,
+    SECRET_CONTENT_PATTERNS,
+)
 
 DANGER_PATTERNS = [
     r"rm\s+-rf\s+/",
@@ -18,15 +30,7 @@ DANGER_PATTERNS = [
     r"dd\s+if=.*of=/dev/",
 ]
 
-BLOCKED_ADD_EXT = [".pth", ".pt", ".ckpt", ".safetensors", ".pem", ".key", ".p12", ".pfx"]
-BLOCKED_ADD_NAMES = [".env", "credentials.json", "id_rsa", "id_ed25519", "id_ecdsa"]
-
-SECRET_CONTENT_PATTERNS = [
-    r"AKIA[0-9A-Z]{16}",
-    r"sk-[A-Za-z0-9]{20,}",
-    r"AIza[0-9A-Za-z\-_]{35}",
-    r"xox[baprs]-[0-9A-Za-z-]{10,}",
-]
+BLOCKED_ADD_EXT = sorted(ARTIFACT_EXTENSIONS | BLOCKED_EXTENSIONS)
 
 
 def main():
@@ -56,6 +60,19 @@ def main():
             )
             sys.exit(2)
 
+    # リダイレクト(> / >>)で秘密情報ファイルへ直接書き込むのをブロック
+    # (guard_scope は Edit/Write しか監視しないため、Bash側の穴を塞ぐ)
+    for target in re.findall(r">{1,2}\s*(\S+)", cmd):
+        target = target.strip("\"'")
+        base = os.path.basename(target.replace("\\", "/"))
+        _, ext = os.path.splitext(base)
+        if base in BLOCKED_FILENAMES or ext.lower() in BLOCKED_EXTENSIONS:
+            print(
+                f"[guard_bash] BLOCKED: 秘密情報ファイル({base})へのリダイレクト書き込みは禁止です。",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
     if re.search(r"git\s+add", cmd):
         for ext in BLOCKED_ADD_EXT:
             if ext in cmd:
@@ -65,7 +82,7 @@ def main():
                     file=sys.stderr,
                 )
                 sys.exit(2)
-        for name in BLOCKED_ADD_NAMES:
+        for name in BLOCKED_FILENAMES:
             if name in cmd:
                 print(
                     f"[guard_bash] BLOCKED: 秘密情報ファイル({name})の git add は禁止です。",
@@ -73,7 +90,9 @@ def main():
                 )
                 sys.exit(2)
 
-    if os.environ.get("CLAUDE_ENFORCE_EVAL", "") == "1" and re.search(r"git\s+commit", cmd):
+    if os.environ.get("CLAUDE_COMMIT_STEP_RULE", "") == "1" and re.search(
+        r"git\s+commit", cmd
+    ):
         m = re.search(r"-m\s+[\"']([^\"']*)[\"']", cmd)
         if m and not re.search(r"\d", m.group(1)):
             print(

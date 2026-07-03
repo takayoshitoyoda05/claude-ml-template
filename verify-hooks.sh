@@ -25,6 +25,9 @@ test_hook "guard_scope: secret content is blocked" '{"tool_input":{"file_path":"
 test_hook "guard_bash: rm -rf / is blocked" '{"tool_input":{"command":"rm -rf /"}}' ".claude/hooks/guard_bash.py" 2
 test_hook "guard_bash: ls -la passes" '{"tool_input":{"command":"ls -la"}}' ".claude/hooks/guard_bash.py" 0
 test_hook "guard_bash: git add .env is blocked" '{"tool_input":{"command":"git add .env"}}' ".claude/hooks/guard_bash.py" 2
+test_hook "guard_bash: redirect to .env is blocked" '{"tool_input":{"command":"echo KEY=x > .env"}}' ".claude/hooks/guard_bash.py" 2
+test_hook "guard_bash: redirect to /dev/null passes" '{"tool_input":{"command":"pytest -q > /dev/null 2>&1"}}' ".claude/hooks/guard_bash.py" 0
+test_hook "guard_bash: commit without digit passes when rule off" '{"tool_input":{"command":"git commit -m \"fix typo\""}}' ".claude/hooks/guard_bash.py" 0
 test_hook "enforce_eval: no flag passes" '{}' ".claude/hooks/enforce_eval.py" 0
 
 echo ""

@@ -13,24 +13,13 @@ import os
 import re
 import sys
 
-BLOCKED_PATTERNS = [
-    ".pth", ".pt", ".ckpt", ".safetensors",
-    "/checkpoints/", "/outputs/", "/runs/", "/.venv/",
-    "/_trash_candidates/",
-]
-
-BLOCKED_FILENAMES = {
-    ".env", "credentials.json", "id_rsa", "id_ed25519", "id_ecdsa",
-}
-BLOCKED_EXTENSIONS = {".pem", ".key", ".p12", ".pfx"}
-
-SECRET_CONTENT_PATTERNS = [
-    r"AKIA[0-9A-Z]{16}",
-    r"sk-[A-Za-z0-9]{20,}",
-    r"AIza[0-9A-Za-z\-_]{35}",
-    r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
-    r"xox[baprs]-[0-9A-Za-z-]{10,}",
-]
+from _common import (
+    ARTIFACT_DIR_PATTERNS,
+    ARTIFACT_EXTENSIONS,
+    BLOCKED_EXTENSIONS,
+    BLOCKED_FILENAMES,
+    SECRET_CONTENT_PATTERNS,
+)
 
 
 def contains_secret(text):
@@ -72,13 +61,14 @@ def main():
         )
         sys.exit(2)
 
-    for pat in BLOCKED_PATTERNS:
-        if pat in norm:
-            print(
-                f"[guard_scope] BLOCKED: 生成物/大容量ファイルへの書き込みは禁止です: {file_path}",
-                file=sys.stderr,
-            )
-            sys.exit(2)
+    if ext.lower() in ARTIFACT_EXTENSIONS or any(
+        pat in norm for pat in ARTIFACT_DIR_PATTERNS
+    ):
+        print(
+            f"[guard_scope] BLOCKED: 生成物/大容量ファイルへの書き込みは禁止です: {file_path}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     scope = os.environ.get("CLAUDE_WORK_SCOPE", "").strip()
     if scope:

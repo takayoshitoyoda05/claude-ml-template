@@ -32,6 +32,11 @@ def main():
             ["git", "status", "--short"],
             capture_output=True, text=True, timeout=5
         ).stdout.strip()
+        # 再注入時のトークン量を抑えるため、長すぎる status は切り詰める
+        status_lines = status.splitlines()
+        if len(status_lines) > 40:
+            omitted = len(status_lines) - 40
+            status = "\n".join(status_lines[:40]) + f"\n... 他 {omitted} 件"
         lines.append(f"## Git ブランチ: {branch}")
         lines.append("## git status --short")
         lines.append("```")
