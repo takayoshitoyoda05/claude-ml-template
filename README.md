@@ -1,132 +1,50 @@
 # claude-ml-template
 
-Claude Code用の Planner / Generator / Evaluator 3分離パターンのテンプレート。
-
----
-
-## 1. 全体像
+Claude Code で ML・研究系プロジェクトを安全に回すためのテンプレート。
+Planner / Generator / Evaluator の役割分離パターンを軸に、スキル(ワークフロー補助)と
+フック(物理ガード)を組み合わせて構成する。
 
 ```mermaid
 flowchart TD
     A[ユーザー: 要件を伝える] --> B[Planner opus: 調査して実装計画を書く]
     B --> C{ユーザーが計画をレビュー・承認}
     C -->|承認| D[Generator sonnet: 計画に沿って実装・コミット]
-    D --> E[Evaluator sonnet: 評価スクリプトを実行し数値で判定]
-    E -->|PASS| F[完了]
-    E -->|NEEDS_REVISION| D
-    E -->|FAIL 3回目| B
+    D --> E[evaluator: Spec軸 数値で判定]
+    D --> F[evaluator-standards: Standards軸 品質レビュー]
+    E & F -->|両方PASS| G[完了]
+    E & F -->|NEEDS_REVISION| D
+    E -->|FAIL 3回| B
 ```
 
-3体に分けている理由は、1体に全部やらせると「計画・実装・自己採点」を同じ視点で行ってしまい、自分の間違いに気づけないため。役割ごとに視点を変えることで問題を検出しやすくする設計。
+役割を分ける理由: 1体に「計画・実装・自己採点」を全部やらせると同じ視点で採点してしまい、
+自分の間違いに気づけない。役割ごとに視点を変えることで問題を検出しやすくする。
 
 ---
 
-## 2. 各エージェントの役割と設定
+## 1. セットアップ
 
-| エージェント | ファイル | model | 持てるtools | 役割 |
-|---|---|---|---|---|
-| planner | `.claude/agents/planner.md` | `opus` | Read, Grep, Glob, Bash | 調査・計画立案のみ。コード変更はしない |
-| generator | `.claude/agents/generator.md` | `sonnet` | Read, Write, Edit, Grep, Glob, Bash | 計画に沿って実装。`permissionMode: acceptEdits` で編集を自動承認 |
-| evaluator | `.claude/agents/evaluator.md` | `sonnet` | Read, Grep, Glob, Bash | レビュー+評価コマンド実行。コードは書かない |
-| evaluator-standards | `.claude/agents/evaluator-standards.md` | `sonnet` | Read, Grep, Glob, Bash | コード品質(Standards軸)のみレビュー。動作の正しさは判断しない |
-
-### なぜこのモデル配分か
-
-- Planner: 設計判断・原因分析など深い推論が必要 → Opus
-- Generator: 定型的な実装作業、速度とコストのバランス重視 → Sonnet
-- Evaluator: 読解と実行確認が中心、Opusほどの推論力は不要 → Sonnet
-- 全部Haikuにすると計画品質が落ちる/全部Opusにするとコストが3〜5倍に跳ねるので、役割ごとに使い分けるのが基本方針
-
-### permissionMode について
-
-Claude Codeがファイル編集やコマンド実行の前にユーザー確認を挟むかどうかの設定。
-
-| 値 | 動作 |
-|---|---|
-| `default`(未指定) | 破壊的操作は都度確認 |
-| `acceptEdits` | ファイル編集だけ自動承認、それ以外は確認あり |
-| `bypassPermissions` | ほぼ全操作を確認なしで実行(非推奨) |
-| `plan` | 読み取り専用、変更は一切行わない |
-
-Generatorだけ `acceptEdits` にしているのは、計画通りに黙々と実装させたいため。その代わり最終チェックはEvaluatorが必ず行う設計になっている。
-
----
-
-## 3. 記事「よくある5つの失敗」への対策一覧
-
-| # | 失敗内容 | 対策の実装場所 | 内容 |
-|---|---|---|---|
-| 1 | 指示が曖昧でサブエージェントが迷走 | `generator.md` 作業手順 | 実装前に「対象ファイルパス・使用ライブラリ・入出力の型/shape・制約条件」を確認するステップを追加 |
-| 2 | 計画が細かすぎてGeneratorの自由度がない | `planner.md` 制約 | 「技術的詳細を詰めすぎない。実装の判断余地はGeneratorに残す」と明記 |
-| 3 | Evaluatorが甘い | `evaluator.md` | PASS/FAIL二値判定のチェックリスト形式、「一度出した指摘を取り下げない」「ファイルパス+行番号で根拠を示す」 |
-| 4 | フィードバックループが無限に回る | `ml-pipeline.md` | 最大3イテレーションで打ち切り、収束しなければPlannerからやり直し |
-| 5 | モデル選択ミス | 各agent.md の `model` | Planner=opus, Generator=sonnet, Evaluator=sonnet |
-
----
-
-## 4. 使い方(新プロジェクトで導入)
-
-### 4-0. 全エージェント・スキル早見表
-
-| 種別 | 名前 | 呼び出し方 | いつ使うか | 主な出力/効果 |
-|---|---|---|---|---|
-| Agent | planner | `/ml-pipeline` 内で自動、または `@planner` | 要件から実装計画を作りたいとき | `.claude/plans/` に計画ファイル |
-| Agent | generator | `/ml-pipeline` 内で自動、または `@generator` | 計画に沿って実装したいとき | コード変更 + git commit |
-| Agent | evaluator | `/ml-pipeline` 内で自動、または `@evaluator` | 実装が計画通り動くか確認したいとき(Spec軸) | PASS/NEEDS_REVISION/FAIL 判定 |
-| Agent | evaluator-standards | `/ml-pipeline` 内で自動、または `@evaluator-standards` | コード品質を確認したいとき(Standards軸) | PASS/NEEDS_REVISION 判定 |
-| Skill | brainstorm | 自然文、または「ブレストして」 | まだ方向性が定まっていないとき(発散) | `ideas/` にアイデア一覧 |
-| Skill | design-interview | 自然文、または「grillして」「詰めて」 | ラフな設計書を固めたいとき(収束) | `docs/drafts/` の設計書を更新 |
-| Skill | diagnosing-bugs | 自然文、または「原因を調べて」 | 原因不明のバグ・性能劣化を診断したいとき | 診断ログ、原因の特定 |
-| Skill | tdd | 自然文、または「テスト駆動で」 | 入出力が明確な新機能をテストファーストで作りたいとき | red-green-refactorでの実装 |
-| Skill | adr | 自然文、または「この決定をADRに残して」 | トレードオフを伴う設計判断を記録したいとき | `docs/adr/` にADR |
-| Skill | handoff | 自然文、または「handoffして」「引き継ぎ作って」 | セッションや作業を区切って引き継ぎたいとき | `.claude/handoffs/` に引き継ぎ文書 |
-| Skill | architecture-check | 自然文、または「アーキテクチャを見直して」 | 定期的に設計負債をチェックしたいとき | レポートのみ(コード変更なし) |
-
-Agent と Skill の違いは、Agent は独立した作業を担う実行者(モデル・ツールを
-個別指定)、Skill は今の会話に手順を差し込む補助的な振る舞い、という点。
-詳しくは 7.6 節を参照。
-
-### 典型的な使い方の流れ
-
-```mermaid
-flowchart LR
-    A[brainstorm: 発散] -->|方向性を選ぶ| B[design-interview: 収束]
-    B --> C["/ml-pipeline: Planner"]
-    C --> D[Generator]
-    D --> E[evaluator + evaluator-standards]
-    E -->|PASS| F[完了]
-
-    G[diagnosing-bugs] -.原因不明のバグ時.-> C
-    H[adr] -.重要な決定時.-> B
-    H -.重要な決定時.-> C
-    I[handoff] -.作業を区切るとき.-> J[次のセッション]
-    K[architecture-check] -.定期チェック.-> C
-```
-
-すべてのステップを毎回踏む必要はない。すでに設計が固まっているなら
-brainstorm や design-interview を飛ばして `/ml-pipeline` から始めてよい。
-
-### 前提条件(Requirements)
+### 前提条件
 
 | ツール | 用途 | 確認コマンド |
 |---|---|---|
-| uv | フックの実行(`uv run python`)・Python環境管理 | `uv --version` |
+| uv | フックの実行(`uv run python`) | `uv --version` |
 | git | テンプレート取得・バージョン管理 | `git --version` |
 | Claude Code | 本体 | `claude --version` |
 
-- フック(`.claude/hooks/`)はすべて `uv run python` 経由で動くため、uv が無い環境ではフックが機能しない。`claude-init` 実行時に uv/git の有無をチェックし、無ければ停止する。
-- ruff は任意(auto_format 用)。無い場合は自動整形がスキップされるだけで、他は動く。
+ruff は任意(自動整形用)。無ければ整形がスキップされるだけで他は動く。
 
-### 4-1. プロジェクトのルートで展開
+### 初回展開
 
-**PowerShell(Windows)の場合:**
+プロジェクトのルートで実行する。
+
+PowerShell (Windows):
 
 ```powershell
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-init.ps1" -OutFile "claude-init.ps1"
 .\claude-init.ps1
 ```
 
-**bash(WSL/Linux/Git Bash)の場合:**
+bash (WSL/Linux/Git Bash):
 
 ```bash
 curl -sO https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-init.sh
@@ -134,190 +52,16 @@ chmod +x claude-init.sh
 ./claude-init.sh
 ```
 
-展開すると `.claude/agents/`, `.claude/commands/`, `.claude/hooks/`, `.claude/settings.json`, `CLAUDE.md`(共通ルールのみ)が作られる。対話質問はなく一瞬で完了する。評価コマンドやモデルの場所など各プロジェクト固有の情報は、そのプロジェクト直下の `CLAUDE.md` に記載する(例: `projects/Deep_MIL/CLAUDE.md`)。
+`.claude/`(agents / commands / skills / hooks / settings.json)と `CLAUDE.md`(共通ルール)が
+作られ、`.gitignore` に `.claude/checkpoints/` が自動追加される。対話質問はない。
 
-### 4-2. 動作確認
+プロジェクト固有の情報(評価コマンド、データの場所など)は、そのプロジェクト直下の
+`CLAUDE.md` に書く(例: `projects/Deep_MIL/CLAUDE.md`)。ドメイン用語が多いプロジェクトは
+`templates/CONTEXT.md.template` をコピーして `CONTEXT.md`(用語集)も置く。
 
-```powershell
-claude
-```
+### 起動(環境変数でフックを有効化)
 
-`/agents` コマンドが使える環境ならそこで一覧確認できる。使えない場合はセッション内でこう尋ねる:
-
-```
-どんなサブエージェントが使える?
-```
-
-planner / generator / evaluator の3体が認識されていればOK。
-
-### 4-3. 実行
-
-```
-/ml-pipeline <作業ディレクトリ> <やりたいこと>
-```
-
-作業ディレクトリを冒頭で指定することで、その配下だけを対象に3エージェントが動く。複数プロジェクトが1つのリポジトリに同居している場合でも、他プロジェクトや `papers/` `slides/` などを誤って触らないようにするための仕組み。
-
-例:
-
-```
-/ml-pipeline projects/Deep_MIL attention可視化のバグを直したい。
-outputs/に出る画像が真っ黒になる問題を解消したい
-```
-
-作業ディレクトリを指定しなかった場合、エージェントは着手前に「どのプロジェクトディレクトリで作業するか」を確認する。
-
-### 4-4. 個別に呼び出したい場合
-
-```
-@planner この関数の設計を考えて
-@generator この計画通りに実装して
-@evaluator 直近の変更をレビューして
-```
-
----
-
-### 4-4-1. アイディアを広げたい場合(brainstorm スキル)
-
-まだ方向性が定まっていない段階で、選択肢を広く出したいときに使う。
-
-### 4-5. 設計書を渡す場合
-
-事前に書いた設計書(docs/配下)を元に計画を作らせたい場合は、そのファイルパスを
-指定してパイプラインを実行する。
-/ml-pipeline projects/Deep_MIL docs/drafts/20260703_attention_mil.md の設計書に沿って実装したい
-
-Planner は以下を自動で行う。
-
-1. docs/drafts/, docs/active/, docs/archive/ が無ければ作成する
-2. 渡された設計書が docs/drafts/ にあれば docs/active/ へ移動してから計画を作成する
-3. 計画ファイルの先頭に、参照した設計書のパスを記録する
-
-Evaluator が PASS を出すと、参照された設計書は docs/active/ から
-docs/archive/YYYYMMDD_<元のファイル名> に自動で移動される。
-
-この仕組みにより、「今検討中の設計書(drafts)」「今まさに実装中の設計書(active)」
-「完了・ボツになった設計書(archive)」が自然に整理され、docs/ が無秩序に
-散らからない。
-
-### 4-5. 設計を深掘りしたい場合(design-interview スキル)
-
-docs/drafts/ に書いたラフな設計書を、実装に入る前に一問一答形式で
-詰めたい場合に使う。
-このdocs/drafts/xxx.mdの設計をgrillして
-
-または自然に「この設計、詰めてもらえる?」のように頼んでもよい。
-1問ずつ質問され、それぞれに推奨案が添えられる。すべて解消されると
-設計書が更新され、Planner に渡す準備が整う。
-
-これは Skills 機能(.claude/skills/design-interview/)であり、
-サブエージェントとは別の仕組み。プロジェクトディレクトリで claude を
-起動してから使うこと(スコープ保護のため)。
-
-## 5. 運用サイクル(育て方)
-
-1. 実プロジェクトで `/ml-pipeline` を使う
-2. 「Plannerの指示がずれていた」「Generatorが暴走した」「Evaluatorが甘かった」など気づきが出る
-3. 気づきを **このテンプレートリポジトリ側** の該当 `.md` に反映して commit・push
-4. 次の新規プロジェクトでは改善版がすぐ使える
-
-プロジェクト固有の調整(そのプロジェクトだけの特殊事情)は、展開後のローカル `.claude/` だけを直接編集し、テンプレート側には戻さない。テンプレートに戻すのは「他のプロジェクトでも共通して使える改善」のみ、と切り分けるのがコツ。
-
-### プロジェクト側を最新テンプレートに更新する
-
-初回展開後、テンプレート側(このリポジトリ)を更新したら、各プロジェクトで以下を実行すると `agents` / `commands` / `hooks` / `settings.json` だけが最新化される。`.claude/plans/`(実行履歴)と `CLAUDE.md`(プロジェクト固有)は変更されない。
-
-**PowerShell:**
-
-```powershell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-update.ps1" -OutFile "claude-update.ps1"
-.\claude-update.ps1
-```
-
-**bash:**
-
-```bash
-curl -sO https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-update.sh
-chmod +x claude-update.sh
-./claude-update.sh
-```
-
----
-
-## 6. コスト感覚
-
-- 3エージェント構成は単一実行より確実にトークン消費が増える(数倍〜十数倍になり得る)
-- 向いているタスク: 結果の正しさが重要、複数バージョン間のdiscrepancy解消、実験の再現性がかかった変更
-- 向いていないタスク: 単発のリファクタ、文献確認、ドキュメント編集など軽い調査タスク → メインセッションだけで十分
-
-判断に迷ったら「これが間違っていたら困るか?」を基準にする。困るなら3エージェント、困らないなら単発でOK。
-
----
-
-## 7. トラブルシューティング
-
-### 文字化け
-
-原因: エディタ(nvim)のファイルエンコーディング設定がUTF-8になっていない。
-
-対策:
-
-- 編集前に必ず `:set fileencoding=utf-8` と `:set fileformat=unix` を実行
-- 既に化けたファイルを開いても正しく直らないので、一度PowerShellの `Out-File -Encoding utf8` または `[System.IO.File]::WriteAllText(...)` で書き直す方が確実
-- `.sh` ファイルはBOM付きUTF-8だとシェバン(`#!/bin/bash`)が壊れて実行できなくなるので、BOMなしUTF-8で保存する
-- リポジトリに `.gitattributes` を置いて `*.sh` `*.py` を `eol=lf` に固定しておくと、環境をまたいでも改行コード事故が起きない
-
-### PowerShellで `mkdir -p a b c` のようなbash構文がエラーになる
-
-PowerShellの `mkdir` は複数パスを一度に取れない。代わりに:
-
-```powershell
-New-Item -ItemType Directory -Path "a", "b", "c" -Force
-```
-
-### git pushでブランチ名がmasterのままになる
-
-```powershell
-git branch -M main
-```
-
-で明示的にmainへ変更してからpush。
-
-### Get-Content で日本語が化けて見える
-
-原因: PowerShell 5.1系の `Get-Content` はBOMなしUTF-8ファイルを既定でANSI(Shift-JIS)として読み込むことがある。ファイル自体は壊れていないことが多い。
-
-対策:
-
-```powershell
-Get-Content ファイル名 -Encoding UTF8
-```
-
----
-
-## 7.5 フックによる堅牢化(自動ガード)
-
-プロンプトによる「お願い」ではなく、確定的に実行されるフックで以下を強制する。フックは `.claude/hooks/` に置き、`.claude/settings.json` で配線される。全フックは `uv run python` 経由で実行するため、Windows/Mac/Linux で同一に動作する。
-
-| フック | イベント | 役割 |
-|---|---|---|
-| guard_scope.py | PreToolUse (Edit/Write) | スコープ外・生成物(`.pth`, `checkpoints/`等)への書き込みを物理ブロック |
-| guard_bash.py | PreToolUse (Bash) | `rm -rf` 等の危険コマンド、大容量ファイルの `git add`、リダイレクト(`>`)による秘密情報ファイルへの書き込みをブロック |
-| auto_format.py | PostToolUse (Edit/Write) | `.py` 編集後に `ruff format` を自動実行(ruff が無ければスルー) |
-| enforce_eval.py | Stop | 評価コマンドを実行し、失敗なら続行を促す(フラグON時のみ)。前回PASSからリポジトリの状態が変わっていなければ再実行をスキップする |
-
-これはプロンプト側のスコープ制約(各エージェント定義に記載)と二重防御の関係にある。プロンプトで意図を伝え、フックで物理的に最終ブロックする。
-
-### 制御用の環境変数(claude 起動前に設定)
-
-| 変数 | 意味 | 例 |
-|---|---|---|
-| CLAUDE_WORK_SCOPE | 書き込み許可範囲。未設定ならカレントディレクトリ | `projects/Deep_MIL` |
-| CLAUDE_ENFORCE_EVAL | 1 のとき評価強制ON | `1` |
-| CLAUDE_EVAL_CMD | 評価強制で実行するコマンド | `uv run python -m pytest projects/Deep_MIL/tests/ -q` |
-| CLAUDE_COMMIT_STEP_RULE | 1 のとき、コミットメッセージに計画のステップ番号(数字)が無いコミットをブロック(`/ml-pipeline` 実行時のみONにする想定。通常の手動コミットを妨げないよう既定はOFF) | `1` |
-
-起動例(PowerShell):
+フックによるスコープ制限・評価強制を効かせるには、claude 起動前にシェルで設定する。
 
 ```powershell
 $env:CLAUDE_WORK_SCOPE = "projects/Deep_MIL"
@@ -326,8 +70,6 @@ $env:CLAUDE_EVAL_CMD = "uv run python -m pytest projects/Deep_MIL/tests/ -q"
 claude
 ```
 
-起動例(bash):
-
 ```bash
 export CLAUDE_WORK_SCOPE="projects/Deep_MIL"
 export CLAUDE_ENFORCE_EVAL="1"
@@ -335,108 +77,249 @@ export CLAUDE_EVAL_CMD="uv run python -m pytest projects/Deep_MIL/tests/ -q"
 claude
 ```
 
-### 無効化
+| 変数 | 意味 | 未設定時 |
+|---|---|---|
+| CLAUDE_WORK_SCOPE | 書き込みを許可する範囲 | カレントディレクトリ基準 |
+| CLAUDE_ENFORCE_EVAL | `1` で Stop 時の評価強制ON | 評価強制なし |
+| CLAUDE_EVAL_CMD | 評価強制で実行するコマンド | 評価強制なし |
+| CLAUDE_COMMIT_STEP_RULE | `1` でコミットメッセージにステップ番号(数字)を強制。`/ml-pipeline` 実行時のみONにする想定 | チェックなし |
 
-`.claude/settings.json` に `"disableAllHooks": true` を追加するか、環境変数を設定せずに起動する(評価強制はOFFになる)。
-
-### 前提と速度
-
-全フックは uv に依存する(`uv run python` で実行)。全環境に uv がある前提。速度が気になる場合、高頻度の guard_scope/guard_bash のみ将来 bash へ移植する余地がある。
+未設定でも動作はする(フックの保護が弱まるだけ)。
 
 ---
 
-## 7.6 品質向上の追加施策
+## 2. 使い方
 
-mattpocock/skills (https://github.com/mattpocock/skills) の考え方を参考に
-翻案・追加した施策。
+### 基本: /ml-pipeline
 
-### Evaluatorの二軸分割(Spec / Standards)
-以前は evaluator 1体が「動作の正しさ」と「コード品質」を両方判定していたが、
-互いの判断が薄まらないよう2体に分割した。
+```
+/ml-pipeline <作業ディレクトリ> <やりたいこと>
+```
 
-- evaluator: 計画通りに動作するか(Spec)。評価スクリプトの実行結果で判定。
-- evaluator-standards: コーディング規約・可読性・型安全性(Standards)。
+例:
 
-/ml-pipeline は両方を独立に実行し、両方PASSして初めて完了とする。
+```
+/ml-pipeline projects/Deep_MIL attention可視化のバグを直したい。
+outputs/に出る画像が真っ黒になる問題を解消したい
+```
 
-### diagnosing-bugs スキル
-原因不明のバグを「再現→最小化→仮説→計測→修正→回帰テスト」の手順で
-診断するスキル。「原因を調べて」「なぜこうなるか分からない」で自動的に、
-または明示的に呼び出せる。憶測でコードを直すことを防ぐ。
+作業ディレクトリを冒頭で指定すると、その配下だけを対象に全エージェントが動く。
+複数プロジェクト(`papers/` `slides/` など)が同居するリポジトリでも誤爆しない。
+指定しなければ着手前に確認される。
 
-### CONTEXT.md(ドメイン用語集)
-プロジェクト特有の用語のブレを防ぐため、プロジェクト直下に CONTEXT.md を
-置く運用。/ml-pipeline ではメイン会話が一度だけ読み、要点を各エージェントへの
-タスク指示に埋め込む(4エージェントが同じファイルを重複して読むトークンの
-無駄を防ぐため)。@planner などで直接呼んだ場合は各エージェントが自分で読む。
-雛形は templates/CONTEXT.md.template
-を参照し、必要なプロジェクトの直下にコピーして育てる
-(例: projects/Deep_MIL/CONTEXT.md)。claude-init では自動配布されない
-(プロジェクトごとに内容が異なるため)。
+パイプラインの中では次のことが自動で行われる。
 
-## 7.7 品質・堅牢性のさらなる強化(優先度B/C/D)
+1. 作業スコープ直下の `CONTEXT.md` をメイン会話が一度だけ読み、要点を各エージェントに渡す
+2. 調査範囲が広ければ Planner(Opus)の前に Explore(Haiku)で安価に下調べする
+3. Planner の計画はユーザー承認があるまで実装に進まない
+4. Generator の変更ファイル一覧を両 Evaluator に渡し、diff の確認範囲を絞る
+5. 2軸レビュー(Spec / Standards)が両方 PASS で完了。最大3イテレーションで打ち切り
 
-### スキル追加
-| スキル | 用途 |
-|---|---|
-| tdd | 新規機能をred-green-refactorのテストファーストで実装する |
-| adr | 設計上の重要な決定を docs/adr/ に記録する |
-| handoff | 長い会話を引き継ぎ文書にまとめ、別セッション/別マシンで再開できるようにする |
-| architecture-check | コードベース全体の設計負債(重複・肥大化・命名不一致)を定期チェックする |
+### 設計書を渡して実装させる
 
-### フックの強化
-- guard_scope.py / guard_bash.py が、.env・credentials.json・秘密鍵ファイル・
-  APIキーらしき文字列の書き込みやgit addを物理的にブロックするようになった。
-  検知パターンは .claude/hooks/_common.py に一元化されており、両フックで共有される。
-- generatorのコミットメッセージにステップ番号(数字)が無い場合、
-  CLAUDE_COMMIT_STEP_RULE=1 のときに限りブロックされる
-  (以前は CLAUDE_ENFORCE_EVAL=1 に相乗りしていたが、評価強制中の
-  通常コミットまでブロックしてしまうため専用フラグに分離した)。
+```
+/ml-pipeline projects/Deep_MIL docs/drafts/20260703_attention_mil.md の設計書に沿って実装したい
+```
 
-### verify-hooks(フックの自動テスト)
-push前にフックが正しく動くか一括確認できる。
+設計書は3段階のライフサイクルで自動整理される。
 
-PowerShell: `.\verify-hooks.ps1`
-bash: `./verify-hooks.sh`
+```
+docs/drafts/   検討中      ← brainstorm / design-interview で作る・磨く
+docs/active/   実装中      ← Planner が計画作成時に drafts から移動
+docs/archive/  完了・ボツ  ← evaluator が PASS 時に日付付きで移動
+```
 
-全テストPASSしてから push することを推奨する。
+### エージェントを個別に呼ぶ
 
-### 実験ログとbaseline
-Evaluatorが PASS を出すたびに docs/EXPERIMENT_LOG.md に変更内容と指標の
-変化を自動記録する。主要指標は docs/baselines/history.md に追記するか
-都度確認される。論文の実験セクション執筆時に遡って参照できる。
+```
+@planner この関数の設計を考えて
+@generator この計画通りに実装して
+@evaluator 直近の変更をレビューして
+```
 
-### Explore事前調査
-調査範囲が広い場合、/ml-pipeline がメイン会話で Planner 起動前に
-Explore サブエージェント(Haiku)に下調べをさせ、その要約を Planner への
-指示に含める。Opusのトークン消費を抑える
-(サブエージェントは別のサブエージェントを起動できないため、
-Explore の呼び出しは Planner 内ではなくメイン会話側で行う)。
+### 典型的な流れ(スキルとの組み合わせ)
 
-## 8. ファイル一覧
+```mermaid
+flowchart LR
+    A[brainstorm: 発散] -->|方向性を選ぶ| B[design-interview: 収束]
+    B --> C["/ml-pipeline"]
+    C --> G[完了]
+
+    D[diagnosing-bugs] -.原因不明のバグ.-> C
+    E[adr] -.重要な決定の記録.-> B & C
+    F[handoff] -.セッションの区切り.-> H[次のセッション]
+    I[architecture-check] -.定期チェック.-> C
+```
+
+毎回全部を踏む必要はない。設計が固まっているなら `/ml-pipeline` から始めてよい。
+
+### 使いどころの目安(コスト感覚)
+
+多エージェント構成は単一セッションよりトークン消費が数倍になる。
+「これが間違っていたら困るか?」で判断する。
+
+- 向いている: 結果の正しさが重要な変更、実装バージョン間の食い違い解消、再現性がかかった変更
+- 向いていない: 単発リファクタ、ドキュメント編集、軽い調査 → メインセッションだけで十分
+
+---
+
+## 3. 構成要素リファレンス
+
+### エージェント(.claude/agents/)
+
+独立したコンテキストで動く実行者。モデル・ツールを個別に指定できる。
+
+| 名前 | model | 役割 | 備考 |
+|---|---|---|---|
+| planner | opus | 調査・実装計画の作成。`.claude/plans/` に計画を保存 | コードは書かない。技術詳細を詰めすぎず判断余地を Generator に残す |
+| generator | sonnet | 計画に沿った実装と git commit | `permissionMode: acceptEdits` で編集を自動承認 |
+| evaluator | sonnet | Spec軸: 計画通りに動くか。評価コマンドを実行し数値で判定 | PASS 時に設計書アーカイブ・実験ログ記録も行う |
+| evaluator-standards | sonnet | Standards軸: 規約・可読性・型安全性・コードスメル | 動作の正しさは判断しない(evaluator と独立) |
+
+モデル配分の理由: 計画は深い推論が必要なので Opus、実装とレビューは読解と実行確認が
+中心なので Sonnet。全部 Opus はコストが跳ね、全部 Haiku は計画品質が落ちる。
+
+### スキル(.claude/skills/)
+
+今の会話に手順を差し込む補助。エージェントと違い独立コンテキストを持たない。
+
+| 名前 | いつ使うか | 出力 |
+|---|---|---|
+| brainstorm | 方向性が定まっていない(発散) | `ideas/` にアイデア一覧 |
+| design-interview | ラフな設計書を一問一答で固める(収束) | `docs/drafts/` の設計書を更新 |
+| diagnosing-bugs | 原因不明のバグを再現→仮説→計測で診断 | 診断ログ、原因の特定 |
+| tdd | 入出力が明確な新機能を red-green-refactor で | テストファーストの実装 |
+| adr | トレードオフを伴う設計判断の記録 | `docs/adr/` に ADR |
+| handoff | セッションを区切って引き継ぐ | `.claude/handoffs/` に引き継ぎ文書 |
+| architecture-check | 設計負債(重複・肥大化)の定期チェック | レポートのみ(コード変更なし) |
+
+いずれも「ブレストして」「grillして」「原因を調べて」のような自然文で発動する。
+
+### フック(.claude/hooks/)
+
+プロンプトの「お願い」と違い、確定的に実行される物理ガード。
+`.claude/settings.json` で配線され、全て `uv run python` 経由で OS を問わず動く。
+
+| フック | イベント | 役割 |
+|---|---|---|
+| guard_scope.py | PreToolUse (Edit/Write) | スコープ外・生成物(`.pth` 等)・秘密情報ファイル・APIキーらしき内容の書き込みをブロック |
+| guard_bash.py | PreToolUse (Bash) | 危険コマンド(`rm -rf /` 等)、秘密情報の `git add`・リダイレクト書き込み、コミット規約(フラグON時)をブロック |
+| auto_format.py | PostToolUse (Edit/Write) | `.py` 編集後に `ruff format`(ruff が無ければスルー) |
+| enforce_eval.py | Stop | 評価コマンドを実行し失敗なら続行を促す(フラグON時のみ)。前回PASSから状態が変わっていなければ再実行をスキップ |
+| checkpoint_before_compact.py | PreCompact | 圧縮直前に git 状態・トランスクリプトを `.claude/checkpoints/` にバックアップ |
+| reinject_after_compact.py | SessionStart (compact) | 圧縮直後にチェックポイントと注意事項を会話に再注入 |
+
+秘密情報・生成物の検知パターンは `_common.py` に一元化されており、guard 系フックで共有される。
+
+無効化したい場合は `.claude/settings.json` に `"disableAllHooks": true` を追加する。
+
+### プロンプトとフックの二重防御
+
+スコープ制約などの重要ルールは、(1) 各エージェントのプロンプトで意図を伝え、
+(2) フックで物理的に最終ブロックする、の二段構え。プロンプトだけでは徹底されず、
+フックだけでは意図が伝わらないため。
+
+---
+
+## 4. テンプレートの育て方
+
+1. 実プロジェクトで使い、「Plannerの指示がずれた」「Evaluatorが甘い」などの気づきを得る
+2. 他プロジェクトでも通用する改善だけを、このテンプレートリポジトリの該当ファイルに反映して push
+3. 各プロジェクトで `claude-update` を実行し、改善を波及させる
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-update.ps1" -OutFile "claude-update.ps1"
+.\claude-update.ps1
+```
+
+```bash
+curl -sO https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-update.sh
+chmod +x claude-update.sh && ./claude-update.sh
+```
+
+更新されるのは `agents` / `commands` / `hooks` / `skills` / `settings.json` のみ。
+`.claude/plans/`(実行履歴)とプロジェクト固有の `CLAUDE.md` は保持される。
+そのプロジェクトだけの特殊事情はローカルの `.claude/` を直接編集し、テンプレートには戻さない。
+
+### push 前のフック検証
+
+フックを変更したら、push 前にテストを一括実行する。
+
+```
+.\verify-hooks.ps1        # PowerShell
+./verify-hooks.sh         # bash
+```
+
+---
+
+## 5. トラブルシューティング
+
+### 文字化け(nvim 編集時)
+
+- 編集前に `:set fileencoding=utf-8` と `:set fileformat=unix`
+- 既に化けたファイルはエディタでは直らないことが多い。PowerShell の
+  `[System.IO.File]::WriteAllText(...)` 等で書き直す
+- `.sh` は BOM 付きだとシェバンが壊れる。BOM なし UTF-8 で保存する
+- `.gitattributes` で `*.sh` `*.py` を `eol=lf` に固定済み(環境をまたぐ改行事故の防止)
+
+### Get-Content で日本語が化ける
+
+PowerShell 5.1 系は BOM なし UTF-8 を Shift-JIS として誤読することがある。
+ファイル自体は壊れていないことが多い。
+
+```powershell
+Get-Content ファイル名 -Encoding UTF8
+```
+
+### PowerShell で bash 構文がエラーになる
+
+- `mkdir -p a b c` → `New-Item -ItemType Directory -Path "a", "b", "c" -Force`
+- ヒアドキュメント → `@'...'@`(閉じ側は行頭に置く)
+
+### ブランチ名が master のまま
+
+```powershell
+git branch -M main
+```
+
+---
+
+## 6. ファイル一覧
 
 ```
 claude-ml-template/
   .claude/
     agents/
-      planner.md        Opus / 計画立案専任
-      generator.md       Sonnet / 実装専任、acceptEdits
-      evaluator.md        Sonnet / レビュー・数値検証専任
+      planner.md                    Opus / 計画立案専任
+      generator.md                  Sonnet / 実装専任、acceptEdits
+      evaluator.md                  Sonnet / Spec軸レビュー、実験ログ記録
+      evaluator-standards.md        Sonnet / Standards軸(コード品質)レビュー
     commands/
-      ml-pipeline.md      3エージェントを繋ぐフロー制御
+      ml-pipeline.md                エージェントを繋ぐフロー制御
+    skills/
+      brainstorm/                   発散(アイデア出し)
+      design-interview/             収束(設計の一問一答)
+      diagnosing-bugs/              バグ診断ループ
+      tdd/                          テスト駆動開発
+      adr/                          設計決定の記録
+      handoff/                      セッション引き継ぎ
+      architecture-check/           設計負債チェック
     hooks/
-      _common.py          guard系フックで共有する検知パターン定義
-      guard_scope.py      スコープ外・生成物への書き込みブロック
-      guard_bash.py        危険コマンド・大容量git addブロック
-      auto_format.py       ruff format自動実行
-      enforce_eval.py       評価コマンド実行強制
-    settings.json          フックの配線
+      _common.py                    guard系で共有する検知パターン定義
+      guard_scope.py                スコープ外・秘密情報書き込みブロック
+      guard_bash.py                 危険コマンド・git add・リダイレクトのガード
+      auto_format.py                ruff format 自動実行
+      enforce_eval.py               評価コマンド実行強制(状態不変ならスキップ)
+      checkpoint_before_compact.py  圧縮前バックアップ
+      reinject_after_compact.py     圧縮後の再注入
+    settings.json                   フックの配線
   templates/
-    CLAUDE.md.template     プロジェクト展開時に埋められる雛形
-  claude-init.ps1          Windows PowerShell用 初回セットアップ
-  claude-init.sh           Linux/WSL/Git Bash用 初回セットアップ
-  claude-update.ps1        Windows PowerShell用 更新スクリプト
-  claude-update.sh         Linux/WSL/Git Bash用 更新スクリプト
-  .gitattributes           改行コード固定(*.sh, *.pyをLFに)
-  README.md
+    CLAUDE.md.template              プロジェクト共通ルールの雛形
+    ADR.md.template                 ADR の雛形
+    CONTEXT.md.template             ドメイン用語集の雛形
+  claude-init.ps1 / .sh             初回セットアップ
+  claude-update.ps1 / .sh           更新(agents/commands/hooks/skills のみ)
+  verify-hooks.ps1 / .sh            フックの自動テスト
+  .gitattributes                    改行コード固定(*.sh, *.py を LF に)
+  .gitignore                        .claude/checkpoints/ 等を除外
 ```
