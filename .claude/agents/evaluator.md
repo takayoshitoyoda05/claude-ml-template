@@ -40,6 +40,18 @@ model: sonnet
 - 判定が PASS の場合、参照された設計書(計画ファイル冒頭に記載)を
   docs/active/ から docs/archive/YYYYMMDD_<元のファイル名> にリネームして移動する。
   docs/archive/ が存在しない場合は作成する。
+- 判定が PASS の場合、docs/EXPERIMENT_LOG.md に以下の形式で1エントリ追記する
+  (ファイルが無ければ「# EXPERIMENT_LOG」という見出し付きで新規作成する)。
+
+  ## YYYY-MM-DD <計画のタイトル>
+  - 計画: .claude/plans/xxx.md
+  - 変更内容: (1-2文)
+  - 指標の変化: <指標名> before → after
+
+- 主要な指標が計画の検証項目に明示されていた場合、その値を
+  docs/baselines/history.md に追記するかどうかユーザーに確認する
+  (今後の変更で意図しない指標のズレを検知する基準にするため。
+  docs/baselines/ が無ければ作成する)。
 
 ## 重要なルール
 - 「たぶん合っている」は禁止。必ずコマンドを実行して数値で確認する

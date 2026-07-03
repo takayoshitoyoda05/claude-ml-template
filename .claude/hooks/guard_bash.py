@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""PreToolUse: 危険な Bash コマンド・大容量ファイルの git add をブロックする。"""
+"""PreToolUse: 危険な Bash コマンド・大容量/秘密情報ファイルの git add・
+コミットメッセージ規約をチェックする。"""
 import json
+import os
 import re
 import sys
 
-# 危険コマンドのパターン
 DANGER_PATTERNS = [
     r"rm\s+-rf\s+/",
     r"rm\s+-rf\s+~",
@@ -12,13 +13,20 @@ DANGER_PATTERNS = [
     r"git\s+reset\s+--hard",
     r"git\s+push\s+.*--force",
     r"git\s+push\s+-f\b",
-    r":\(\)\{.*\}:",  # fork bomb
+    r":\(\)\{.*\}:",
     r"mkfs\.",
     r"dd\s+if=.*of=/dev/",
 ]
 
-# git add で危険な拡張子
-BLOCKED_ADD = [".pth", ".pt", ".ckpt", ".safetensors"]
+BLOCKED_ADD_EXT = [".pth", ".pt", ".ckpt", ".safetensors", ".pem", ".key", ".p12", ".pfx"]
+BLOCKED_ADD_NAMES = [".env", "credentials.json", "id_rsa", "id_ed25519", "id_ecdsa"]
+
+SECRET_CONTENT_PATTERNS = [
+    r"AKIA[0-9A-Z]{16}",
+    r"sk-[A-Za-z0-9]{20,}",
+    r"AIza[0-9A-Za-z\-_]{35}",
+    r"xox[baprs]-[0-9A-Za-z-]{10,}",
+]
 
 
 def main():
@@ -40,16 +48,41 @@ def main():
             )
             sys.exit(2)
 
-    # git add に大容量拡張子が含まれていないか
+    for pat in SECRET_CONTENT_PATTERNS:
+        if re.search(pat, cmd):
+            print(
+                "[guard_bash] BLOCKED: コマンドに秘密情報らしき文字列が含まれています。",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
     if re.search(r"git\s+add", cmd):
-        for ext in BLOCKED_ADD:
+        for ext in BLOCKED_ADD_EXT:
             if ext in cmd:
                 print(
-                    f"[guard_bash] BLOCKED: 大容量ファイル({ext})の git add は禁止です。"
+                    f"[guard_bash] BLOCKED: 大容量/秘密情報ファイル({ext})の git add は禁止です。"
                     f".gitignore に追加してください。",
                     file=sys.stderr,
                 )
                 sys.exit(2)
+        for name in BLOCKED_ADD_NAMES:
+            if name in cmd:
+                print(
+                    f"[guard_bash] BLOCKED: 秘密情報ファイル({name})の git add は禁止です。",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+
+    if os.environ.get("CLAUDE_ENFORCE_EVAL", "") == "1" and re.search(r"git\s+commit", cmd):
+        m = re.search(r"-m\s+[\"']([^\"']*)[\"']", cmd)
+        if m and not re.search(r"\d", m.group(1)):
+            print(
+                f"[guard_bash] BLOCKED: コミットメッセージに計画のステップ番号(数字)が"
+                f"含まれていません: {m.group(1)}\n"
+                f"例: 'Step 2: fix interpolation formula'",
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
     sys.exit(0)
 
