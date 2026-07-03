@@ -319,6 +319,27 @@ chmod +x claude-update.sh && ./claude-update.sh
 ./verify-hooks.sh         # bash
 ```
 
+## 4.5 その他のツール
+
+### doctor(テンプレートとの差分確認)
+プロジェクト側がテンプレートの最新版からどれだけ差分があるか確認する。
+.\doctor.ps1        # PowerShell
+./doctor.sh          # bash
+
+差分があれば claude-update の実行を検討する。
+
+### CI
+push / PR のたびに GitHub Actions で verify-hooks が自動実行される。
+フックを変更したらローカルでも `.\verify-hooks.ps1` で確認してからpushする。
+
+### config-explain スキル
+「今の設定を確認して」で、CLAUDE_WORK_SCOPE 等が settings.local.json と
+シェル環境変数のどちらから来ているかを一覧表示する。
+
+### regression-suite スキル
+「網羅的にテストして」で、実装の影響範囲を広くカバーするテストを生成・実行する。
+コストが増えるため自動実行はされない。重要な変更のときに明示的に使う。
+
 ---
 
 ## 5. トラブルシューティング

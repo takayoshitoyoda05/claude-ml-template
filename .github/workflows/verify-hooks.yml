@@ -1,0 +1,21 @@
+name: Verify Hooks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Run hook verification
+        run: |
+          chmod +x verify-hooks.sh
+          ./verify-hooks.sh

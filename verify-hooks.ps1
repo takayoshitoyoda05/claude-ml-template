@@ -9,7 +9,10 @@ function Test-Hook {
         [string]$Script,
         [int]$ExpectedExit
     )
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     $JsonInput | uv run python $Script *> $null
+    $ErrorActionPreference = $prevEAP
     $actual = $LASTEXITCODE
     if ($actual -eq $ExpectedExit) {
         Write-Host "OK: $Description (exit $actual)"
