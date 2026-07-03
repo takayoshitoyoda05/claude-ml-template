@@ -28,6 +28,7 @@ flowchart TD
 | planner | `.claude/agents/planner.md` | `opus` | Read, Grep, Glob, Bash | 調査・計画立案のみ。コード変更はしない |
 | generator | `.claude/agents/generator.md` | `sonnet` | Read, Write, Edit, Grep, Glob, Bash | 計画に沿って実装。`permissionMode: acceptEdits` で編集を自動承認 |
 | evaluator | `.claude/agents/evaluator.md` | `sonnet` | Read, Grep, Glob, Bash | レビュー+評価コマンド実行。コードは書かない |
+| evaluator-standards | `.claude/agents/evaluator-standards.md` | `sonnet` | Read, Grep, Glob, Bash | コード品質(Standards軸)のみレビュー。動作の正しさは判断しない |
 
 ### なぜこのモデル配分か
 
@@ -154,6 +155,20 @@ docs/archive/YYYYMMDD_<元のファイル名> に自動で移動される。
 この仕組みにより、「今検討中の設計書(drafts)」「今まさに実装中の設計書(active)」
 「完了・ボツになった設計書(archive)」が自然に整理され、docs/ が無秩序に
 散らからない。
+
+### 4-5. 設計を深掘りしたい場合(design-interview スキル)
+
+docs/drafts/ に書いたラフな設計書を、実装に入る前に一問一答形式で
+詰めたい場合に使う。
+このdocs/drafts/xxx.mdの設計をgrillして
+
+または自然に「この設計、詰めてもらえる?」のように頼んでもよい。
+1問ずつ質問され、それぞれに推奨案が添えられる。すべて解消されると
+設計書が更新され、Planner に渡す準備が整う。
+
+これは Skills 機能(.claude/skills/design-interview/)であり、
+サブエージェントとは別の仕組み。プロジェクトディレクトリで claude を
+起動してから使うこと(スコープ保護のため)。
 
 ## 5. 運用サイクル(育て方)
 
@@ -284,6 +299,33 @@ claude
 全フックは uv に依存する(`uv run python` で実行)。全環境に uv がある前提。速度が気になる場合、高頻度の guard_scope/guard_bash のみ将来 bash へ移植する余地がある。
 
 ---
+
+## 7.6 品質向上の追加施策
+
+mattpocock/skills (https://github.com/mattpocock/skills) の考え方を参考に
+翻案・追加した施策。
+
+### Evaluatorの二軸分割(Spec / Standards)
+以前は evaluator 1体が「動作の正しさ」と「コード品質」を両方判定していたが、
+互いの判断が薄まらないよう2体に分割した。
+
+- evaluator: 計画通りに動作するか(Spec)。評価スクリプトの実行結果で判定。
+- evaluator-standards: コーディング規約・可読性・型安全性(Standards)。
+
+/ml-pipeline は両方を独立に実行し、両方PASSして初めて完了とする。
+
+### diagnosing-bugs スキル
+原因不明のバグを「再現→最小化→仮説→計測→修正→回帰テスト」の手順で
+診断するスキル。「原因を調べて」「なぜこうなるか分からない」で自動的に、
+または明示的に呼び出せる。憶測でコードを直すことを防ぐ。
+
+### CONTEXT.md(ドメイン用語集)
+プロジェクト特有の用語のブレを防ぐため、プロジェクト直下に CONTEXT.md を
+置く運用。全エージェント・design-interview スキルが、作業開始前にこの
+ファイルがあれば読むよう構成されている。雛形は templates/CONTEXT.md.template
+を参照し、必要なプロジェクトの直下にコピーして育てる
+(例: projects/Deep_MIL/CONTEXT.md)。claude-init では自動配布されない
+(プロジェクトごとに内容が異なるため)。
 
 ## 8. ファイル一覧
 

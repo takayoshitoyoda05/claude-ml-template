@@ -25,7 +25,7 @@ try {
 
     # 更新対象: agents / commands / hooks / settings.json
     # plans/ と CLAUDE.md はプロジェクト固有・実行履歴なので触らない
-    foreach ($item in @("agents", "commands", "hooks")) {
+    foreach ($item in @("agents", "commands", "hooks", "skills")) {
         $src = Join-Path $Tmp ".claude\$item"
         if (Test-Path $src) {
             Copy-Item -Path $src -Destination ".claude\" -Recurse -Force

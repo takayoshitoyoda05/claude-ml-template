@@ -1,6 +1,7 @@
 # MLパイプライン修正フロー
 
-3エージェントでモデル/評価コードの修正を実行します。
+3体構成(Planner/Generator)に加え、Evaluatorを2軸(Spec/Standards)に分けて
+レビューします。
 
 ## 事前準備(重要: claude 起動前にシェルで設定)
 フック(スコープ制限・評価強制)を有効にするには、claude 起動前に
@@ -34,11 +35,14 @@ claude
 2. planner に「やりたいこと」を渡し、作業スコープ内を調査させて実装計画を作成させる。
 3. 計画をユーザーに提示し、承認されるまで進めない。
 4. generator に計画ファイルのパスを渡し、作業スコープ内で実装させる。
-5. evaluator に計画ファイルのパスと差分範囲を渡し、評価スクリプトを実行させて検証させる。
-6. evaluatorの判定:
-   - PASS: 完了レポートを出力
-   - NEEDS_REVISION: 指摘を整理して generator に差し戻す
-   - FAIL(3回連続): planner からやり直すことを提案
+5. 実装完了後、以下2つを独立に実行する(互いの判断が影響し合わないよう、
+   それぞれ別の視点でレビューさせる)。
+   - evaluator: 計画通りに動作するか(Spec)。評価スクリプトを実際に実行し数値で判定。
+   - evaluator-standards: コーディング規約・可読性・型安全性・コードスメル(Standards)。
+6. 両者の結果を集約する。
+   - evaluator が PASS かつ evaluator-standards が PASS: 完了レポートを出力
+   - どちらかが NEEDS_REVISION: 指摘をまとめて generator に差し戻す
+   - evaluator が FAIL(3回連続): planner からやり直すことを提案
 7. 最大3イテレーションで収束しなければユーザーに判断を仰ぐ。
 
 $ARGUMENTS を「作業スコープ + やりたいこと」として解釈する。
