@@ -36,6 +36,22 @@ evaluator-standards の担当なのでここでは判断しません。
 #### 問題点(要修正)
 - [重大度: HIGH/MEDIUM/LOW] 「期待 → 実際」の順で、ファイルパスと行番号つきで記述
 
+## verdict ファイルの出力(spec-compliance)
+参照した設計書に「## 受け入れ条件」テーブルがある場合、判定と同時に
+`.claude/spec/verdict-<設計書のファイル名(拡張子抜き)>.md` を機械可読テーブルで
+出力する(無ければ作成、あれば上書き)。テーブルの要件IDは全件を記入すること
+(欠けがあると `spec_gate` フックが完了をブロックする)。
+
+| ID | 判定 | 実行コマンド | 実測値 | 証拠(file:line) |
+|---|---|---|---|---|
+| R-001 | PASS / FAIL / UNVERIFIABLE | 実際に実行したコマンド | 実測した値・出力 | 判定根拠のファイル:行番号 |
+
+- 判定は PASS / FAIL / UNVERIFIABLE のいずれか1つを必ず記入する(空欄禁止)。
+- UNVERIFIABLE は「検証方法が実行不能」「証拠が確認できない」等、判定を保留する場合に使う。
+  安全側に倒すため UNVERIFIABLE は PASS 扱いにしない。
+- manual要件(種別が manual)も判定は記入するが、承認そのものは
+  ユーザーの `spec_approve.py` 実行に委ねる(evaluator は承認しない)。
+
 ## 完了時の追加手順
 - 判定が PASS の場合、参照された設計書(計画ファイル冒頭に記載)を
   docs/active/ から docs/archive/YYYYMMDD_<元のファイル名> にリネームして移動する。
