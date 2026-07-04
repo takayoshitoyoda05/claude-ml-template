@@ -1,6 +1,6 @@
 ---
 name: adr
-description: 設計上の重要な決定を Architecture Decision Record (ADR) として docs/adr/ に記録する。「この決定をADRに残して」と言われたとき、または design-interview や planner が重要な分岐を解消したときに使う。
+description: トレードオフを伴う設計判断をしたとき、複数の選択肢から1つを選んだとき、後から変更しづらい決定をしたとき、または「この決定をADRに残して」と言われたときに必ず使う。design-interview や planner が重要な決定を解消した直後にも必ず使う。
 ---
 
 # ADR記録

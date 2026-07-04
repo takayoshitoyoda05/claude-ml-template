@@ -10,6 +10,9 @@
 - LICENSE(MIT)
 - doctor.ps1 / doctor.sh: テンプレートとの差分検知(sync-check)
 - examples/toy-project: パイプラインお試し用のサンプルプロジェクト
+- スキル設計のリファクタ: 全スキルの description をトリガー条件のみに絞り、Claudeがdescriptionだけで行動する誤動作を減らした
+- スキル間の連鎖強制: design-interview / planner がトレードオフを伴う決定を解消したら、adr スキルの使用を必須化
+- 設計書からの知識自動スタック: design-interview と planner が、設計書・計画に含まれる用語をCONTEXT.md、設計判断をdocs/adr/、実験再現条件をEXPERIMENT_LOG.mdに自動追記
 
 ## 過去の主な変更(遡及記録)
 - Planner / Generator / Evaluator の3分離パターンを構築
