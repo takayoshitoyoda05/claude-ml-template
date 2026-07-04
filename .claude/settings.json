@@ -37,6 +37,10 @@
           {
             "type": "command",
             "command": "uv run python .claude/hooks/enforce_eval.py"
+          },
+          {
+            "type": "command",
+            "command": "uv run python .claude/hooks/spec_gate.py"
           }
         ]
       }
