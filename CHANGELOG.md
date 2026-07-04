@@ -3,6 +3,27 @@
 このプロジェクトの主な変更点を記録する。形式は [Keep a Changelog](https://keepachangelog.com/) に緩く準拠。
 
 ## [Unreleased]
+### Added
+- spec-compliance(設計書適合チェック): 設計書(docs/active/)の「## 受け入れ条件」テーブルを
+  唯一の要件ソースとして、Stop フックと CI で全要件PASS・承認・独立監査を機械検査する仕組みを追加
+  - `.claude/hooks/spec_gate.py`(要手動配置): `CLAUDE_SPEC_CHECK=1` のとき、verdict/audit/approvals
+    を検査し欠けがあれば完了をブロック。`--ci` でCIモード、`--docs`/`--spec-dir` でテスト用の
+    ディレクトリ上書きに対応
+  - `.claude/hooks/spec_approve.py`(要手動配置): ユーザーの `!` 実行でmanual要件を
+    `.claude/spec/approvals.txt` に承認記録(Claude 経由の書き込みは保護パスでブロック)
+  - `.claude/agents/spec-auditor.md` 新規: evaluator の判定を独立コンテキストで再検証し、
+    スコープ外変更を列挙する監査エージェント
+  - evaluator.md: 完了時に `.claude/spec/verdict-*.md`(要件IDごとの機械可読判定)を出力
+  - planner.md: 受け入れ条件テーブルの無い設計書を差し戻し、テストファーストのステップと
+    要件ID⇔実装ステップ対応を必須化
+  - design-interview/SKILL.md: 完了時に受け入れ条件テーブル生成を必須化
+  - ml-pipeline.md: spec-auditor を evaluator×2 の後に追加、CLAUDE_SPEC_CHECK を案内
+  - `templates/spec-gate.yml.template`: PR/push時に `spec_gate.py --ci` を実行するCIワークフロー雛形
+  - claude-init/update: `.github/workflows/spec-gate.yml` の自動配置、`.claude/spec/` の
+    .gitignore追加
+  - verify-hooks: spec-compliance のテストケース(R-101〜R-109, R-112)を追加。
+    spec_gate/spec_approve が未配置の間はSKIP表示にして既存ケースを壊さない
+
 ### Security
 - ガードの自己書き換え防止: .claude/hooks/ と settings.json / settings.local.json への Edit/Write・リダイレクト・tee をブロック(PROTECTED_PATH_PATTERNS)
 - guard_scope のスコープ判定を修正: 前方一致による兄弟ディレクトリ(例: proj と proj-evil)の誤許可を解消、Windows の大文字小文字差異にも対応

@@ -90,8 +90,38 @@ chmod +x claude-init.sh
 | CLAUDE_ENFORCE_EVAL | `1` で Stop 時の評価強制ON | 評価強制なし |
 | CLAUDE_EVAL_CMD | 評価強制で実行するコマンド | 評価強制なし |
 | CLAUDE_COMMIT_STEP_RULE | `1` でコミットメッセージにステップ番号(数字)を強制。`/ml-pipeline` 実行時のみONにする想定 | チェックなし |
+| CLAUDE_SPEC_CHECK | `1` で Stop 時に設計書の受け入れ条件を機械検査(spec-compliance)ON | チェックなし |
+| CLAUDE_SPEC_RECHECK_N | spec-compliance でauto要件から再実行する件数。`all` で全件 | `3` |
 
 未設定でも動作はする(フックの保護が弱まるだけ)。
+
+### spec-compliance(設計書適合チェック)
+
+設計書(docs/active/)の「## 受け入れ条件」テーブルを唯一の要件ソースとして、
+Stop フックと CI で「全要件PASS+承認+独立監査」を機械検査する仕組み。
+「LLMの自己申告」ではなく、ID・フック・テスト・独立視点(spec-auditor)の
+構造で実装漏れを塞ぐ。
+
+使い方:
+
+1. 設計書に design-interview / brainstorm を通じて「## 受け入れ条件」テーブル
+   (ID/要件/検証方法/期待結果/種別/対象の6列)を作る(無いと Planner が差し戻す)。
+2. `.claude/settings.local.json` の `env` に `CLAUDE_SPEC_CHECK: "1"` を設定する。
+3. `/ml-pipeline` の evaluator が要件IDごとの判定を `.claude/spec/verdict-*.md` に、
+   spec-auditor が監査結果を `.claude/spec/audit-*.md` に出力する。
+4. manual要件(種別が manual)は、ユーザーが以下を実行して承認するまで通らない。
+   Claude 経由の Edit/Write では `approvals.txt` を書き換えられない(保護パス)。
+
+   ```
+   ! uv run python .claude/hooks/spec_approve.py R-003
+   ```
+
+5. Stop 時に `spec_gate` フックが全要件を検査し、欠けがあれば完了をブロックする
+   (exit 2)。push 後は CI の `spec_gate.py --ci` が最終ゲートになる
+   (`.github/workflows/spec-gate.yml`、claude-init/update が自動配置)。
+
+`.claude/spec/` はローカル運用のため `.gitignore` に自動追加される
+(verdict/audit/approvals はコミット対象外。CI は auto要件の再実行で判定する)。
 
 ---
 
@@ -242,8 +272,9 @@ flowchart LR
 |---|---|---|---|
 | planner | opus | 調査・実装計画の作成。`.claude/plans/` に計画を保存 | コードは書かない。技術詳細を詰めすぎず判断余地を Generator に残す |
 | generator | sonnet | 計画に沿った実装と git commit | `permissionMode: acceptEdits` で編集を自動承認 |
-| evaluator | sonnet | Spec軸: 計画通りに動くか。評価コマンドを実行し数値で判定 | PASS 時に設計書アーカイブ・実験ログ記録も行う |
+| evaluator | sonnet | Spec軸: 計画通りに動くか。評価コマンドを実行し数値で判定 | PASS 時に設計書アーカイブ・実験ログ記録も行う。受け入れ条件テーブルがあれば `.claude/spec/verdict-*.md` も出力 |
 | evaluator-standards | sonnet | Standards軸: 規約・可読性・型安全性・コードスメル | 動作の正しさは判断しない(evaluator と独立) |
+| spec-auditor | sonnet | spec-compliance の独立監査: verdict の証拠検証・スコープ外変更の列挙 | `.claude/spec/audit-*.md` を出力。evaluator の判定を鵜呑みにしない独立コンテキスト |
 
 モデル配分の理由: 計画は深い推論が必要なので Opus、実装とレビューは読解と実行確認が
 中心なので Sonnet。全部 Opus はコストが跳ね、全部 Haiku は計画品質が落ちる。
@@ -275,8 +306,12 @@ flowchart LR
 | guard_bash.py | PreToolUse (Bash/PowerShell) | 危険コマンド(`rm -rf /` の表記ゆれ、強制push等)、一括ステージ(`git add .` / `-A`)、秘密情報の `git add`・リダイレクト/tee 書き込み、コミット規約(フラグON時)をブロック |
 | auto_format.py | PostToolUse (Edit/Write/NotebookEdit) | `.py` 編集後に `ruff format`(ruff が無ければスルー) |
 | enforce_eval.py | Stop | 評価コマンドを実行し失敗なら続行を促す(フラグON時のみ)。前回PASSから状態が変わっていなければ再実行をスキップ |
+| spec_gate.py | Stop | `CLAUDE_SPEC_CHECK=1` のとき、設計書の受け入れ条件テーブルを全要件PASS・承認・監査OKで検査し、欠けがあればブロック(`--ci` でCIモード) |
 | checkpoint_before_compact.py | PreCompact | 圧縮直前に git 状態・トランスクリプトを `.claude/checkpoints/` にバックアップ(直近10世代のみ保持) |
 | reinject_after_compact.py | SessionStart (compact) | 圧縮直後にチェックポイントと注意事項を会話に再注入 |
+
+`spec_approve.py` はフックとして配線されず、ユーザーが `!` で手動実行する
+専用スクリプト(manual要件の承認記録用)。
 
 秘密情報・生成物・保護パスの検知パターンは `_common.py` に一元化されており、guard 系フックで共有される。
 
@@ -387,6 +422,7 @@ claude-ml-template/
       generator.md                  Sonnet / 実装専任、acceptEdits
       evaluator.md                  Sonnet / Spec軸レビュー、実験ログ記録
       evaluator-standards.md        Sonnet / Standards軸(コード品質)レビュー
+      spec-auditor.md                Sonnet / spec-compliance独立監査(証拠検証・スコープ外変更列挙)
     commands/
       ml-pipeline.md                エージェントを繋ぐフロー制御
     skills/
@@ -405,16 +441,20 @@ claude-ml-template/
       guard_bash.py                 危険コマンド・git add・リダイレクト/tee のガード
       auto_format.py                ruff format 自動実行
       enforce_eval.py               評価コマンド実行強制(状態不変ならスキップ)
+      spec_gate.py                  Stop: 設計書の受け入れ条件を機械検査(要手動配置)
+      spec_approve.py               manual要件の承認記録(ユーザーの`!`実行専用、要手動配置)
       checkpoint_before_compact.py  圧縮前バックアップ(直近10世代のみ保持)
       reinject_after_compact.py     圧縮後の再注入
     settings.json                   フックの配線
   .github/workflows/
     verify-hooks.yml                CI: push/PR時のフック自動テスト
+    spec-gate.yml                   CI: push/PR時にspec_gate.py --ciを実行(init/updateが配置)
   templates/
     CLAUDE.md.template              プロジェクト共通ルールの雛形
     ADR.md.template                 ADR の雛形
     CONTEXT.md.template             ドメイン用語集の雛形
     settings.local.json.template    フック用環境変数の雛形(init/update が展開)
+    spec-gate.yml.template          spec-gate CIワークフローの雛形(init/update が配置)
   claude-init.ps1 / .sh             初回セットアップ
   claude-update.ps1 / .sh           更新(agents/commands/hooks/skills のみ)
   verify-hooks.ps1 / .sh            フックの自動テスト
