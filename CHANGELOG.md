@@ -45,6 +45,12 @@
 - repo_state_signature の重複実装(enforce_eval.py / spec_gate.py)を _common.py に一元化
 
 ### Security
+- ガードの自己書き換え防止を強化: これまで Edit/Write とリダイレクト/tee しか塞げず、
+  `cp`/`mv`/`sed -i`/`install`/`truncate`/単純 `rm`/`git rm` 等で保護パス(フック・設定・
+  承認記録)を書き換え/削除できる穴があったのを塞いだ。リダイレクト検出を `>\|`(noclobber強制)や
+  `1>`/`2>>`(fd指定)にも対応、危険 rm の対象判定を `${HOME}` 等の展開形にも拡張。
+  併せて、これらが任意コード実行(`python -c`)を封じる完全な境界ではなく多層防御である旨を
+  README に明記
 - ガードの自己書き換え防止: .claude/hooks/ と settings.json / settings.local.json への Edit/Write・リダイレクト・tee をブロック(PROTECTED_PATH_PATTERNS)
 - guard_scope のスコープ判定を修正: 前方一致による兄弟ディレクトリ(例: proj と proj-evil)の誤許可を解消、Windows の大文字小文字差異にも対応
 - guard_bash の rm 検知をフラグ解析に変更: -fr / -r -f 等の表記ゆれも検知

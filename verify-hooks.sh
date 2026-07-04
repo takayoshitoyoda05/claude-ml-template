@@ -40,6 +40,12 @@ test_hook "guard_bash: tee to hooks is blocked" '{"tool_input":{"command":"echo 
 test_hook "guard_bash: redirect to .env is blocked" '{"tool_input":{"command":"echo KEY=x > .env"}}' ".claude/hooks/guard_bash.py" 2
 test_hook "guard_bash: redirect to /dev/null passes" '{"tool_input":{"command":"pytest -q > /dev/null 2>&1"}}' ".claude/hooks/guard_bash.py" 0
 test_hook "guard_bash: commit without digit passes when rule off" '{"tool_input":{"command":"git commit -m \"fix typo\""}}' ".claude/hooks/guard_bash.py" 0
+test_hook "guard_bash: cp overwrite hook is blocked" '{"tool_input":{"command":"cp evil.py .claude/hooks/guard_scope.py"}}' ".claude/hooks/guard_bash.py" 2
+test_hook "guard_bash: rm hook (non -rf) is blocked" '{"tool_input":{"command":"rm .claude/hooks/guard_bash.py"}}' ".claude/hooks/guard_bash.py" 2
+test_hook "guard_bash: >| redirect to settings is blocked" '{"tool_input":{"command":"echo x >| .claude/settings.json"}}' ".claude/hooks/guard_bash.py" 2
+test_hook "guard_bash: rm -rf brace-HOME is blocked" '{"tool_input":{"command":"rm -rf ${HOME}/x"}}' ".claude/hooks/guard_bash.py" 2
+test_hook "guard_bash: cp within scope passes" '{"tool_input":{"command":"cp src/a.py src/b.py"}}' ".claude/hooks/guard_bash.py" 0
+test_hook "guard_bash: exec hook passes" '{"tool_input":{"command":"uv run python .claude/hooks/guard_scope.py"}}' ".claude/hooks/guard_bash.py" 0
 test_hook "enforce_eval: no flag passes" '{}' ".claude/hooks/enforce_eval.py" 0
 
 # --- spec-compliance (spec_gate / spec_approve / guard_scope連携) ---
