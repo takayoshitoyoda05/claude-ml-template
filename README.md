@@ -306,11 +306,11 @@ flowchart LR
 | guard_bash.py | PreToolUse (Bash/PowerShell) | 危険コマンド(`rm -rf /` の表記ゆれ、強制push等)、一括ステージ(`git add .` / `-A`)、秘密情報の `git add`・リダイレクト/tee 書き込み、コミット規約(フラグON時)をブロック |
 | auto_format.py | PostToolUse (Edit/Write/NotebookEdit) | `.py` 編集後に `ruff format`(ruff が無ければスルー) |
 | enforce_eval.py | Stop | 評価コマンドを実行し失敗なら続行を促す(フラグON時のみ)。前回PASSから状態が変わっていなければ再実行をスキップ |
-| spec_gate.py | Stop | `CLAUDE_SPEC_CHECK=1` のとき、設計書の受け入れ条件テーブルを全要件PASS・承認・監査OKで検査し、欠けがあればブロック(`--ci` でCIモード) |
+| spec_gate.py(要手動配置) | Stop | `CLAUDE_SPEC_CHECK=1` のとき、設計書の受け入れ条件テーブルを全要件PASS・承認・監査OKで検査し、欠けがあればブロック(`--ci` でCIモード) |
 | checkpoint_before_compact.py | PreCompact | 圧縮直前に git 状態・トランスクリプトを `.claude/checkpoints/` にバックアップ(直近10世代のみ保持) |
 | reinject_after_compact.py | SessionStart (compact) | 圧縮直後にチェックポイントと注意事項を会話に再注入 |
 
-`spec_approve.py` はフックとして配線されず、ユーザーが `!` で手動実行する
+`spec_approve.py`(要手動配置)はフックとして配線されず、ユーザーが `!` で手動実行する
 専用スクリプト(manual要件の承認記録用)。
 
 秘密情報・生成物・保護パスの検知パターンは `_common.py` に一元化されており、guard 系フックで共有される。
