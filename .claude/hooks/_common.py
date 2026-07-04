@@ -29,3 +29,11 @@ ARTIFACT_DIR_PATTERNS = [
     "/checkpoints/", "/outputs/", "/runs/", "/.venv/",
     "/_trash_candidates/",
 ]
+
+# ガード自身とフック設定(エージェントによる自己書き換えを防ぐ。
+# 正規化済み絶対パスに含まれていたらブロック。変更はユーザーが手動で行う)
+PROTECTED_PATH_PATTERNS = [
+    "/.claude/hooks/",
+    "/.claude/settings.json",
+    "/.claude/settings.local.json",
+]

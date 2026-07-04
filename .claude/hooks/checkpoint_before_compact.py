@@ -8,6 +8,20 @@ from datetime import datetime
 from pathlib import Path
 
 
+KEEP_GENERATIONS = 10
+
+
+def prune_old(backup_dir, pattern):
+    """タイムスタンプ順(=名前順)で古い世代を削除する。
+    会話ログを含むファイルが平文で無限に溜まるのを防ぐ。"""
+    files = sorted(backup_dir.glob(pattern))
+    for f in files[:-KEEP_GENERATIONS]:
+        try:
+            f.unlink()
+        except Exception:
+            pass
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -62,6 +76,9 @@ def main():
             shutil.copy2(transcript_path, backup_dir / f"transcript-{trigger}-{ts}.jsonl")
         except Exception:
             pass
+
+    prune_old(backup_dir, "state-*.md")
+    prune_old(backup_dir, "transcript-*.jsonl")
 
     sys.exit(0)
 

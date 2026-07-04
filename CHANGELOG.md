@@ -3,6 +3,18 @@
 このプロジェクトの主な変更点を記録する。形式は [Keep a Changelog](https://keepachangelog.com/) に緩く準拠。
 
 ## [Unreleased]
+### Security
+- ガードの自己書き換え防止: .claude/hooks/ と settings.json / settings.local.json への Edit/Write・リダイレクト・tee をブロック(PROTECTED_PATH_PATTERNS)
+- guard_scope のスコープ判定を修正: 前方一致による兄弟ディレクトリ(例: proj と proj-evil)の誤許可を解消、Windows の大文字小文字差異にも対応
+- guard_bash の rm 検知をフラグ解析に変更: -fr / -r -f 等の表記ゆれも検知
+- git push の強制push別記法(+refspec)をブロック
+- git add の一括ステージ(. / -A / --all / *)をブロックし、パス限定を促す。拡張子・ファイル名の検知を境界一致にして誤検知(例: foo.key.md)を解消
+- フックの matcher を拡張: PowerShell / NotebookEdit も guard 対象に
+- checkpoint のバックアップ(会話ログ含む)を直近10世代のみ保持するよう掃除を追加
+
+### Changed
+- トークン節約: 全スキルの description を圧縮(全セッション常駐分)、planner.md をルール維持のまま文言圧縮
+
 ### Added
 - regression-suite スキル: 実装後に影響範囲を広くカバーするテストを任意生成
 - config-explain スキル: スコープ・評価強制設定の可視化

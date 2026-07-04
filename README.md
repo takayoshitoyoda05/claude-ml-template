@@ -271,16 +271,19 @@ flowchart LR
 
 | フック | イベント | 役割 |
 |---|---|---|
-| guard_scope.py | PreToolUse (Edit/Write) | スコープ外・生成物(`.pth` 等)・秘密情報ファイル・APIキーらしき内容の書き込みをブロック |
-| guard_bash.py | PreToolUse (Bash) | 危険コマンド(`rm -rf /` 等)、秘密情報の `git add`・リダイレクト書き込み、コミット規約(フラグON時)をブロック |
-| auto_format.py | PostToolUse (Edit/Write) | `.py` 編集後に `ruff format`(ruff が無ければスルー) |
+| guard_scope.py | PreToolUse (Edit/Write/NotebookEdit) | スコープ外・生成物(`.pth` 等)・秘密情報ファイル・APIキーらしき内容・フック/設定自身への書き込みをブロック |
+| guard_bash.py | PreToolUse (Bash/PowerShell) | 危険コマンド(`rm -rf /` の表記ゆれ、強制push等)、一括ステージ(`git add .` / `-A`)、秘密情報の `git add`・リダイレクト/tee 書き込み、コミット規約(フラグON時)をブロック |
+| auto_format.py | PostToolUse (Edit/Write/NotebookEdit) | `.py` 編集後に `ruff format`(ruff が無ければスルー) |
 | enforce_eval.py | Stop | 評価コマンドを実行し失敗なら続行を促す(フラグON時のみ)。前回PASSから状態が変わっていなければ再実行をスキップ |
-| checkpoint_before_compact.py | PreCompact | 圧縮直前に git 状態・トランスクリプトを `.claude/checkpoints/` にバックアップ |
+| checkpoint_before_compact.py | PreCompact | 圧縮直前に git 状態・トランスクリプトを `.claude/checkpoints/` にバックアップ(直近10世代のみ保持) |
 | reinject_after_compact.py | SessionStart (compact) | 圧縮直後にチェックポイントと注意事項を会話に再注入 |
 
-秘密情報・生成物の検知パターンは `_common.py` に一元化されており、guard 系フックで共有される。
+秘密情報・生成物・保護パスの検知パターンは `_common.py` に一元化されており、guard 系フックで共有される。
 
-無効化したい場合は `.claude/settings.json` に `"disableAllHooks": true` を追加する。
+`.claude/hooks/` と `settings.json` / `settings.local.json` はガード自身の自己書き換え防止のため、
+Claude 経由では編集できない(Edit/Write・リダイレクト・tee をブロック)。フックや設定を変更
+したいときは、エディタ等でユーザーが手動編集する。無効化したい場合も同様に、手動で
+`.claude/settings.json` に `"disableAllHooks": true` を追加する。
 
 ### プロンプトとフックの二重防御
 
@@ -394,15 +397,19 @@ claude-ml-template/
       adr/                          設計決定の記録
       handoff/                      セッション引き継ぎ
       architecture-check/           設計負債チェック
+      config-explain/               スコープ・評価強制設定の可視化
+      regression-suite/             回帰テストスイート生成(明示呼び出しのみ)
     hooks/
-      _common.py                    guard系で共有する検知パターン定義
-      guard_scope.py                スコープ外・秘密情報書き込みブロック
-      guard_bash.py                 危険コマンド・git add・リダイレクトのガード
+      _common.py                    guard系で共有する検知パターン・保護パス定義
+      guard_scope.py                スコープ外・秘密情報・フック自己書き換えのブロック
+      guard_bash.py                 危険コマンド・git add・リダイレクト/tee のガード
       auto_format.py                ruff format 自動実行
       enforce_eval.py               評価コマンド実行強制(状態不変ならスキップ)
-      checkpoint_before_compact.py  圧縮前バックアップ
+      checkpoint_before_compact.py  圧縮前バックアップ(直近10世代のみ保持)
       reinject_after_compact.py     圧縮後の再注入
     settings.json                   フックの配線
+  .github/workflows/
+    verify-hooks.yml                CI: push/PR時のフック自動テスト
   templates/
     CLAUDE.md.template              プロジェクト共通ルールの雛形
     ADR.md.template                 ADR の雛形
@@ -411,6 +418,9 @@ claude-ml-template/
   claude-init.ps1 / .sh             初回セットアップ
   claude-update.ps1 / .sh           更新(agents/commands/hooks/skills のみ)
   verify-hooks.ps1 / .sh            フックの自動テスト
+  doctor.ps1 / .sh                  テンプレートとの差分確認
+  CHANGELOG.md                      変更履歴
+  LICENSE                           MIT
   .gitattributes                    改行コード固定(*.sh, *.py を LF に)
   .gitignore                        .claude/checkpoints/ 等を除外
 ```
