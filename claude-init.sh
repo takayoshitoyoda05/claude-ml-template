@@ -20,7 +20,14 @@ trap 'rm -rf "$TMP"' EXIT
 echo "テンプレートを取得中..."
 git clone --depth 1 --quiet "$TEMPLATE_REPO" "$TMP"
 
-cp -r "$TMP/.claude" ./
+# plans/ はプロジェクト固有・実行履歴なので展開しない(claude-update.shと同じ対象)
+mkdir -p .claude
+for item in agents commands hooks skills; do
+  if [ -d "$TMP/.claude/$item" ]; then
+    cp -r "$TMP/.claude/$item" .claude/
+  fi
+done
+cp "$TMP/.claude/settings.json" .claude/settings.json
 echo "OK: .claude/ を展開しました"
 
 # .gitignore に除外エントリを追加(冪等)

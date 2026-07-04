@@ -27,7 +27,15 @@ try {
     Write-Host "テンプレートを取得中..."
     git clone --depth 1 --quiet $TemplateRepo $Tmp
 
-    Copy-Item -Path (Join-Path $Tmp ".claude") -Destination "." -Recurse -Force
+    # plans/ はプロジェクト固有・実行履歴なので展開しない(claude-update.ps1と同じ対象)
+    New-Item -ItemType Directory -Path ".claude" -Force | Out-Null
+    foreach ($item in @("agents", "commands", "hooks", "skills")) {
+        $srcItem = Join-Path $Tmp ".claude\$item"
+        if (Test-Path $srcItem) {
+            Copy-Item -Path $srcItem -Destination ".claude\" -Recurse -Force
+        }
+    }
+    Copy-Item -Path (Join-Path $Tmp ".claude\settings.json") -Destination ".claude\settings.json" -Force
     Write-Host "OK: .claude/ を展開しました"
     # .gitignore に除外エントリを追加(冪等)
     $gitignorePath = ".gitignore"
