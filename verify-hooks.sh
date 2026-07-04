@@ -42,6 +42,184 @@ test_hook "guard_bash: redirect to /dev/null passes" '{"tool_input":{"command":"
 test_hook "guard_bash: commit without digit passes when rule off" '{"tool_input":{"command":"git commit -m \"fix typo\""}}' ".claude/hooks/guard_bash.py" 0
 test_hook "enforce_eval: no flag passes" '{}' ".claude/hooks/enforce_eval.py" 0
 
+# --- spec-compliance (spec_gate / spec_approve / guard_scope連携) ---
+# spec_gate.py / spec_approve.py は保護パスのためユーザーが手動配置するまで
+# .claude/hooks/ に存在しない。未配置の間はテスト全体を失敗させずSKIP表示にする。
+SPEC_GATE=".claude/hooks/spec_gate.py"
+SPEC_APPROVE=".claude/hooks/spec_approve.py"
+
+if [ ! -f "$SPEC_GATE" ] || [ ! -f "$SPEC_APPROVE" ]; then
+  echo "SKIP: spec_gate/spec_approve が .claude/hooks/ に未配置のため spec-compliance テストをスキップします"
+else
+  ABS_SPEC_GATE="$(pwd)/$SPEC_GATE"
+  ABS_SPEC_APPROVE="$(pwd)/$SPEC_APPROVE"
+  SPEC_FIXTURE=$(mktemp -d)
+  trap 'rm -rf "$SPEC_FIXTURE"' EXIT
+
+  mkdir -p "$SPEC_FIXTURE/docs" "$SPEC_FIXTURE/spec" "$SPEC_FIXTURE/docs_bad"
+
+  cat > "$SPEC_FIXTURE/docs/design.md" <<'EOF'
+# フィクスチャ設計書
+
+## 受け入れ条件
+
+| ID | 要件 | 検証方法 | 期待結果 | 種別 | 対象 |
+|---|---|---|---|---|---|
+| R-001 | ダミー要件1 | python -c "import sys; sys.exit(0)" | exit 0 | auto | |
+| R-002 | ダミー要件2(目視) | (目視) | 人間承認 | manual | |
+| R-003 | ダミー要件3 | python -c "import sys; sys.exit(0)" | exit 0 | auto | |
+EOF
+
+  cat > "$SPEC_FIXTURE/docs_bad/design.md" <<'EOF'
+# フィクスチャ設計書(壊れたテーブル)
+
+## 受け入れ条件
+
+| ID | 要件 | 検証方法 | 期待結果 | 種別 |
+|---|---|---|---|---|
+| R-001 | ダミー要件1 | python -c "pass" | exit 0 | auto |
+EOF
+
+  cat > "$SPEC_FIXTURE/spec/verdict-design.md" <<'EOF'
+| ID | 判定 | 実行コマンド | 実測値 | 証拠 |
+|---|---|---|---|---|
+| R-001 | PASS | python -c "..." | 0 | test.py:1 |
+| R-002 | PASS | (目視) | - | test.py:2 |
+| R-003 | PASS | python -c "..." | 0 | test.py:3 |
+EOF
+
+  cat > "$SPEC_FIXTURE/spec/audit-design.md" <<'EOF'
+| ID | 結果 | 備考 |
+|---|---|---|
+| R-001 | OK | ok |
+| R-002 | OK | ok |
+| R-003 | OK | ok |
+EOF
+
+  test_spec_gate() {
+    local description="$1"
+    local expected_exit="$2"
+    local docs_dir="$3"
+    local spec_dir="$4"
+    shift 4
+    echo '{}' | env "$@" uv run python "$ABS_SPEC_GATE" --docs "$docs_dir" --spec-dir "$spec_dir" \
+      >"$SPEC_FIXTURE/last_out.txt" 2>&1
+    local actual=$?
+    if [ "$actual" -eq "$expected_exit" ]; then
+      echo "OK: $description (exit $actual)"
+    else
+      echo "NG: $description (expected $expected_exit, got $actual)"
+      failed=$((failed+1))
+    fi
+  }
+
+  # R-104: manual要件が未承認ならブロック
+  test_spec_gate "spec_gate R-104: manual未承認はブロック" 2 \
+    "$SPEC_FIXTURE/docs" "$SPEC_FIXTURE/spec" CLAUDE_SPEC_CHECK=1
+
+  # R-105: spec_approve 実行後は R-104 のケースが通過する
+  uv run python "$ABS_SPEC_APPROVE" R-002 --docs "$SPEC_FIXTURE/docs" --spec-dir "$SPEC_FIXTURE/spec" >/dev/null 2>&1
+  test_spec_gate "spec_approve後: R-105/R-101 全要件PASSで通過" 0 \
+    "$SPEC_FIXTURE/docs" "$SPEC_FIXTURE/spec" CLAUDE_SPEC_CHECK=1
+
+  # R-108: CLAUDE_SPEC_RECHECK_N=all で auto要件が全件再実行される(ログに全ID)
+  echo '{}' | CLAUDE_SPEC_CHECK=1 CLAUDE_SPEC_RECHECK_N=all uv run python "$ABS_SPEC_GATE" \
+    --docs "$SPEC_FIXTURE/docs" --spec-dir "$SPEC_FIXTURE/spec" >"$SPEC_FIXTURE/recheck_all.txt" 2>&1
+  if grep -q "R-001" "$SPEC_FIXTURE/recheck_all.txt" && grep -q "R-003" "$SPEC_FIXTURE/recheck_all.txt"; then
+    echo "OK: spec_gate R-108: RECHECK_N=all で全auto ID(R-001,R-003)が実行ログに出現"
+  else
+    echo "NG: spec_gate R-108: RECHECK_N=all の実行ログに全IDが出現しない"
+    failed=$((failed+1))
+  fi
+
+  # R-112: CLAUDE_SPEC_CHECK未設定なら何もしない
+  test_spec_gate "spec_gate R-112: CLAUDE_SPEC_CHECK未設定は素通り" 0 \
+    "$SPEC_FIXTURE/docs" "$SPEC_FIXTURE/spec"
+
+  # R-101: 全要件PASS+承認済み+監査OKの設計書で通過する(再掲・独立確認)
+  test_spec_gate "spec_gate R-101: 全要件PASS+承認済み+監査OKで通過" 0 \
+    "$SPEC_FIXTURE/docs" "$SPEC_FIXTURE/spec" CLAUDE_SPEC_CHECK=1
+
+  # R-102: FAIL要件が1つでもあれば完了ブロック
+  mkdir -p "$SPEC_FIXTURE/spec_fail"
+  cat > "$SPEC_FIXTURE/spec_fail/verdict-design.md" <<'EOF'
+| ID | 判定 | 実行コマンド | 実測値 | 証拠 |
+|---|---|---|---|---|
+| R-001 | FAIL | python -c "..." | 1 | test.py:1 |
+| R-002 | PASS | (目視) | - | test.py:2 |
+| R-003 | PASS | python -c "..." | 0 | test.py:3 |
+EOF
+  cp "$SPEC_FIXTURE/spec/audit-design.md" "$SPEC_FIXTURE/spec_fail/audit-design.md"
+  echo "design R-002 2026-01-01T00:00:00" > "$SPEC_FIXTURE/spec_fail/approvals.txt"
+  test_spec_gate "spec_gate R-102: FAIL要件があればブロック" 2 \
+    "$SPEC_FIXTURE/docs" "$SPEC_FIXTURE/spec_fail" CLAUDE_SPEC_CHECK=1
+
+  # R-103: verdict ファイルに要件IDの欠けがあればブロック
+  mkdir -p "$SPEC_FIXTURE/spec_missing"
+  cat > "$SPEC_FIXTURE/spec_missing/verdict-design.md" <<'EOF'
+| ID | 判定 | 実行コマンド | 実測値 | 証拠 |
+|---|---|---|---|---|
+| R-001 | PASS | python -c "..." | 0 | test.py:1 |
+| R-002 | PASS | (目視) | - | test.py:2 |
+EOF
+  cp "$SPEC_FIXTURE/spec/audit-design.md" "$SPEC_FIXTURE/spec_missing/audit-design.md"
+  echo "design R-002 2026-01-01T00:00:00" > "$SPEC_FIXTURE/spec_missing/approvals.txt"
+  test_spec_gate "spec_gate R-103: verdictにID欠けがあればブロック" 2 \
+    "$SPEC_FIXTURE/docs" "$SPEC_FIXTURE/spec_missing" CLAUDE_SPEC_CHECK=1
+
+  # R-107: テーブルが崩れている(列不足)場合は安全側に倒してブロック
+  test_spec_gate "spec_gate R-107: テーブル列不足はブロック" 2 \
+    "$SPEC_FIXTURE/docs_bad" "$SPEC_FIXTURE/spec" CLAUDE_SPEC_CHECK=1
+
+  # R-106: approvals.txt への Claude 経由書き込みは guard_scope がブロック
+  test_hook "guard_scope R-106: approvals.txtへの書き込みはブロック" \
+    '{"tool_input":{"file_path":".claude/spec/approvals.txt","content":"fake R-002"}}' \
+    ".claude/hooks/guard_scope.py" 2
+
+  # R-109: 対象列のある要件で対象モジュールが未実行なら coverage 検査で落ちる
+  if uv run python -c "import coverage" >/dev/null 2>&1; then
+    mkdir -p "$SPEC_FIXTURE/covdir" "$SPEC_FIXTURE/docs_cov" "$SPEC_FIXTURE/spec_cov"
+    echo 'print("decoy")' > "$SPEC_FIXTURE/covdir/decoy.py"
+    (cd "$SPEC_FIXTURE/covdir" && uv run coverage run --data-file=.coverage decoy.py >/dev/null 2>&1)
+    cat > "$SPEC_FIXTURE/docs_cov/design.md" <<EOF
+# フィクスチャ設計書(対象列あり)
+
+## 受け入れ条件
+
+| ID | 要件 | 検証方法 | 期待結果 | 種別 | 対象 |
+|---|---|---|---|---|---|
+| R-001 | ダミー要件1 | python -c "import sys; sys.exit(0)" | exit 0 | auto | $SPEC_FIXTURE/covdir/other_module.py |
+EOF
+    cat > "$SPEC_FIXTURE/spec_cov/verdict-design.md" <<'EOF'
+| ID | 判定 | 実行コマンド | 実測値 | 証拠 |
+|---|---|---|---|---|
+| R-001 | PASS | python -c "..." | 0 | test.py:1 |
+EOF
+    cat > "$SPEC_FIXTURE/spec_cov/audit-design.md" <<'EOF'
+| ID | 結果 | 備考 |
+|---|---|---|
+| R-001 | OK | ok |
+EOF
+    (
+      cd "$SPEC_FIXTURE/covdir" && \
+      echo '{}' | CLAUDE_SPEC_CHECK=1 uv run python "$ABS_SPEC_GATE" \
+        --docs "$SPEC_FIXTURE/docs_cov" --spec-dir "$SPEC_FIXTURE/spec_cov" >out_cov.txt 2>&1
+    )
+    actual_cov=$?
+    if [ "$actual_cov" -eq 2 ]; then
+      echo "OK: spec_gate R-109: 対象モジュール未実行はcoverage検査でブロック (exit $actual_cov)"
+    else
+      echo "NG: spec_gate R-109: 対象モジュール未実行 (expected 2, got $actual_cov)"
+      failed=$((failed+1))
+    fi
+  else
+    echo "SKIP: spec_gate R-109: coverage が未導入のため対象列検査をスキップします"
+  fi
+
+  rm -rf "$SPEC_FIXTURE"
+  trap - EXIT
+fi
+
 echo ""
 if [ "$failed" -gt 0 ]; then
   echo "$failed 件のテストが失敗しました"
