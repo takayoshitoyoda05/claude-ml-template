@@ -29,37 +29,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import (  # noqa: E402
+from _common import (
     AcceptanceTableError,
     is_separator_row,
     parse_acceptance_table,
+    resolve_docs_dir,
+    resolve_spec_dir,
     split_table_row,
 )
-
-
-def resolve_docs_dir(explicit):
-    if explicit:
-        return Path(explicit)
-    env_docs = os.environ.get("CLAUDE_SPEC_DOCS", "").strip()
-    if env_docs:
-        return Path(env_docs)
-    work_scope = os.environ.get("CLAUDE_WORK_SCOPE", "").strip()
-    if work_scope:
-        return Path(work_scope) / "docs" / "active"
-    return Path("docs") / "active"
-
-
-def resolve_spec_dir(explicit):
-    if explicit:
-        return Path(explicit)
-    env_spec = os.environ.get("CLAUDE_SPEC_DIR", "").strip()
-    if env_spec:
-        return Path(env_spec)
-    work_scope = os.environ.get("CLAUDE_WORK_SCOPE", "").strip()
-    if work_scope:
-        return Path(work_scope) / ".claude" / "spec"
-    return Path(".claude") / "spec"
 
 
 def parse_id_table(text):
@@ -101,28 +78,29 @@ def repo_state_signature(extra):
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def spec_dir_signature(spec_dir):
-    parts = []
-    if spec_dir.exists():
-        for p in sorted(spec_dir.rglob("*")):
-            if p.is_file():
-                try:
-                    stat = p.stat()
-                    parts.append(f"{p}:{stat.st_mtime_ns}:{stat.st_size}")
-                except OSError:
-                    pass
-    return "|".join(parts)
+def _files_signature(paths):
+    """ファイル群の path:mtime:size を連結した文字列を返す(キャッシュキー用)。
 
-
-def docs_dir_signature(design_files):
+    存在しない・stat失敗のパスは無視する(呼び出し側は事前に対象を絞ってよい)。
+    """
     parts = []
-    for p in design_files:
+    for p in paths:
         try:
             stat = p.stat()
             parts.append(f"{p}:{stat.st_mtime_ns}:{stat.st_size}")
         except OSError:
-            pass
+            continue
     return "|".join(parts)
+
+
+def spec_dir_signature(spec_dir):
+    if not spec_dir.exists():
+        return ""
+    return _files_signature(sorted(p for p in spec_dir.rglob("*") if p.is_file()))
+
+
+def docs_dir_signature(design_files):
+    return _files_signature(design_files)
 
 
 def check_verdict(all_rows, spec_dir):
@@ -187,9 +165,14 @@ def check_audit(all_rows, spec_dir):
 
 
 def check_auto_recheck(all_rows, recheck_n, ci_mode):
+    """auto要件を抽出・再実行し、(reasons, ログ文字列) を返す。
+
+    他の check_* と同様に印字はせず戻り値のみで報告する(呼び出し側の main が
+    ログ出力する)。ログ文字列には R-108 が検証する実行済みIDの一覧を含める。
+    """
     auto_rows = [(d, r) for d, r in all_rows if r["type"].strip().lower() == "auto"]
     if not auto_rows:
-        return [], []
+        return [], "[spec_gate] auto要件の再実行ID: (対象なし)"
 
     if ci_mode or str(recheck_n).strip().lower() == "all":
         targets = list(auto_rows)
@@ -227,8 +210,8 @@ def check_auto_recheck(all_rows, recheck_n, ci_mode):
         elif result.returncode != 0:
             reasons.append(f"{rid}: 検証コマンドが失敗しました(exit {result.returncode})")
 
-    print(f"[spec_gate] auto要件の再実行ID: {', '.join(executed_ids)}", file=sys.stderr)
-    return reasons, executed_ids
+    log_line = f"[spec_gate] auto要件の再実行ID: {', '.join(executed_ids)}"
+    return reasons, log_line
 
 
 def check_coverage_targets(all_rows):
@@ -335,7 +318,8 @@ def main():
 
     reasons = []
     reasons += check_verdict(all_rows, spec_dir)
-    auto_reasons, _executed_ids = check_auto_recheck(all_rows, recheck_n, args.ci)
+    auto_reasons, auto_log_line = check_auto_recheck(all_rows, recheck_n, args.ci)
+    print(auto_log_line, file=sys.stderr)
     reasons += auto_reasons
     reasons += check_coverage_targets(all_rows)
     reasons += check_manual_approvals(all_rows, spec_dir)

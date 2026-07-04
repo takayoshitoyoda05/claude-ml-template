@@ -8,36 +8,14 @@ guard_scope.py / guard_bash.py が PROTECTED_PATH_PATTERNS でブロックする
 """
 import argparse
 import datetime
-import os
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import AcceptanceTableError, parse_acceptance_table  # noqa: E402
-
-
-def resolve_docs_dir(explicit):
-    if explicit:
-        return Path(explicit)
-    env_docs = os.environ.get("CLAUDE_SPEC_DOCS", "").strip()
-    if env_docs:
-        return Path(env_docs)
-    work_scope = os.environ.get("CLAUDE_WORK_SCOPE", "").strip()
-    if work_scope:
-        return Path(work_scope) / "docs" / "active"
-    return Path("docs") / "active"
-
-
-def resolve_spec_dir(explicit):
-    if explicit:
-        return Path(explicit)
-    env_spec = os.environ.get("CLAUDE_SPEC_DIR", "").strip()
-    if env_spec:
-        return Path(env_spec)
-    work_scope = os.environ.get("CLAUDE_WORK_SCOPE", "").strip()
-    if work_scope:
-        return Path(work_scope) / ".claude" / "spec"
-    return Path(".claude") / "spec"
+from _common import (
+    AcceptanceTableError,
+    parse_acceptance_table,
+    resolve_docs_dir,
+    resolve_spec_dir,
+)
 
 
 def find_design_for_id(docs_dir, req_id):

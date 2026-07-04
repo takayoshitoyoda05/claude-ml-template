@@ -4,8 +4,12 @@
 秘密情報・生成物・保護パスの定義はここに一元化する。
 受け入れ条件テーブルのパーサも spec_gate.py と verify-hooks から共通で使えるよう
 ここに置く(stdlib の re のみ使用)。
+spec_gate.py / spec_approve.py が共有する対象ディレクトリ解決ロジック
+(resolve_docs_dir / resolve_spec_dir)もここに一元化する。
 """
+import os
 import re
+from pathlib import Path
 
 # 秘密情報らしき文字列(書き込み内容・コマンド文字列の両方に適用)
 SECRET_CONTENT_PATTERNS = [
@@ -154,3 +158,37 @@ def parse_acceptance_table(design_text):
         raise AcceptanceTableError("受け入れ条件テーブルのIDに欠番があります")
 
     return rows
+
+
+def resolve_docs_dir(explicit=None):
+    """設計書ディレクトリを解決する(spec_gate.py / spec_approve.py で共通)。
+
+    優先順位: 明示引数(--docs) > 環境変数 CLAUDE_SPEC_DOCS(テスト用上書き) >
+    CLAUDE_WORK_SCOPE 配下の docs/active > カレントディレクトリの docs/active。
+    """
+    if explicit:
+        return Path(explicit)
+    env_docs = os.environ.get("CLAUDE_SPEC_DOCS", "").strip()
+    if env_docs:
+        return Path(env_docs)
+    work_scope = os.environ.get("CLAUDE_WORK_SCOPE", "").strip()
+    if work_scope:
+        return Path(work_scope) / "docs" / "active"
+    return Path("docs") / "active"
+
+
+def resolve_spec_dir(explicit=None):
+    """内部状態ディレクトリ(verdict/audit/approvals/キャッシュ置き場)を解決する。
+
+    優先順位: 明示引数(--spec-dir) > 環境変数 CLAUDE_SPEC_DIR(テスト用上書き) >
+    CLAUDE_WORK_SCOPE 配下の .claude/spec > カレントディレクトリの .claude/spec。
+    """
+    if explicit:
+        return Path(explicit)
+    env_spec = os.environ.get("CLAUDE_SPEC_DIR", "").strip()
+    if env_spec:
+        return Path(env_spec)
+    work_scope = os.environ.get("CLAUDE_WORK_SCOPE", "").strip()
+    if work_scope:
+        return Path(work_scope) / ".claude" / "spec"
+    return Path(".claude") / "spec"
