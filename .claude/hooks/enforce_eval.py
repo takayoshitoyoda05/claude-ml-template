@@ -7,35 +7,18 @@
 効率化: 前回PASS時のリポジトリ状態(HEAD + 作業ツリーの状態)を
 .claude/checkpoints/last_eval_pass.txt に記録し、状態が変わっていなければ
 評価コマンドの再実行をスキップする(Stopのたびに重いテストが二重に
-走るのを防ぐ)。
+走るのを防ぐ)。状態ハッシュは _common.repo_state_signature を
+spec_gate.py と共用する。
 """
-import hashlib
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+from _common import repo_state_signature
+
 MARKER = Path(".claude/checkpoints/last_eval_pass.txt")
-
-
-def repo_state_signature(eval_cmd):
-    """評価対象の状態を表すハッシュ。gitが使えなければ None(キャッシュ無効)。"""
-    try:
-        head = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=5,
-        ).stdout.strip()
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True, text=True, timeout=10,
-        ).stdout
-    except Exception:
-        return None
-    if not head:
-        return None
-    raw = f"{eval_cmd}\n{head}\n{status}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def main():

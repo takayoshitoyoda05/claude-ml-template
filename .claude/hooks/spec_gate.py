@@ -3,24 +3,25 @@
 唯一の要件ソースとして、実装が全要件を満たしているかを機械検査する。
 
 CLAUDE_SPEC_CHECK=1 のときだけ Stop フックとして動作する(R-112)。
-`--ci` を付けると CLAUDE_SPEC_CHECK に関わらず、CIモード(auto要件を全件
-再実行、キャッシュ無効)で動作する。
+`--ci` を付けると CLAUDE_SPEC_CHECK に関わらず CIモードで動作する。
+CIモードでは auto要件の全件再実行と coverage 検査のみを行う
+(verdict/audit/approvals は .gitignore 対象のローカルファイルで
+CI 環境には存在しないため、検査対象にしない)。
 
 検査項目(1つでも欠ければ exit 2):
-  (a) verdict-*.md が全要件IDを網羅し全て PASS か
-  (b) auto要件から CLAUDE_SPEC_RECHECK_N 件(既定3、all で全件)を
+  (a) verdict-*.md が全要件IDを網羅し全て PASS か(ローカルのみ)
+  (b) auto要件から CLAUDE_SPEC_RECHECK_N 件(既定3、all で全件、CIは全件)を
       抽出して検証コマンドを再実行し、期待結果と照合
   (c) 「対象」列のある要件は coverage で対象モジュールの実行有無を確認
       (coverage 未インストール、または計測データなしなら fail open でスキップ)
-  (d) manual要件が approvals.txt で「設計書名 要件ID」として承認済みか
-  (e) audit-*.md が存在し全件 OK か
+  (d) manual要件が approvals.txt で「設計書名 要件ID」として承認済みか(ローカルのみ)
+  (e) audit-*.md が存在し全件 OK か(ローカルのみ)
 
 テスト容易性のため、対象ディレクトリは --docs <dir> / 環境変数
 CLAUDE_SPEC_DOCS で、内部状態ディレクトリ(verdict/audit/approvals/キャッシュの
 置き場)は --spec-dir <dir> / 環境変数 CLAUDE_SPEC_DIR で上書きできる。
 """
 import argparse
-import hashlib
 import json
 import os
 import random
@@ -33,10 +34,15 @@ from _common import (
     AcceptanceTableError,
     is_separator_row,
     parse_acceptance_table,
+    repo_state_signature,
     resolve_docs_dir,
     resolve_spec_dir,
     split_table_row,
 )
+
+# 前回PASS記録のマーカー。spec_dir 内に置くが、キャッシュ署名からは除外する
+# (マーカー自身の更新で署名が変わると、キャッシュが永久にヒットしなくなるため)
+MARKER_NAME = "last_spec_pass.txt"
 
 
 def parse_id_table(text):
@@ -62,22 +68,6 @@ def parse_id_table(text):
     return result
 
 
-def repo_state_signature(extra):
-    try:
-        head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5,
-        ).stdout.strip()
-        status = subprocess.run(
-            ["git", "status", "--porcelain"], capture_output=True, text=True, timeout=10,
-        ).stdout
-    except Exception:
-        return None
-    if not head:
-        return None
-    raw = f"{extra}\n{head}\n{status}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
 def _files_signature(paths):
     """ファイル群の path:mtime:size を連結した文字列を返す(キャッシュキー用)。
 
@@ -96,7 +86,12 @@ def _files_signature(paths):
 def spec_dir_signature(spec_dir):
     if not spec_dir.exists():
         return ""
-    return _files_signature(sorted(p for p in spec_dir.rglob("*") if p.is_file()))
+    return _files_signature(
+        sorted(
+            p for p in spec_dir.rglob("*")
+            if p.is_file() and p.name != MARKER_NAME
+        )
+    )
 
 
 def docs_dir_signature(design_files):
@@ -289,7 +284,7 @@ def main():
 
     recheck_n = os.environ.get("CLAUDE_SPEC_RECHECK_N", "3")
 
-    marker = spec_dir / "last_spec_pass.txt"
+    marker = spec_dir / MARKER_NAME
     sig = None
     if not args.ci:
         extra = f"{recheck_n}\n{docs_dir_signature(design_files)}\n{spec_dir_signature(spec_dir)}"
@@ -317,13 +312,17 @@ def main():
             all_rows.append((design_name, row))
 
     reasons = []
-    reasons += check_verdict(all_rows, spec_dir)
+    if not args.ci:
+        # verdict/audit/approvals は .gitignore 対象のローカルファイルで
+        # CI 環境には存在しないため、ローカル(Stop フック)のみ検査する
+        reasons += check_verdict(all_rows, spec_dir)
     auto_reasons, auto_log_line = check_auto_recheck(all_rows, recheck_n, args.ci)
     print(auto_log_line, file=sys.stderr)
     reasons += auto_reasons
     reasons += check_coverage_targets(all_rows)
-    reasons += check_manual_approvals(all_rows, spec_dir)
-    reasons += check_audit(all_rows, spec_dir)
+    if not args.ci:
+        reasons += check_manual_approvals(all_rows, spec_dir)
+        reasons += check_audit(all_rows, spec_dir)
 
     if reasons:
         print("[spec_gate] BLOCKED: 以下の受け入れ条件を満たしていません:", file=sys.stderr)

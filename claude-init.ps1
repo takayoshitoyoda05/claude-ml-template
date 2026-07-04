@@ -39,7 +39,7 @@ try {
     Write-Host "OK: .claude/ を展開しました"
     # .gitignore に除外エントリを追加(冪等)
     $gitignorePath = ".gitignore"
-    foreach ($ignoreEntry in @(".claude/checkpoints/", ".claude/settings.local.json", ".claude/spec/")) {
+    foreach ($ignoreEntry in @(".claude/checkpoints/", ".claude/settings.local.json", "**/.claude/spec/")) {
         if (-not (Test-Path $gitignorePath)) {
             $ignoreEntry | Out-File -FilePath $gitignorePath -Encoding utf8
             Write-Host "OK: .gitignore を作成しました($ignoreEntry)"

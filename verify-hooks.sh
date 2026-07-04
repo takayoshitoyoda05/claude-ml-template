@@ -43,16 +43,10 @@ test_hook "guard_bash: commit without digit passes when rule off" '{"tool_input"
 test_hook "enforce_eval: no flag passes" '{}' ".claude/hooks/enforce_eval.py" 0
 
 # --- spec-compliance (spec_gate / spec_approve / guard_scope連携) ---
-# spec_gate.py / spec_approve.py は保護パスのためユーザーが手動配置するまで
-# .claude/hooks/ に存在しない。未配置の間はテスト全体を失敗させずSKIP表示にする。
 SPEC_GATE=".claude/hooks/spec_gate.py"
 SPEC_APPROVE=".claude/hooks/spec_approve.py"
-
-if [ ! -f "$SPEC_GATE" ] || [ ! -f "$SPEC_APPROVE" ]; then
-  echo "SKIP: spec_gate/spec_approve が .claude/hooks/ に未配置のため spec-compliance テストをスキップします"
-else
-  ABS_SPEC_GATE="$(pwd)/$SPEC_GATE"
-  ABS_SPEC_APPROVE="$(pwd)/$SPEC_APPROVE"
+ABS_SPEC_GATE="$(pwd)/$SPEC_GATE"
+ABS_SPEC_APPROVE="$(pwd)/$SPEC_APPROVE"
   SPEC_FIXTURE=$(mktemp -d)
   trap 'rm -rf "$SPEC_FIXTURE"' EXIT
 
@@ -216,9 +210,33 @@ EOF
     echo "SKIP: spec_gate R-109: coverage が未導入のため対象列検査をスキップします"
   fi
 
+  # --ci: verdict/audit/approvals が無くても auto再実行(+coverage)のみで判定する(CI用)
+  mkdir -p "$SPEC_FIXTURE/spec_empty"
+  uv run python "$ABS_SPEC_GATE" --ci --docs "$SPEC_FIXTURE/docs" --spec-dir "$SPEC_FIXTURE/spec_empty" >/dev/null 2>&1
+  actual_ci=$?
+  if [ "$actual_ci" -eq 0 ]; then
+    echo "OK: spec_gate --ci: verdict/audit無しでもauto再実行のみで通過 (exit $actual_ci)"
+  else
+    echo "NG: spec_gate --ci: verdict/audit無し (expected 0, got $actual_ci)"
+    failed=$((failed+1))
+  fi
+
+  # キャッシュ: PASS後に状態が変わっていなければ auto再実行をスキップする
+  # (マーカーファイル自身が署名に混入してキャッシュが失効しないことの確認)
+  echo '{}' | CLAUDE_SPEC_CHECK=1 uv run python "$ABS_SPEC_GATE" --docs "$SPEC_FIXTURE/docs" --spec-dir "$SPEC_FIXTURE/spec" >/dev/null 2>&1
+  echo '{}' | CLAUDE_SPEC_CHECK=1 uv run python "$ABS_SPEC_GATE" --docs "$SPEC_FIXTURE/docs" --spec-dir "$SPEC_FIXTURE/spec" >"$SPEC_FIXTURE/cache2.txt" 2>&1
+  actual_cache=$?
+  # 再実行ログの検出はエンコーディング非依存のASCII部分で行う
+  # (Windows では Python の stderr が cp932 になり日本語が UTF-8 と一致しない)
+  if [ "$actual_cache" -eq 0 ] && ! grep -q "spec_gate] auto" "$SPEC_FIXTURE/cache2.txt"; then
+    echo "OK: spec_gate キャッシュ: 状態不変ならauto再実行をスキップ (exit $actual_cache)"
+  else
+    echo "NG: spec_gate キャッシュ: 状態不変でも再実行された、または exit != 0 (got $actual_cache)"
+    failed=$((failed+1))
+  fi
+
   rm -rf "$SPEC_FIXTURE"
   trap - EXIT
-fi
 
 echo ""
 if [ "$failed" -gt 0 ]; then

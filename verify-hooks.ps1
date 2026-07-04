@@ -47,16 +47,10 @@ Test-Hook "guard_bash: commit without digit passes when rule off" '{"tool_input"
 Test-Hook "enforce_eval: no flag passes" '{}' ".claude\hooks\enforce_eval.py" 0
 
 # --- spec-compliance (spec_gate / spec_approve / guard_scope連携) ---
-# spec_gate.py / spec_approve.py は保護パスのためユーザーが手動配置するまで
-# .claude/hooks/ に存在しない。未配置の間はテスト全体を失敗させずSKIP表示にする。
 $SpecGate = ".claude\hooks\spec_gate.py"
 $SpecApprove = ".claude\hooks\spec_approve.py"
-
-if (-not (Test-Path $SpecGate) -or -not (Test-Path $SpecApprove)) {
-    Write-Host "SKIP: spec_gate/spec_approve が .claude/hooks/ に未配置のため spec-compliance テストをスキップします"
-} else {
-    $AbsSpecGate = (Resolve-Path $SpecGate).Path
-    $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
+$AbsSpecGate = (Resolve-Path $SpecGate).Path
+$AbsSpecApprove = (Resolve-Path $SpecApprove).Path
     $SpecFixture = Join-Path $env:TEMP ([System.Guid]::NewGuid().ToString())
     New-Item -ItemType Directory -Path $SpecFixture | Out-Null
     New-Item -ItemType Directory -Path "$SpecFixture\docs" -Force | Out-Null
@@ -236,10 +230,43 @@ if (-not (Test-Path $SpecGate) -or -not (Test-Path $SpecApprove)) {
         } else {
             Write-Host "SKIP: spec_gate R-109: coverage が未導入のため対象列検査をスキップします"
         }
+
+        # --ci: verdict/audit/approvals が無くても auto再実行(+coverage)のみで判定する(CI用)
+        New-Item -ItemType Directory -Path "$SpecFixture\spec_empty" -Force | Out-Null
+        $prevEAPci = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        uv run python $AbsSpecGate --ci --docs "$SpecFixture\docs" --spec-dir "$SpecFixture\spec_empty" *> $null
+        $actualCi = $LASTEXITCODE
+        $ErrorActionPreference = $prevEAPci
+        if ($actualCi -eq 0) {
+            Write-Host "OK: spec_gate --ci: verdict/audit無しでもauto再実行のみで通過 (exit $actualCi)"
+        } else {
+            Write-Host "NG: spec_gate --ci: verdict/audit無し (expected 0, got $actualCi)"
+            $script:failed++
+        }
+
+        # キャッシュ: PASS後に状態が変わっていなければ auto再実行をスキップする
+        # (マーカーファイル自身が署名に混入してキャッシュが失効しないことの確認)
+        $prevEAPcache = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        $env:CLAUDE_SPEC_CHECK = "1"
+        '{}' | uv run python $AbsSpecGate --docs "$SpecFixture\docs" --spec-dir "$SpecFixture\spec" *> $null
+        '{}' | uv run python $AbsSpecGate --docs "$SpecFixture\docs" --spec-dir "$SpecFixture\spec" *> "$SpecFixture\cache2.txt"
+        $actualCache = $LASTEXITCODE
+        Remove-Item -Path env:CLAUDE_SPEC_CHECK -ErrorAction SilentlyContinue
+        $ErrorActionPreference = $prevEAPcache
+        # 再実行ログの検出はエンコーディング非依存のASCII部分で行う
+        # (Windows では Python の stderr が cp932 になり日本語の照合が不安定なため)
+        $cacheLog = Get-Content "$SpecFixture\cache2.txt" -Raw -ErrorAction SilentlyContinue
+        if ($actualCache -eq 0 -and $cacheLog -notmatch "spec_gate\] auto") {
+            Write-Host "OK: spec_gate キャッシュ: 状態不変ならauto再実行をスキップ (exit $actualCache)"
+        } else {
+            Write-Host "NG: spec_gate キャッシュ: 状態不変でも再実行された、または exit != 0 (got $actualCache)"
+            $script:failed++
+        }
     } finally {
         Remove-Item -Path $SpecFixture -Recurse -Force -ErrorAction SilentlyContinue
     }
-}
 
 Write-Host ""
 if ($script:failed -gt 0) {

@@ -6,10 +6,10 @@
 ### Added
 - spec-compliance(設計書適合チェック): 設計書(docs/active/)の「## 受け入れ条件」テーブルを
   唯一の要件ソースとして、Stop フックと CI で全要件PASS・承認・独立監査を機械検査する仕組みを追加
-  - `.claude/hooks/spec_gate.py`(要手動配置): `CLAUDE_SPEC_CHECK=1` のとき、verdict/audit/approvals
+  - `.claude/hooks/spec_gate.py`: `CLAUDE_SPEC_CHECK=1` のとき、verdict/audit/approvals
     を検査し欠けがあれば完了をブロック。`--ci` でCIモード、`--docs`/`--spec-dir` でテスト用の
     ディレクトリ上書きに対応
-  - `.claude/hooks/spec_approve.py`(要手動配置): ユーザーの `!` 実行でmanual要件を
+  - `.claude/hooks/spec_approve.py`: ユーザーの `!` 実行でmanual要件を
     `.claude/spec/approvals.txt` に承認記録(Claude 経由の書き込みは保護パスでブロック)
   - `.claude/agents/spec-auditor.md` 新規: evaluator の判定を独立コンテキストで再検証し、
     スコープ外変更を列挙する監査エージェント
@@ -21,8 +21,28 @@
   - `templates/spec-gate.yml.template`: PR/push時に `spec_gate.py --ci` を実行するCIワークフロー雛形
   - claude-init/update: `.github/workflows/spec-gate.yml` の自動配置、`.claude/spec/` の
     .gitignore追加
-  - verify-hooks: spec-compliance のテストケース(R-101〜R-109, R-112)を追加。
-    spec_gate/spec_approve が未配置の間はSKIP表示にして既存ケースを壊さない
+  - verify-hooks: spec-compliance のテストケース(R-101〜R-109, R-112)を追加
+- regression-suite スキル: 実装後に影響範囲を広くカバーするテストを任意生成
+- config-explain スキル: スコープ・評価強制設定の可視化
+- GitHub Actions CI: push/PR時に verify-hooks を自動実行
+- LICENSE(MIT)
+- doctor.ps1 / doctor.sh: テンプレートとの差分検知(sync-check)
+- examples/toy-project: パイプラインお試し用のサンプルプロジェクト
+- スキル設計のリファクタ: 全スキルの description をトリガー条件のみに絞り、Claudeがdescriptionだけで行動する誤動作を減らした
+- スキル間の連鎖強制: design-interview / planner がトレードオフを伴う決定を解消したら、adr スキルの使用を必須化
+- 設計書からの知識自動スタック: design-interview と planner が、設計書・計画に含まれる用語をCONTEXT.md、設計判断をdocs/adr/、実験再現条件をEXPERIMENT_LOG.mdに自動追記
+
+### Fixed
+- spec_gate `--ci` が verdict/audit/approvals(gitignore対象でCIに存在しない)まで要求し、
+  設計書があるとCIが必ず失敗する問題を修正。CIモードは auto要件の全件再実行+coverage検査のみで判定
+- spec_gate のキャッシュがマーカーファイル自身を署名に含めていて毎回失効していた問題を修正
+- `.claude/spec/` の .gitignore パターンを `**/.claude/spec/` に変更
+  (CLAUDE_WORK_SCOPE 設定時に使われる作業スコープ配下の `.claude/spec/` も除外されるように)
+- evaluator / spec-auditor に Write/Edit ツールを追加(verdict/audit ファイルの出力を
+  Bash リダイレクト頼みにしない)。verdict/audit の出力先が作業スコープ配下であることを明記
+- ml-pipeline.md が README の存在しない節(7.5)を参照し、環境変数の設定方法として
+  古いシェル方式を案内していたのを settings.local.json 方式に修正
+- repo_state_signature の重複実装(enforce_eval.py / spec_gate.py)を _common.py に一元化
 
 ### Security
 - ガードの自己書き換え防止: .claude/hooks/ と settings.json / settings.local.json への Edit/Write・リダイレクト・tee をブロック(PROTECTED_PATH_PATTERNS)
@@ -35,17 +55,6 @@
 
 ### Changed
 - トークン節約: 全スキルの description を圧縮(全セッション常駐分)、planner.md をルール維持のまま文言圧縮
-
-### Added
-- regression-suite スキル: 実装後に影響範囲を広くカバーするテストを任意生成
-- config-explain スキル: スコープ・評価強制設定の可視化
-- GitHub Actions CI: push/PR時に verify-hooks を自動実行
-- LICENSE(MIT)
-- doctor.ps1 / doctor.sh: テンプレートとの差分検知(sync-check)
-- examples/toy-project: パイプラインお試し用のサンプルプロジェクト
-- スキル設計のリファクタ: 全スキルの description をトリガー条件のみに絞り、Claudeがdescriptionだけで行動する誤動作を減らした
-- スキル間の連鎖強制: design-interview / planner がトレードオフを伴う決定を解消したら、adr スキルの使用を必須化
-- 設計書からの知識自動スタック: design-interview と planner が、設計書・計画に含まれる用語をCONTEXT.md、設計判断をdocs/adr/、実験再現条件をEXPERIMENT_LOG.mdに自動追記
 
 ## 過去の主な変更(遡及記録)
 - Planner / Generator / Evaluator の3分離パターンを構築

@@ -5,10 +5,13 @@
 受け入れ条件テーブルのパーサも spec_gate.py と verify-hooks から共通で使えるよう
 ここに置く(stdlib の re のみ使用)。
 spec_gate.py / spec_approve.py が共有する対象ディレクトリ解決ロジック
-(resolve_docs_dir / resolve_spec_dir)もここに一元化する。
+(resolve_docs_dir / resolve_spec_dir)と、enforce_eval.py / spec_gate.py が
+共有するリポジトリ状態ハッシュ(repo_state_signature)もここに一元化する。
 """
+import hashlib
 import os
 import re
+import subprocess
 from pathlib import Path
 
 # 秘密情報らしき文字列(書き込み内容・コマンド文字列の両方に適用)
@@ -192,3 +195,26 @@ def resolve_spec_dir(explicit=None):
     if work_scope:
         return Path(work_scope) / ".claude" / "spec"
     return Path(".claude") / "spec"
+
+
+def repo_state_signature(extra):
+    """リポジトリ状態(HEAD + 作業ツリー)を表すハッシュを返す。
+
+    enforce_eval.py / spec_gate.py が「前回PASSから状態が変わっていなければ
+    重い再実行をスキップする」キャッシュのキーとして共用する。
+    extra にはコマンド文字列など、状態以外にキャッシュを無効化したい
+    要素を渡す。git が使えなければ None(キャッシュ無効)。
+    """
+    try:
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], capture_output=True, text=True, timeout=10,
+        ).stdout
+    except Exception:
+        return None
+    if not head:
+        return None
+    raw = f"{extra}\n{head}\n{status}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()

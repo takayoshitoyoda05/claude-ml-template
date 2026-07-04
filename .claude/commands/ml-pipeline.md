@@ -2,7 +2,8 @@
 
 Planner/Generator に加え、Evaluator を2軸(Spec/Standards)に分けてレビューする。
 フック制御用の環境変数(CLAUDE_WORK_SCOPE / CLAUDE_ENFORCE_EVAL / CLAUDE_EVAL_CMD)は
-claude 起動前にシェルで設定しておく(設定方法は README の 7.5 節を参照)。
+`.claude/settings.local.json` の `env` ブロックに設定する
+(README「起動(フックの有効化)」の節を参照)。
 
 対象に設計書(docs/active/)がある場合、`CLAUDE_SPEC_CHECK=1` を設定すると
 Stop フックの `spec_gate` が「## 受け入れ条件」テーブルの全要件PASS・承認・監査OKを

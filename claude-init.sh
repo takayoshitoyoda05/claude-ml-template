@@ -31,7 +31,7 @@ cp "$TMP/.claude/settings.json" .claude/settings.json
 echo "OK: .claude/ を展開しました"
 
 # .gitignore に除外エントリを追加(冪等)
-for IGNORE_ENTRY in ".claude/checkpoints/" ".claude/settings.local.json" ".claude/spec/"; do
+for IGNORE_ENTRY in ".claude/checkpoints/" ".claude/settings.local.json" "**/.claude/spec/"; do
   if [ ! -f ".gitignore" ]; then
     echo "$IGNORE_ENTRY" > .gitignore
     echo "OK: .gitignore を作成しました($IGNORE_ENTRY)"

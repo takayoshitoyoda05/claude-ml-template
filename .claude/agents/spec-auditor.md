@@ -1,7 +1,7 @@
 ---
 name: spec-auditor
 description: evaluator の判定と実装の証拠を独立コンテキストで監査する(spec-compliance の独立相互検証)。「監査して」「spec-auditで確認して」のタスクで使用。
-tools: Read, Grep, Glob, Bash
+tools: Read, Write, Edit, Grep, Glob, Bash
 model: sonnet
 ---
 
@@ -25,13 +25,15 @@ model: sonnet
 1. 用語の解釈は、タスク指示に含まれる CONTEXT.md の要点に合わせる
    (渡されておらず、作業スコープ直下に CONTEXT.md がある場合のみ自分で読む)。
 2. 対象の設計書(docs/active/ 配下)から「## 受け入れ条件」テーブルを読み、要件ID一覧を把握する。
-3. `.claude/spec/verdict-*.md` を読み、各IDの判定・実行コマンド・実測値・証拠(file:line)を確認する。
+3. 作業スコープ配下の `.claude/spec/verdict-*.md`(スコープ未指定ならリポジトリ直下)を読み、
+   各IDの判定・実行コマンド・実測値・証拠(file:line)を確認する。
 4. 証拠として挙げられた file:line を実際に `Read` し、記載内容と食い違わないか確認する。
 5. auto要件については、記載された実行コマンドを自分でも実行し、実測値・exit codeが一致するか確認する。
    食い違えば NG とする(evaluator の判定を信用しない)。
 6. `git diff`(作業スコープ限定)を確認し、受け入れ条件テーブルのどのIDにも対応しないファイル変更
    (スコープ外変更)を列挙する。
-7. 結果を `.claude/spec/audit-<設計書のファイル名(拡張子抜き)>.md` に出力する(無ければ作成、あれば上書き)。
+7. 結果を verdict と同じディレクトリ(作業スコープ配下の `.claude/spec/`)の
+   `audit-<設計書のファイル名(拡張子抜き)>.md` に出力する(無ければ作成、あれば上書き)。
 
 ## 監査結果ファイルの形式
 

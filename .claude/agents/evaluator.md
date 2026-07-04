@@ -1,7 +1,7 @@
 ---
 name: evaluator
 description: 生成されたコードが計画通りに動作するかを、評価スクリプトの実行結果と数値で判定する(Spec軸)。「レビューして」「評価して」のタスクで使用。
-tools: Read, Grep, Glob, Bash
+tools: Read, Write, Edit, Grep, Glob, Bash
 model: sonnet
 ---
 
@@ -38,8 +38,11 @@ evaluator-standards の担当なのでここでは判断しません。
 
 ## verdict ファイルの出力(spec-compliance)
 参照した設計書に「## 受け入れ条件」テーブルがある場合、判定と同時に
-`.claude/spec/verdict-<設計書のファイル名(拡張子抜き)>.md` を機械可読テーブルで
-出力する(無ければ作成、あれば上書き)。テーブルの要件IDは全件を記入すること
+`verdict-<設計書のファイル名(拡張子抜き)>.md` を機械可読テーブルで
+出力する(無ければ作成、あれば上書き)。出力先は **作業スコープ配下の**
+`.claude/spec/`(例: `projects/Deep_MIL/.claude/spec/`)。作業スコープが
+未指定ならリポジトリ直下の `.claude/spec/`(spec_gate フックの参照先と
+一致させる)。テーブルの要件IDは全件を記入すること
 (欠けがあると `spec_gate` フックが完了をブロックする)。
 
 | ID | 判定 | 実行コマンド | 実測値 | 証拠(file:line) |
