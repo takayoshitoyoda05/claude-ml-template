@@ -2,6 +2,8 @@
   "env": {
     "CLAUDE_WORK_SCOPE": "",
     "CLAUDE_ENFORCE_EVAL": "",
-    "CLAUDE_EVAL_CMD": ""
+    "CLAUDE_EVAL_CMD": "",
+    "CLAUDE_SPEC_CHECK": "",
+    "CLAUDE_SPEC_RECHECK_N": ""
   }
 }

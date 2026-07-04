@@ -1,0 +1,24 @@
+name: Spec Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  spec-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Run spec_gate (CI mode)
+        run: |
+          if [ -f ".claude/hooks/spec_gate.py" ]; then
+            uv run python .claude/hooks/spec_gate.py --ci
+          else
+            echo "SKIP: .claude/hooks/spec_gate.py が未配置のためスキップします"
+          fi

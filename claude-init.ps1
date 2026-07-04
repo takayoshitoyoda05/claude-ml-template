@@ -31,7 +31,7 @@ try {
     Write-Host "OK: .claude/ を展開しました"
     # .gitignore に除外エントリを追加(冪等)
     $gitignorePath = ".gitignore"
-    foreach ($ignoreEntry in @(".claude/checkpoints/", ".claude/settings.local.json")) {
+    foreach ($ignoreEntry in @(".claude/checkpoints/", ".claude/settings.local.json", ".claude/spec/")) {
         if (-not (Test-Path $gitignorePath)) {
             $ignoreEntry | Out-File -FilePath $gitignorePath -Encoding utf8
             Write-Host "OK: .gitignore を作成しました($ignoreEntry)"
@@ -52,6 +52,15 @@ try {
         Copy-Item (Join-Path $Tmp "templates\settings.local.json.template") ".claude\settings.local.json"
         Write-Host "OK: .claude/settings.local.json を生成しました(env の値を記入するとフックが有効になります)"
     }
+    # GitHub Actions ワークフロー(spec-gate)の配置(既存なら保持)
+    if (Test-Path ".github/workflows/spec-gate.yml") {
+        Write-Host "OK: .github/workflows/spec-gate.yml は既存のものを保持します"
+    } else {
+        New-Item -ItemType Directory -Path ".github/workflows" -Force | Out-Null
+        Copy-Item (Join-Path $Tmp "templates\spec-gate.yml.template") ".github/workflows/spec-gate.yml"
+        Write-Host "OK: .github/workflows/spec-gate.yml を配置しました"
+    }
+
     if (Test-Path "CLAUDE.md") {
         Write-Host "OK: CLAUDE.md は既存のものを保持します"
     } else {
