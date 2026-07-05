@@ -297,6 +297,19 @@ flowchart LR
 
 いずれも「ブレストして」「grillして」「原因を調べて」のような自然文で発動する。
 
+### Output style(.claude/output-styles/)
+
+Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5の行動様式
+(結論先行・即行動・進捗の実証・スコープ規律)をSonnet/Opusに移植する。
+
+- メインセッション用: `fable-like.md`。`/config` → Output style → fable-like で有効化。
+  有効化はプロジェクトの settings.local.json に保存され、/clear か新セッションで反映される
+- サブエージェントには output style が効かないため、planner / generator / evaluator /
+  evaluator-standards の各定義に凝縮版を直接埋め込み済み(evaluator系にはレビュー範囲を
+  狭めないための注意書き付き)
+
+移植できるのは行動様式のみ。Fable 5自体の推論力は移植できない。
+
 ### フック(.claude/hooks/)
 
 プロンプトの「お願い」と違い、確定的に実行される物理ガード。

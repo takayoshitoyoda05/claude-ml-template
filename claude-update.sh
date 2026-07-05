@@ -22,7 +22,7 @@ git clone --depth 1 --quiet "$TEMPLATE_REPO" "$TMP"
 
 # 更新対象: agents / commands / hooks / settings.json
 # plans/ と CLAUDE.md はプロジェクト固有・実行履歴なので触らない
-for item in agents commands hooks skills; do
+for item in agents commands hooks skills output-styles; do
   if [ -d "$TMP/.claude/$item" ]; then
     cp -r "$TMP/.claude/$item" .claude/
     echo "OK: .claude/$item を更新しました"
