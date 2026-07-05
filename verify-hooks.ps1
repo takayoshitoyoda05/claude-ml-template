@@ -50,6 +50,17 @@ Test-Hook "guard_bash: >| redirect to settings is blocked" '{"tool_input":{"comm
 Test-Hook "guard_bash: rm -rf brace-HOME is blocked" '{"tool_input":{"command":"rm -rf ${HOME}/x"}}' ".claude\hooks\guard_bash.py" 2
 Test-Hook "guard_bash: cp within scope passes" '{"tool_input":{"command":"cp src/a.py src/b.py"}}' ".claude\hooks\guard_bash.py" 0
 Test-Hook "guard_bash: exec hook passes" '{"tool_input":{"command":"uv run python .claude/hooks/guard_scope.py"}}' ".claude\hooks\guard_bash.py" 0
+
+# --- PowerShellネイティブコマンドの検知(クロスOS対応) ---
+Test-Hook "guard_bash: Remove-Item hooks dir is blocked" '{"tool_input":{"command":"Remove-Item -Recurse -Force .claude/hooks"}}' ".claude\hooks\guard_bash.py" 2
+Test-Hook "guard_bash: Remove-Item hooks dir no trailing slash is blocked" '{"tool_input":{"command":"rm -rf .claude/hooks"}}' ".claude\hooks\guard_bash.py" 2
+Test-Hook "guard_bash: Set-Content settings.json is blocked" '{"tool_input":{"command":"Set-Content -Path .claude/settings.json -Value data"}}' ".claude\hooks\guard_bash.py" 2
+Test-Hook "guard_bash: Copy-Item overwrite hook is blocked" '{"tool_input":{"command":"Copy-Item evil.py .claude/hooks/guard_bash.py -Force"}}' ".claude\hooks\guard_bash.py" 2
+Test-Hook "guard_bash: Remove-Item -Recurse -Force drive root is blocked" '{"tool_input":{"command":"Remove-Item -Recurse -Force C:\\Users\\foo"}}' ".claude\hooks\guard_bash.py" 2
+Test-Hook "guard_bash: Remove-Item -Recurse -Force scoped dir passes" '{"tool_input":{"command":"Remove-Item -Recurse -Force build"}}' ".claude\hooks\guard_bash.py" 0
+Test-Hook "guard_bash: git add -u is blocked" '{"tool_input":{"command":"git add -u"}}' ".claude\hooks\guard_bash.py" 2
+Test-Hook "guard_bash: Anthropic-style key is blocked" '{"tool_input":{"command":"echo sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-AbCdEfGh"}}' ".claude\hooks\guard_bash.py" 2
+
 Test-Hook "enforce_eval: no flag passes" '{}' ".claude\hooks\enforce_eval.py" 0
 
 # --- spec-compliance (spec_gate / spec_approve / guard_scope連携) ---

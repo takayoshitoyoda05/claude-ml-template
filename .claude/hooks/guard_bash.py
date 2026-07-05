@@ -6,10 +6,14 @@
 コミットメッセージ規約(ステップ番号必須)は CLAUDE_COMMIT_STEP_RULE=1 の
 ときのみ有効(ml-pipeline実行時を想定。通常の手動コミットを妨げないため)。
 
+このプロジェクトは Windows(PowerShell)/ Unix(bash) の両方で使うため、
+コマンド名の判定は bash 系(rm/cp/mv 等)と PowerShell 系(Remove-Item/
+Copy-Item 等とその既定エイリアス)の両方を大文字小文字を区別せずに見る。
+
 注意(多層防御としての限界):
-このガードは cp/mv/sed/rm 等の「よく使う直接的な変更手段」と
-リダイレクト/tee を塞ぐが、`python -c "open(...,'w')"` のような任意
-コード実行や、名前指定の find -delete までは原理的に検知できない。
+このガードは cp/mv/sed/rm・PowerShellの変更系コマンド等「よく使う直接的な
+変更手段」とリダイレクト/tee を塞ぐが、`python -c "open(...,'w')"` のような
+任意コード実行や、名前指定の find -delete までは原理的に検知できない。
 保護パスの本当の防壁は「ユーザーが手動編集する運用」であり、これは
 事故と単純な逸脱を止める補助線と位置づける。
 """
@@ -41,10 +45,27 @@ BLOCKED_ADD_EXT = sorted(ARTIFACT_EXTENSIONS | BLOCKED_EXTENSIONS)
 # ファイルを変更・削除しうるコマンド名(セグメント先頭に来たとき、
 # その引数に保護パスが現れたらブロック)。読み取り(cat/grep/diff)や
 # 実行(python/uv run python)は含めない。git は rm サブコマンドのみ対象。
+# PowerShell の既定エイリアス(Remove-Item→ri/del/erase/rd/rmdir、
+# Copy-Item→cpi/copy、Move-Item→mi/move、Rename-Item→rni/ren、
+# Set-Content→sc、Add-Content→ac、Clear-Content→clc)も含める。
+# 小文字で保持し、比較側で .lower() することで大文字小文字を区別しない
+# (PowerShellのコマンド名・エイリアスは大文字小文字を区別しないため)。
 FILE_MUTATING_CMDS = {
     "cp", "mv", "rm", "sed", "install", "truncate", "ln",
     "dd", "tee", "chmod", "chown", "shred", "rsync",
+    "remove-item", "ri", "del", "erase", "rd", "rmdir",
+    "copy-item", "cpi", "copy",
+    "move-item", "mi", "move",
+    "rename-item", "rni", "ren",
+    "set-content", "sc",
+    "add-content", "ac",
+    "clear-content", "clc",
+    "out-file",
 }
+
+# 再帰かつ強制の削除コマンド名(bash の rm、PowerShell の Remove-Item と
+# 既定エイリアス)。大文字小文字を区別しない。
+_DELETE_CMD_ALTERNATION = r"(?:rm|Remove-Item|ri|del|erase|rd|rmdir)"
 
 # セグメント先頭に来ても実際のコマンドではない前置き(読み飛ばす)
 _PREFIX_CMDS = {"sudo", "nohup", "time", "env", "nice", "xargs", "command", "builtin"}
@@ -52,19 +73,40 @@ _ENV_ASSIGN = re.compile(r"^\w+=")
 _SEGMENT_SPLIT = re.compile(r"[;&|\n]+")
 
 
-def is_dangerous_rm(cmd):
-    """再帰かつ強制の rm が絶対パス・~・$HOME を対象にしていたら True。
+def _is_root_like_target(t):
+    """絶対パス・ホームディレクトリ相当なら True(bash/Windows両対応)。
 
-    -rf / -fr / -r -f のような表記ゆれをフラグ解析で吸収する。
-    対象は /、~、$HOME(${HOME} 等の波括弧展開含む)を先頭に持つもの。
+    bash: /、~、$HOME・${HOME}。
+    PowerShell/Windows: ドライブ絶対パス(C:\\ 等)、UNCパス(\\\\server\\share)、
+    $env:USERPROFILE 等の環境変数参照。
     """
-    for m in re.finditer(r"\brm\s+([^|;&]+)", cmd):
+    if t.startswith(("/", "~")):
+        return True
+    if re.match(r"\$\{?HOME\b", t, flags=re.IGNORECASE):
+        return True
+    if re.match(r"^\$env:", t, flags=re.IGNORECASE):
+        return True
+    if re.match(r"^[A-Za-z]:[\\/]", t):
+        return True
+    if t.startswith("\\\\"):
+        return True
+    return False
+
+
+def is_dangerous_delete(cmd):
+    """再帰かつ強制の削除コマンドがルート相当のパスを対象にしていたら True。
+
+    -rf / -fr / -r -f (bash) や -Recurse -Force (PowerShell、大文字小文字
+    表記ゆれ含む)のような表記ゆれをフラグ解析で吸収する。
+    """
+    pattern = _DELETE_CMD_ALTERNATION + r"\s+([^|;&\n]+)"
+    for m in re.finditer(pattern, cmd, flags=re.IGNORECASE):
         args = m.group(1).split()
         flags = "".join(a.lstrip("-") for a in args if a.startswith("-")).lower()
         targets = [a.strip("\"'") for a in args if not a.startswith("-")]
         if "r" in flags and "f" in flags:
             for t in targets:
-                if t.startswith(("/", "~")) or re.match(r"\$\{?HOME", t):
+                if _is_root_like_target(t):
                     return True
     return False
 
@@ -86,18 +128,19 @@ def _segment_mutating_targets(segment):
     先頭の環境変数代入(FOO=bar)や sudo 等の前置きは読み飛ばす。
     git は `git rm` のみ対象(add/commit/diff はファイル内容を変えないので除外)。
     `dd of=path` のような `key=value` 形式は value 側もパス候補に含める。
+    コマンド名の比較は大文字小文字を区別しない(PowerShell対応)。
     """
     tokens = segment.strip().split()
     while tokens and (_ENV_ASSIGN.match(tokens[0]) or
-                      os.path.basename(tokens[0].strip("\"'")) in _PREFIX_CMDS):
+                      os.path.basename(tokens[0].strip("\"'")).lower() in _PREFIX_CMDS):
         tokens = tokens[1:]
     if not tokens:
         return []
 
-    name = os.path.basename(tokens[0].strip("\"'"))
+    name = os.path.basename(tokens[0].strip("\"'")).lower()
     rest = tokens[1:]
     if name == "git":
-        if rest and rest[0] == "rm":
+        if rest and rest[0].lower() == "rm":
             rest = rest[1:]
         else:
             return []
@@ -124,7 +167,11 @@ def touches_protected_via_mutating_cmd(cmd):
     for segment in _SEGMENT_SPLIT.split(cmd):
         for token in _segment_mutating_targets(segment):
             abs_norm = os.path.abspath(token).replace("\\", "/")
-            if any(pat in abs_norm for pat in PROTECTED_PATH_PATTERNS):
+            # 末尾に "/" を足してから比較する。ディレクトリを末尾スラッシュ
+            # なしで指定した場合(例: "rm -rf .claude/hooks")でも
+            # PROTECTED_PATH_PATTERNS の "/.claude/hooks/" と一致させるため
+            # (ファイルパターンは元々末尾スラッシュなしなので影響しない)。
+            if any(pat in abs_norm + "/" for pat in PROTECTED_PATH_PATTERNS):
                 return token
     return None
 
@@ -139,7 +186,7 @@ def main():
     if not cmd:
         sys.exit(0)
 
-    if is_dangerous_rm(cmd) or any(re.search(p, cmd) for p in DANGER_PATTERNS):
+    if is_dangerous_delete(cmd) or any(re.search(p, cmd) for p in DANGER_PATTERNS):
         print(
             f"[guard_bash] BLOCKED: 危険なコマンドを検出しました: {cmd}\n"
             f"本当に必要な場合は Claude Code の外で手動実行してください。",
@@ -155,8 +202,9 @@ def main():
             )
             sys.exit(2)
 
-    # cp/mv/sed/rm/install/truncate/tee/git rm 等でフック・設定・承認記録を
-    # 書き換え/削除するのをブロック(guard_scope は Edit/Write しか見ないため)
+    # cp/mv/sed/rm/install/truncate/tee/git rm・PowerShellの変更系コマンド等で
+    # フック・設定・承認記録を書き換え/削除するのをブロック(guard_scope は
+    # Edit/Write しか見ないため)
     protected_token = touches_protected_via_mutating_cmd(cmd)
     if protected_token is not None:
         print(
@@ -178,7 +226,7 @@ def main():
             )
             sys.exit(2)
         abs_norm = os.path.abspath(target).replace("\\", "/")
-        if any(pat in abs_norm for pat in PROTECTED_PATH_PATTERNS):
+        if any(pat in abs_norm + "/" for pat in PROTECTED_PATH_PATTERNS):
             print(
                 f"[guard_bash] BLOCKED: フック/設定({target})への書き込みは禁止です。"
                 f"変更が必要な場合はユーザーが手動で編集してください。",
@@ -188,10 +236,15 @@ def main():
 
     if re.search(r"git\s+add\b", cmd):
         # 一括ステージは生成物混入の主経路なのでパス限定を促す
-        if re.search(r"git\s+add\s+(?:-[A-Za-z]*A[A-Za-z]*|--all|\*|\.(?:/)?(?:\s|$))", cmd):
+        # (-A/--all/*/. に加え、追跡済み全ファイルを対象にする -u/--update も対象)
+        if re.search(
+            r"git\s+add\s+(?:-[A-Za-z]*[Au][A-Za-z]*|--all|--update|\*|\.(?:/)?(?:\s|$))",
+            cmd,
+        ):
             print(
-                "[guard_bash] BLOCKED: git add の一括ステージ(. / -A / --all / *)は"
-                "禁止です。対象パスを明示してください(例: git add src/train.py)。",
+                "[guard_bash] BLOCKED: git add の一括ステージ(. / -A / -u / --all / "
+                "--update / *)は禁止です。対象パスを明示してください"
+                "(例: git add src/train.py)。",
                 file=sys.stderr,
             )
             sys.exit(2)

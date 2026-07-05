@@ -54,7 +54,10 @@ def main():
         )
         sys.exit(2)
 
-    if any(pat in norm for pat in PROTECTED_PATH_PATTERNS):
+    # 末尾に "/" を足してから比較する。ディレクトリを末尾スラッシュなしで
+    # 指定した場合でも PROTECTED_PATH_PATTERNS の "/.claude/hooks/" と
+    # 一致させるため(ファイルパターンは元々末尾スラッシュなしなので影響しない)。
+    if any(pat in norm + "/" for pat in PROTECTED_PATH_PATTERNS):
         print(
             f"[guard_scope] BLOCKED: フック/設定(ガード自身)への書き込みは禁止です: {file_path}\n"
             f"変更が必要な場合はユーザーが手動で編集してください。",

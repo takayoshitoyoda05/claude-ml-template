@@ -18,6 +18,10 @@ from pathlib import Path
 SECRET_CONTENT_PATTERNS = [
     r"AKIA[0-9A-Z]{16}",
     r"sk-[A-Za-z0-9]{20,}",
+    # sk-[A-Za-z0-9]{20,} は連続英数字のOpenAI形式のみ拾う。Anthropic形式
+    # (sk-ant-api03-... のようにハイフン/アンダースコアで区切られる)は
+    # 連続20文字に届かないためすり抜ける。別パターンで拾う。
+    r"sk-ant-[A-Za-z0-9_-]{20,}",
     r"AIza[0-9A-Za-z\-_]{35}",
     r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
     r"xox[baprs]-[0-9A-Za-z-]{10,}",
