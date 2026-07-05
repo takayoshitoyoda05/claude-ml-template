@@ -263,7 +263,10 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
         $ErrorActionPreference = $prevEAPcache
         # 再実行ログの検出はエンコーディング非依存のASCII部分で行う
         # (Windows では Python の stderr が cp932 になり日本語の照合が不安定なため)
-        $cacheLog = Get-Content "$SpecFixture\cache2.txt" -Raw -ErrorAction SilentlyContinue
+        # Get-Content -Raw は空ファイル(0バイト)に対して $null を返すことがあり、
+        # $null -notmatch は環境によって真偽値ではなく $null を返すことがあるため
+        # [string] キャストで空文字列に正規化してから比較する
+        $cacheLog = [string](Get-Content "$SpecFixture\cache2.txt" -Raw -ErrorAction SilentlyContinue)
         if ($actualCache -eq 0 -and $cacheLog -notmatch "spec_gate\] auto") {
             Write-Host "OK: spec_gate キャッシュ: 状態不変ならauto再実行をスキップ (exit $actualCache)"
         } else {
