@@ -1,4 +1,18 @@
 {
+  "permissions": {
+    "allow": [
+      "Edit",
+      "Write",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git diff *)",
+      "Bash(git status)",
+      "Bash(git branch *)",
+      "Bash(git log *)",
+      "Bash(uv run *)",
+      "Bash(ruff *)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
