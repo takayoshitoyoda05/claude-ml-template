@@ -47,11 +47,18 @@ ARTIFACT_DIR_PATTERNS = [
 # ガード自身とフック設定・spec-compliance の承認記録(エージェントによる
 # 自己書き換え・承認偽装を防ぐ。正規化済み絶対パスに含まれていたらブロック。
 # 変更はユーザーが手動で行う)
+# last_spec_pass.txt(spec_gate のキャッシュマーカー)と design_hashes.txt
+# (計画承認時の設計書ハッシュ)はフック/承認スクリプト自身が書くファイルで、
+# エージェントのツール経由で書く正当な理由がないため保護対象に含める
+# (キャッシュ署名は決定的な計算なので、書ければ全検査をスキップさせる
+# 偽装ができてしまう)。
 PROTECTED_PATH_PATTERNS = [
     "/.claude/hooks/",
     "/.claude/settings.json",
     "/.claude/settings.local.json",
     "/.claude/spec/approvals.txt",
+    "/.claude/spec/last_spec_pass.txt",
+    "/.claude/spec/design_hashes.txt",
 ]
 
 
@@ -199,6 +206,28 @@ def resolve_spec_dir(explicit=None):
     if work_scope:
         return Path(work_scope) / ".claude" / "spec"
     return Path(".claude") / "spec"
+
+
+def design_file_sha256(path):
+    """設計書ファイル内容の sha256 を返す(計画承認時の記録・spec_gate の照合で共用)。"""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def read_design_hashes(spec_dir):
+    """design_hashes.txt を {設計書名(stem): sha256} で返す(同名は後勝ち=最新承認)。
+
+    行形式は「<設計書名> <sha256> <タイムスタンプ>」(spec_approve.py が追記する)。
+    ファイル不在なら空dict。
+    """
+    hashes_file = Path(spec_dir) / "design_hashes.txt"
+    result = {}
+    if not hashes_file.exists():
+        return result
+    for line in hashes_file.read_text(encoding="utf-8").splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            result[parts[0]] = parts[1]
+    return result
 
 
 def repo_state_signature(extra):

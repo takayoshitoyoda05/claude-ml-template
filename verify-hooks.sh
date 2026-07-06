@@ -46,6 +46,11 @@ test_hook "guard_bash: >| redirect to settings is blocked" '{"tool_input":{"comm
 test_hook "guard_bash: rm -rf brace-HOME is blocked" '{"tool_input":{"command":"rm -rf ${HOME}/x"}}' ".claude/hooks/guard_bash.py" 2
 test_hook "guard_bash: cp within scope passes" '{"tool_input":{"command":"cp src/a.py src/b.py"}}' ".claude/hooks/guard_bash.py" 0
 test_hook "guard_bash: exec hook passes" '{"tool_input":{"command":"uv run python .claude/hooks/guard_scope.py"}}' ".claude/hooks/guard_bash.py" 0
+test_hook "guard_bash: exec spec_approve is blocked" '{"tool_input":{"command":"uv run python .claude/hooks/spec_approve.py R-003"}}' ".claude/hooks/guard_bash.py" 2
+test_hook "guard_bash: copied spec_approve is blocked" '{"tool_input":{"command":"python /tmp/spec_approve.py R-003"}}' ".claude/hooks/guard_bash.py" 2
+test_hook "guard_bash: redirect to last_spec_pass.txt is blocked" '{"tool_input":{"command":"echo deadbeef > .claude/spec/last_spec_pass.txt"}}' ".claude/hooks/guard_bash.py" 2
+test_hook "guard_scope: last_spec_pass.txt write is blocked" '{"tool_input":{"file_path":".claude/spec/last_spec_pass.txt","content":"deadbeef"}}' ".claude/hooks/guard_scope.py" 2
+test_hook "guard_scope: design_hashes.txt write is blocked" '{"tool_input":{"file_path":".claude/spec/design_hashes.txt","content":"design deadbeef"}}' ".claude/hooks/guard_scope.py" 2
 
 # --- PowerShellネイティブコマンドの検知(クロスOS対応) ---
 test_hook "guard_bash: Remove-Item hooks dir is blocked" '{"tool_input":{"command":"Remove-Item -Recurse -Force .claude/hooks"}}' ".claude/hooks/guard_bash.py" 2
@@ -132,6 +137,30 @@ EOF
   uv run python "$ABS_SPEC_APPROVE" R-002 --docs "$SPEC_FIXTURE/docs" --spec-dir "$SPEC_FIXTURE/spec" >/dev/null 2>&1
   test_spec_gate "spec_approve後: R-105/R-101 全要件PASSで通過" 0 \
     "$SPEC_FIXTURE/docs" "$SPEC_FIXTURE/spec" CLAUDE_SPEC_CHECK=1
+
+  # 設計書ハッシュ: verdict/audit/approvals が揃っていても design_hashes.txt が
+  # 無ければブロック(計画承認の強制)
+  mkdir -p "$SPEC_FIXTURE/spec_nohash"
+  cp "$SPEC_FIXTURE/spec/verdict-design.md" "$SPEC_FIXTURE/spec_nohash/verdict-design.md"
+  cp "$SPEC_FIXTURE/spec/audit-design.md" "$SPEC_FIXTURE/spec_nohash/audit-design.md"
+  echo "design R-002 2026-01-01T00:00:00" > "$SPEC_FIXTURE/spec_nohash/approvals.txt"
+  test_spec_gate "spec_gate 設計書ハッシュ: 計画承認記録なしはブロック" 2 \
+    "$SPEC_FIXTURE/docs" "$SPEC_FIXTURE/spec_nohash" CLAUDE_SPEC_CHECK=1
+
+  # 設計書ハッシュ: 承認後に設計書が改変されたらブロック
+  mkdir -p "$SPEC_FIXTURE/docs_tamper" "$SPEC_FIXTURE/spec_tamper"
+  cp "$SPEC_FIXTURE/docs/design.md" "$SPEC_FIXTURE/docs_tamper/design.md"
+  cp "$SPEC_FIXTURE/spec/verdict-design.md" "$SPEC_FIXTURE/spec_tamper/verdict-design.md"
+  cp "$SPEC_FIXTURE/spec/audit-design.md" "$SPEC_FIXTURE/spec_tamper/audit-design.md"
+  uv run python "$ABS_SPEC_APPROVE" R-002 --docs "$SPEC_FIXTURE/docs_tamper" --spec-dir "$SPEC_FIXTURE/spec_tamper" >/dev/null 2>&1
+  test_spec_gate "spec_gate 設計書ハッシュ: 承認直後は通過" 0 \
+    "$SPEC_FIXTURE/docs_tamper" "$SPEC_FIXTURE/spec_tamper" CLAUDE_SPEC_CHECK=1
+  printf '\n(tampered after approval)\n' >> "$SPEC_FIXTURE/docs_tamper/design.md"
+  test_spec_gate "spec_gate 設計書ハッシュ: 承認後の改変はブロック" 2 \
+    "$SPEC_FIXTURE/docs_tamper" "$SPEC_FIXTURE/spec_tamper" CLAUDE_SPEC_CHECK=1
+  uv run python "$ABS_SPEC_APPROVE" --design design --docs "$SPEC_FIXTURE/docs_tamper" --spec-dir "$SPEC_FIXTURE/spec_tamper" >/dev/null 2>&1
+  test_spec_gate "spec_gate 設計書ハッシュ: --design 再承認で通過" 0 \
+    "$SPEC_FIXTURE/docs_tamper" "$SPEC_FIXTURE/spec_tamper" CLAUDE_SPEC_CHECK=1
 
   # R-108: CLAUDE_SPEC_RECHECK_N=all で auto要件が全件再実行される(ログに全ID)
   echo '{}' | CLAUDE_SPEC_CHECK=1 CLAUDE_SPEC_RECHECK_N=all uv run python "$ABS_SPEC_GATE" \

@@ -3,6 +3,17 @@
 このプロジェクトの主な変更点を記録する。形式は [Keep a Changelog](https://keepachangelog.com/) に緩く準拠。
 
 ## [Unreleased]
+### Security
+- spec-compliance の3つの迂回経路を修正(セルフ監査での指摘対応)
+  - guard_bash: エージェントの Bash/PowerShell 経由での `spec_approve.py` 実行をブロック
+    (承認はユーザーの `!` 手動実行のみ。`!` は PreToolUse を通らないため影響しない)
+  - `_common.py`: `.claude/spec/last_spec_pass.txt`(spec_gate のキャッシュマーカー)と
+    `.claude/spec/design_hashes.txt` を PROTECTED_PATH_PATTERNS に追加
+    (決定的な署名計算によるキャッシュ偽装・承認記録偽装を防止)
+  - spec_gate/spec_approve: 計画承認時に設計書のハッシュを `design_hashes.txt` に記録し、
+    Stop 時に照合。「唯一の要件ソース」である設計書(docs/active/)自体の改変・
+    検証コマンドの無害化を検知してブロック(`--design <設計書名>` で再承認)
+
 ### Added
 - spec-compliance(設計書適合チェック): 設計書(docs/active/)の「## 受け入れ条件」テーブルを
   唯一の要件ソースとして、Stop フックと CI で全要件PASS・承認・独立監査を機械検査する仕組みを追加

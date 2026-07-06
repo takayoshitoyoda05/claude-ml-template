@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PreToolUse: 危険な Bash コマンド・大容量/秘密情報ファイルの git add・
 ファイル変更コマンド/リダイレクト/tee による秘密情報ファイル・フック設定への
-書き込み・コミットメッセージ規約をチェックする。
+書き込み・spec_approve.py の実行・コミットメッセージ規約をチェックする。
 
 コミットメッセージ規約(ステップ番号必須)は CLAUDE_COMMIT_STEP_RULE=1 の
 ときのみ有効(ml-pipeline実行時を想定。通常の手動コミットを妨げないため)。
@@ -185,6 +185,21 @@ def main():
     cmd = data.get("tool_input", {}).get("command", "")
     if not cmd:
         sys.exit(0)
+
+    # spec_approve.py はユーザーの `!` 手動実行専用(承認偽装の物理的防止)。
+    # `!` 実行は PreToolUse フックを通らないためユーザーには影響せず、
+    # エージェントの Bash/PowerShell ツール経由の実行だけがここでブロックされる。
+    # コピー・リネームによる迂回も塞ぐため、実行形に限らずコマンド文字列に
+    # 名前が現れたら一律ブロックする(参照したいだけなら Read/Grep ツールを使う)。
+    if re.search(r"spec_approve", cmd, flags=re.IGNORECASE):
+        print(
+            "[guard_bash] BLOCKED: spec_approve を含むコマンドは禁止です。"
+            "manual要件の承認はユーザー自身が"
+            " `! uv run python .claude/hooks/spec_approve.py <要件ID>`"
+            " を実行してください。",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     if is_dangerous_delete(cmd) or any(re.search(p, cmd) for p in DANGER_PATTERNS):
         print(

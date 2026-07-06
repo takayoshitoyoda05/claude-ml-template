@@ -5,7 +5,7 @@
 CLAUDE_SPEC_CHECK=1 のときだけ Stop フックとして動作する(R-112)。
 `--ci` を付けると CLAUDE_SPEC_CHECK に関わらず CIモードで動作する。
 CIモードでは auto要件の全件再実行と coverage 検査のみを行う
-(verdict/audit/approvals は .gitignore 対象のローカルファイルで
+(verdict/audit/approvals/design_hashes は .gitignore 対象のローカルファイルで
 CI 環境には存在しないため、検査対象にしない)。
 
 検査項目(1つでも欠ければ exit 2):
@@ -16,6 +16,10 @@ CI 環境には存在しないため、検査対象にしない)。
       (coverage 未インストール、または計測データなしなら fail open でスキップ)
   (d) manual要件が approvals.txt で「設計書名 要件ID」として承認済みか(ローカルのみ)
   (e) audit-*.md が存在し全件 OK か(ローカルのみ)
+  (f) 各設計書のハッシュが design_hashes.txt の計画承認記録と一致するか
+      (ローカルのみ。設計書=唯一の要件ソース自体の改変・すり替えを検知する。
+      記録はユーザーの `! spec_approve.py` 実行時に取られ、design_hashes.txt は
+      approvals.txt と同じ保護対象なのでエージェントは書き換えられない)
 
 テスト容易性のため、対象ディレクトリは --docs <dir> / 環境変数
 CLAUDE_SPEC_DOCS で、内部状態ディレクトリ(verdict/audit/approvals/キャッシュの
@@ -32,8 +36,10 @@ from pathlib import Path
 
 from _common import (
     AcceptanceTableError,
+    design_file_sha256,
     is_separator_row,
     parse_acceptance_table,
+    read_design_hashes,
     repo_state_signature,
     resolve_docs_dir,
     resolve_spec_dir,
@@ -115,6 +121,37 @@ def check_verdict(all_rows, spec_dir):
         judgement = entry[1].strip().upper() if len(entry) > 1 else ""
         if judgement != "PASS":
             reasons.append(f"{rid}: 判定が PASS ではありません(実際: {judgement or '(空)'})")
+    return reasons
+
+
+def check_design_hashes(design_files, spec_dir):
+    """設計書=唯一の要件ソースが計画承認時点から改変されていないか照合する。
+
+    design_hashes.txt(保護対象・ユーザーの `! spec_approve.py` 実行のみで
+    追記される)に記録された sha256 と現在のファイル内容を比較する。
+    記録なし=未承認、不一致=承認後の改変としてどちらもブロック理由を返す。
+    """
+    recorded = read_design_hashes(spec_dir)
+    reasons = []
+    for f in design_files:
+        expected = recorded.get(f.stem)
+        if expected is None:
+            reasons.append(
+                f"{f.name}: 設計書が計画承認されていません(ユーザーが"
+                f" `! uv run python .claude/hooks/spec_approve.py --design {f.stem}`"
+                f" を実行してください)"
+            )
+            continue
+        try:
+            actual = design_file_sha256(f)
+        except OSError as e:
+            reasons.append(f"{f.name}: 設計書のハッシュ計算に失敗しました: {e}")
+            continue
+        if actual != expected:
+            reasons.append(
+                f"{f.name}: 設計書が計画承認時点から変更されています。"
+                f"変更が正当なら、ユーザーが `--design {f.stem}` で再承認してください"
+            )
     return reasons
 
 
@@ -313,8 +350,9 @@ def main():
 
     reasons = []
     if not args.ci:
-        # verdict/audit/approvals は .gitignore 対象のローカルファイルで
-        # CI 環境には存在しないため、ローカル(Stop フック)のみ検査する
+        # verdict/audit/approvals/design_hashes は .gitignore 対象のローカル
+        # ファイルで CI 環境には存在しないため、ローカル(Stop フック)のみ検査する
+        reasons += check_design_hashes(design_files, spec_dir)
         reasons += check_verdict(all_rows, spec_dir)
     auto_reasons, auto_log_line = check_auto_recheck(all_rows, recheck_n, args.ci)
     print(auto_log_line, file=sys.stderr)
