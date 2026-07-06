@@ -21,6 +21,7 @@ from _common import (
     BLOCKED_FILENAMES,
     PROTECTED_PATH_PATTERNS,
     SECRET_CONTENT_PATTERNS,
+    path_for_match,
 )
 
 
@@ -47,7 +48,7 @@ def main():
     basename = os.path.basename(norm)
     _, ext = os.path.splitext(basename)
 
-    if basename in BLOCKED_FILENAMES or ext.lower() in BLOCKED_EXTENSIONS:
+    if path_for_match(basename) in BLOCKED_FILENAMES or ext.lower() in BLOCKED_EXTENSIONS:
         print(
             f"[guard_scope] BLOCKED: 秘密情報ファイルの可能性がある書き込みです: {file_path}",
             file=sys.stderr,
@@ -57,7 +58,7 @@ def main():
     # 末尾に "/" を足してから比較する。ディレクトリを末尾スラッシュなしで
     # 指定した場合でも PROTECTED_PATH_PATTERNS の "/.claude/hooks/" と
     # 一致させるため(ファイルパターンは元々末尾スラッシュなしなので影響しない)。
-    if any(pat in norm + "/" for pat in PROTECTED_PATH_PATTERNS):
+    if any(pat in path_for_match(norm) + "/" for pat in PROTECTED_PATH_PATTERNS):
         print(
             f"[guard_scope] BLOCKED: フック/設定(ガード自身)への書き込みは禁止です: {file_path}\n"
             f"変更が必要な場合はユーザーが手動で編集してください。",
@@ -79,7 +80,7 @@ def main():
         sys.exit(2)
 
     if ext.lower() in ARTIFACT_EXTENSIONS or any(
-        pat in norm for pat in ARTIFACT_DIR_PATTERNS
+        pat in path_for_match(norm) for pat in ARTIFACT_DIR_PATTERNS
     ):
         print(
             f"[guard_scope] BLOCKED: 生成物/大容量ファイルへの書き込みは禁止です: {file_path}",

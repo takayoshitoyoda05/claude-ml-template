@@ -1,5 +1,6 @@
 {
   "env": {
+    "PYTHONUTF8": "1",
     "CLAUDE_WORK_SCOPE": "",
     "CLAUDE_ENFORCE_EVAL": "",
     "CLAUDE_EVAL_CMD": "",

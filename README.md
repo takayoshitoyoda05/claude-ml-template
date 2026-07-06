@@ -117,6 +117,11 @@ chmod +x claude-update.sh && ./claude-update.sh
 `settings.local.json` は gitignore 済みで、claude-update でも上書きされない
 (プロジェクト固有値の置き場)。値を変えたら claude を再起動する。
 
+このファイルは guard_scope.py の保護対象のため、Claude自身による自動書き込みはできない
+(Claudeが自分の作業スコープや評価強制を自己解除できてしまうのを防ぐ意図的な制限)。
+中身の下書きだけ欲しい場合は「作業スコープをprojects/Deep_MILにして」のように話しかけると
+config-set スキルが貼り付け用のJSONを提示するので、それを手動で保存する。
+
 一時的に値を変えたい場合は、従来どおり claude 起動前のシェルで
 `$env:CLAUDE_WORK_SCOPE = "..."` / `export CLAUDE_WORK_SCOPE="..."` と設定してもよい。
 ただし settings.local.json 側に同じキーが(空でも)あるとそちらが優先されるため、
@@ -365,6 +370,7 @@ flowchart LR
 | handoff | セッションを区切って引き継ぐ | `.claude/handoffs/` に引き継ぎ文書 |
 | architecture-check | 設計負債(重複・肥大化)の定期チェック | レポートのみ(コード変更なし) |
 | config-explain | 環境変数の設定源(settings.local.json / シェル)の可視化 | 報告のみ |
+| config-set | settings.local.json に書く値を自然文の指示から下書き生成(ファイルはユーザーが手動で保存) | JSON下書きの提示のみ |
 | regression-suite | 影響範囲を広くカバーするテストの生成・実行(明示呼び出しのみ) | テスト追加・実行結果 |
 
 いずれも「ブレストして」「grillして」「原因を調べて」のような自然文で発動する。
@@ -528,6 +534,7 @@ claude-ml-template/
       handoff/                      セッション引き継ぎ
       architecture-check/           設計負債チェック
       config-explain/               スコープ・評価強制設定の可視化
+      config-set/                   settings.local.json 用JSON下書きの生成(保存はユーザーが手動)
       regression-suite/             回帰テストスイート生成(明示呼び出しのみ)
     hooks/
       _common.py                    guard系で共有する検知パターン・保護パス定義

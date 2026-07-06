@@ -28,6 +28,8 @@ from _common import (
     BLOCKED_FILENAMES,
     PROTECTED_PATH_PATTERNS,
     SECRET_CONTENT_PATTERNS,
+    NAME_MATCH_FLAGS,        
+    path_for_match,          
 )
 
 DANGER_PATTERNS = [
@@ -171,7 +173,7 @@ def touches_protected_via_mutating_cmd(cmd):
             # なしで指定した場合(例: "rm -rf .claude/hooks")でも
             # PROTECTED_PATH_PATTERNS の "/.claude/hooks/" と一致させるため
             # (ファイルパターンは元々末尾スラッシュなしなので影響しない)。
-            if any(pat in abs_norm + "/" for pat in PROTECTED_PATH_PATTERNS):
+            if any(pat in path_for_match(abs_norm) + "/" for pat in PROTECTED_PATH_PATTERNS):
                 return token
     return None
 
@@ -234,14 +236,14 @@ def main():
         norm = target.replace("\\", "/")
         base = os.path.basename(norm)
         _, ext = os.path.splitext(base)
-        if base in BLOCKED_FILENAMES or ext.lower() in BLOCKED_EXTENSIONS:
+        if path_for_match(base) in BLOCKED_FILENAMES or ext.lower() in BLOCKED_EXTENSIONS:
             print(
                 f"[guard_bash] BLOCKED: 秘密情報ファイル({base})への書き込みは禁止です。",
                 file=sys.stderr,
             )
             sys.exit(2)
         abs_norm = os.path.abspath(target).replace("\\", "/")
-        if any(pat in abs_norm + "/" for pat in PROTECTED_PATH_PATTERNS):
+        if any(pat in path_for_match(abs_norm) + "/" for pat in PROTECTED_PATH_PATTERNS):
             print(
                 f"[guard_bash] BLOCKED: フック/設定({target})への書き込みは禁止です。"
                 f"変更が必要な場合はユーザーが手動で編集してください。",
@@ -264,7 +266,7 @@ def main():
             )
             sys.exit(2)
         for ext in BLOCKED_ADD_EXT:
-            if re.search(re.escape(ext) + r"(?=[\s\"']|$)", cmd):
+            if re.search(re.escape(ext) + r"(?=[\s\"']|$)", cmd, flags=NAME_MATCH_FLAGS):
                 print(
                     f"[guard_bash] BLOCKED: 大容量/秘密情報ファイル({ext})の git add は禁止です。"
                     f".gitignore に追加してください。",
@@ -272,7 +274,7 @@ def main():
                 )
                 sys.exit(2)
         for name in BLOCKED_FILENAMES:
-            if re.search(r"(?:^|[\s/\"'])" + re.escape(name) + r"(?=[\s\"']|$)", cmd):
+            if re.search(r"(?:^|[\s/\"'])" + re.escape(name) + r"(?=[\s\"']|$)", cmd, flags=NAME_MATCH_FLAGS):
                 print(
                     f"[guard_bash] BLOCKED: 秘密情報ファイル({name})の git add は禁止です。",
                     file=sys.stderr,

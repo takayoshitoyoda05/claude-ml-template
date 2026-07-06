@@ -61,6 +61,19 @@ PROTECTED_PATH_PATTERNS = [
     "/.claude/spec/design_hashes.txt",
 ]
 
+CASE_INSENSITIVE_FS = os.name == "nt"
+NAME_MATCH_FLAGS = re.IGNORECASE if CASE_INSENSITIVE_FS else 0
+
+
+def path_for_match(norm_path):
+    """パス/ファイル名を比較用に正規化する。
+
+    PROTECTED_PATH_PATTERNS・BLOCKED_FILENAMES は小文字で定義してあるため、
+    大文字小文字を区別しない Windows では小文字化して照合する。Unix では
+    そのまま返す(別ファイルを同一視しないため)。
+    """
+    return norm_path.lower() if CASE_INSENSITIVE_FS else norm_path
+
 
 class AcceptanceTableError(Exception):
     """受け入れ条件テーブルのパースに失敗したことを表す例外。
