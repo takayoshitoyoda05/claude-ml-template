@@ -538,3 +538,10 @@ claude-ml-template/
   .gitattributes                    改行コード固定(*.sh, *.py を LF に)
   .gitignore                        .claude/checkpoints/ 等を除外
 ```
+
+
+## 謝辞
+
+スキルの一部は [mattpocock/skills](https://github.com/mattpocock/skills)(MIT License)を
+参考にしています。特に design-interview は同リポジトリの grilling スキルを元に、
+日本語・ML研究ワークフロー向けに再構成したものです。
