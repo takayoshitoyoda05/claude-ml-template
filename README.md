@@ -33,6 +33,7 @@ flowchart TD
 | 原因不明のバグ・性能劣化 | diagnosing-bugs スキル(「原因を調べて」)→ 原因が分かったら `/ml-pipeline` へ |
 | 単発リファクタ・ドキュメント編集・軽い調査 | 何も挟まずメインセッションで直接(2.5節) |
 | セッションを区切って引き継ぐ | handoff スキル(「handoffして」) |
+| テンプレート側の改善をこのプロジェクトに反映したい | `claude-update` を実行する(1節「更新」/4節) |
 
 判断に迷う場合の目安、各要素の詳細は 2〜3節を参照。
 
@@ -77,6 +78,25 @@ chmod +x claude-init.sh
 プロジェクト固有の情報(評価コマンド、データの場所など)は、そのプロジェクト直下の
 `CLAUDE.md` に書く(例: `projects/Deep_MIL/CLAUDE.md`)。ドメイン用語が多いプロジェクトは
 `templates/CONTEXT.md.template` をコピーして `CONTEXT.md`(用語集)も置く。
+
+### 更新(2回目以降・テンプレート側の改善を反映)
+
+テンプレートリポジトリが更新されたら、各プロジェクトのルートで実行する。
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-update.ps1" -OutFile "claude-update.ps1"
+.\claude-update.ps1
+```
+
+```bash
+curl -sO https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-update.sh
+chmod +x claude-update.sh && ./claude-update.sh
+```
+
+更新されるのは `agents` / `commands` / `hooks` / `skills` / `settings.json` のみで、
+`.claude/plans/`(実行履歴)とプロジェクト固有の `CLAUDE.md` は保持される。
+テンプレートとの差分だけ先に確認したい場合は `doctor` を使う(4.5節)。
+運用の全体像(テンプレート改善→push→各プロジェクトで反映)は4節を参照。
 
 ### 起動(フックの有効化)
 
