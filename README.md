@@ -385,6 +385,10 @@ flowchart LR
 | config-set | settings.local.json に書く値を自然文の指示から下書き生成(ファイルはユーザーが手動で保存) | JSON下書きの提示のみ |
 | regression-suite | 影響範囲を広くカバーするテストの生成・実行(明示呼び出しのみ) | テスト追加・実行結果 |
 | security-review | コードの脆弱性チェック、サードパーティ製スキルの安全性監査 | レポートのみ(コード変更なし) |
+| pre-mortem | 動いているコードの「将来壊れそうな箇所」を予測 | レポートのみ(コード変更なし) |
+| leakage-check | 学習/評価データ間の情報漏洩(リーケージ)を確認 | レポートのみ(コード変更なし) |
+| python-standards | Python コーディング規約(uv/pytest/型ヒント等)の固定 | 参照用(generator/evaluator-standards が基準にする) |
+| property-test | ランダム入力で不変条件を網羅的に検証(Hypothesis) | tests/ にプロパティテストを生成 |
 
 いずれも「ブレストして」「grillして」「原因を調べて」のような自然文で発動する。
 
@@ -524,6 +528,13 @@ git branch -M main
 ```
 
 ---
+
+### Jupyter Notebook との連携
+
+Claude Code は実行中の Jupyter カーネル内でセルを直接実行できない。
+推奨パターンは、データ変換・特徴量エンジニアリング・モデル評価のコードを
+`.py` ファイルに書き、ノートブックから import する形。Claude Code がその
+`.py` を保守し、分析は Jupyter から操作する。
 
 ## 6. ファイル一覧
 
