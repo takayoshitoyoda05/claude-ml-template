@@ -59,6 +59,7 @@ PROTECTED_PATH_PATTERNS = [
     "/.claude/spec/approvals.txt",
     "/.claude/spec/last_spec_pass.txt",
     "/.claude/spec/design_hashes.txt",
+    "/.claude/checkpoints/last_eval_pass.txt",
 ]
 
 CASE_INSENSITIVE_FS = os.name == "nt"

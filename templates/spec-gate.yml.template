@@ -9,6 +9,11 @@ on:
 jobs:
   spec-gate:
     runs-on: ubuntu-latest
+    # CLAUDE_WORK_SCOPE 運用(設計書が projects/<name>/docs/active にある)では、
+    # 下の env で検査対象を明示すること。未設定だと CI はリポジトリ直下の
+    # docs/active しか見ず、そこに設計書が無ければ何も検査せずに通る。
+    # env:
+    #   CLAUDE_SPEC_DOCS: projects/<name>/docs/active
     steps:
       - uses: actions/checkout@v4
 

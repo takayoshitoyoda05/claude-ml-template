@@ -21,7 +21,7 @@ echo "最新テンプレートを取得中..."
 git clone --depth 1 --quiet "$TEMPLATE_REPO" "$TMP"
 
 diff_count=0
-for item in agents commands hooks skills; do
+for item in agents commands hooks skills output-styles; do
   local_dir=".claude/$item"
   remote_dir="$TMP/.claude/$item"
   [ -d "$remote_dir" ] || continue

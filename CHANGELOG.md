@@ -3,6 +3,31 @@
 このプロジェクトの主な変更点を記録する。形式は [Keep a Changelog](https://keepachangelog.com/) に緩く準拠。
 
 ## [Unreleased]
+### Fixed(整合性監査 2026-07-07)
+- claude-init.sh の UTF-8 BOM を除去(Linux で `./claude-init.sh` の exec が失敗する問題。
+  README 自身が警告していた規約への違反だった)
+- claude-init / doctor が `output-styles` を配布・比較していなかったのを修正
+  (claude-update とは対象が揃い、新規プロジェクトにも fable-like.md が配布される)。
+  claude-update 内コメントと README の対象列挙も実態(+ skills / output-styles)に合わせた
+- スキル(adr / design-interview / config-set)が配布先プロジェクトに存在しない
+  `templates/` を参照していたのを、雛形のインライン化で解消
+- 環境変数リストの4箇所同期: config-explain に CLAUDE_SPEC_CHECK / CLAUDE_SPEC_RECHECK_N を
+  追加し settings.local.json の場所の記述を修正、settings.local.json.template に
+  CLAUDE_COMMIT_STEP_RULE を追加
+- spec-gate.yml.template / README に CLAUDE_WORK_SCOPE 運用時の CLAUDE_SPEC_DOCS 設定を明記
+  (未設定だと CI はリポジトリ直下の docs/active しか見ず、何も検査せずに通る)
+- README 6節のファイル一覧に欠けていた5スキル(security-review / pre-mortem /
+  leakage-check / python-standards / property-test)と output-styles/ を追記
+- トークン節約: CLAUDE.md.template の「生成日」セクションを削除(全セッション常駐で
+  行動に影響しない情報のため。init の {{INIT_DATE}} 置換も撤去)、README 4節の
+  重複していた更新手順を1節への参照に統合
+
+### Security(整合性監査 2026-07-07)
+- enforce_eval のキャッシュマーカー `.claude/checkpoints/last_eval_pass.txt` を
+  PROTECTED_PATH_PATTERNS に追加(spec 側 last_spec_pass.txt と同じ理由:
+  決定的な署名計算で書ければ評価強制をスキップ偽装できるため)。
+  verify-hooks(.sh / .ps1)に guard_bash / guard_scope のテストを追加
+
 ### Security
 - spec-compliance の3つの迂回経路を修正(セルフ監査での指摘対応)
   - guard_bash: エージェントの Bash/PowerShell 経由での `spec_approve.py` 実行をブロック

@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 set -euo pipefail
 
 for tool in uv git; do
@@ -22,7 +22,7 @@ git clone --depth 1 --quiet "$TEMPLATE_REPO" "$TMP"
 
 # plans/ はプロジェクト固有・実行履歴なので展開しない(claude-update.shと同じ対象)
 mkdir -p .claude
-for item in agents commands hooks skills; do
+for item in agents commands hooks skills output-styles; do
   if [ -d "$TMP/.claude/$item" ]; then
     cp -r "$TMP/.claude/$item" .claude/
   fi
@@ -65,9 +65,7 @@ fi
 if [ -f CLAUDE.md ]; then
   echo "OK: CLAUDE.md は既存のものを保持します"
 else
-  INIT_DATE=$(date +%Y-%m-%d)
-  sed -e "s|{{INIT_DATE}}|$INIT_DATE|g" \
-      "$TMP/templates/CLAUDE.md.template" > CLAUDE.md
+  cp "$TMP/templates/CLAUDE.md.template" CLAUDE.md
   echo "OK: CLAUDE.md を生成しました"
 fi
 

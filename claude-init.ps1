@@ -29,7 +29,7 @@ try {
 
     # plans/ はプロジェクト固有・実行履歴なので展開しない(claude-update.ps1と同じ対象)
     New-Item -ItemType Directory -Path ".claude" -Force | Out-Null
-    foreach ($item in @("agents", "commands", "hooks", "skills")) {
+    foreach ($item in @("agents", "commands", "hooks", "skills", "output-styles")) {
         $srcItem = Join-Path $Tmp ".claude\$item"
         if (Test-Path $srcItem) {
             Copy-Item -Path $srcItem -Destination ".claude\" -Recurse -Force
@@ -72,11 +72,7 @@ try {
     if (Test-Path "CLAUDE.md") {
         Write-Host "OK: CLAUDE.md は既存のものを保持します"
     } else {
-        $InitDate = Get-Date -Format "yyyy-MM-dd"
-        $templatePath = Join-Path $Tmp "templates\CLAUDE.md.template"
-        (Get-Content $templatePath -Raw) `
-            -replace "\{\{INIT_DATE\}\}", $InitDate `
-            | Out-File -FilePath "CLAUDE.md" -Encoding utf8
+        Copy-Item (Join-Path $Tmp "templates\CLAUDE.md.template") "CLAUDE.md"
         Write-Host "OK: CLAUDE.md を生成しました"
     }
 

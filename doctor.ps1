@@ -22,7 +22,7 @@ try {
     git clone --depth 1 --quiet $TemplateRepo $Tmp
 
     $diffCount = 0
-    foreach ($item in @("agents", "commands", "hooks", "skills")) {
+    foreach ($item in @("agents", "commands", "hooks", "skills", "output-styles")) {
         $localDir = Join-Path ".claude" $item
         $remoteDir = Join-Path $Tmp ".claude\$item"
         if (-not (Test-Path $remoteDir)) { continue }
