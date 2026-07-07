@@ -384,6 +384,7 @@ flowchart LR
 | config-explain | 環境変数の設定源(settings.local.json / シェル)の可視化 | 報告のみ |
 | config-set | settings.local.json に書く値を自然文の指示から下書き生成(ファイルはユーザーが手動で保存) | JSON下書きの提示のみ |
 | regression-suite | 影響範囲を広くカバーするテストの生成・実行(明示呼び出しのみ) | テスト追加・実行結果 |
+| security-review | コードの脆弱性チェック、サードパーティ製スキルの安全性監査 | レポートのみ(コード変更なし) |
 
 いずれも「ブレストして」「grillして」「原因を調べて」のような自然文で発動する。
 
