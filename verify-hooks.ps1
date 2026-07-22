@@ -76,6 +76,7 @@ Test-Hook "guard_bash: rm -rf relative out-of-scope is blocked" '{"tool_input":{
 Test-Hook "guard_bash: touch settings.json is blocked" '{"tool_input":{"command":"touch .claude/settings.json"}}' ".claude\hooks\guard_bash.py" 2
 
 Test-Hook "enforce_eval: no flag passes" '{}' ".claude\hooks\enforce_eval.py" 0
+Test-Hook "quality_gate: off when flag not set" '{}' ".claude\hooks\quality_gate.py" 0
 # セッションが CLAUDE_CROSS_REVIEW=1 を注入していても素の状態をテストできるよう明示的に外す
 $savedCrossReview = $env:CLAUDE_CROSS_REVIEW
 Remove-Item Env:CLAUDE_CROSS_REVIEW -ErrorAction SilentlyContinue

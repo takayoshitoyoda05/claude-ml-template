@@ -72,6 +72,7 @@ test_hook "guard_bash: rm -rf relative out-of-scope is blocked" '{"tool_input":{
 test_hook "guard_bash: touch settings.json is blocked" '{"tool_input":{"command":"touch .claude/settings.json"}}' ".claude/hooks/guard_bash.py" 2
 
 test_hook "enforce_eval: no flag passes" '{}' ".claude/hooks/enforce_eval.py" 0
+test_hook "quality_gate: off when flag not set" '{}' ".claude/hooks/quality_gate.py" 0
 # セッションが CLAUDE_CROSS_REVIEW=1 を注入していても素の状態をテストできるよう明示的に外す
 echo '{}' | env -u CLAUDE_CROSS_REVIEW uv run python ".claude/hooks/codex_gate.py" >/dev/null 2>&1
 if [ $? -eq 0 ]; then
