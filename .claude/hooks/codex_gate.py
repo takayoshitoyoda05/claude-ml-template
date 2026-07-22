@@ -4,10 +4,11 @@
 
 センチネルはプロジェクト配下(.claude/checkpoints/codex_review_done.txt)に
 置き、中身に「レビュー時点の HEAD ハッシュ」を要求する。通過条件は
-「HEAD がセンチネルと一致」かつ「追跡ファイルに未コミットの変更がない」。
+「HEAD がセンチネルと一致」かつ「作業ツリーに未コミットの変更がない」
+(staged / unstaged / 未追跡ファイルすべてを含む。gitignore 済みは除く)。
 - HEAD が一致する限りセンチネルは保持される(同じコミットに対する
   再レビューを要求しない)
-- レビュー後に追跡ファイルを変更すると、コミットするまでブロックされる
+- レビュー後にファイルを変更・追加すると、コミットするまでブロックされる
   (コミットすると HEAD が進み、古いセンチネルは破棄→再レビュー要求)
 - git で照合できない場合は安全側に倒してブロックする
 中身の照合はエージェント自身による偽装を完全には防げない(HEAD は
@@ -31,15 +32,16 @@ def current_head():
         return None
 
 
-def tracked_tree_clean():
-    """追跡ファイルに未コミットの変更(staged/unstaged)が無ければ True。
+def worktree_clean():
+    """作業ツリーに未コミットの変更が無ければ True。
 
-    未追跡ファイルは対象外(コミットに入る時点で HEAD が進み、
-    その diff が次のレビュー対象になるため)。
+    staged / unstaged / 未追跡ファイルすべてを対象にする(未追跡を除外すると
+    新規ファイル中心の実装がレビューを通らずに完了できてしまうため)。
+    gitignore 済みのファイルは git status に現れないので対象外。
     """
     try:
         result = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no"],
+            ["git", "status", "--porcelain"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -96,12 +98,13 @@ def main():
             "(レビュー後にコミットが進んでいます)。\n"
         )
 
-    clean = tracked_tree_clean()
+    clean = worktree_clean()
     if clean is not True:
-        # 未コミット変更はレビューを通っていない(コミットして再レビューが必要)
+        # 未コミット変更(未追跡含む)はレビューを通っていない
         block(
-            "[codex_gate] レビュー後の未コミット変更があります(または作業ツリーの"
-            "状態を確認できません)。\nコミットしてから再レビューしてください。\n"
+            "[codex_gate] レビュー後の未コミット変更(未追跡ファイル含む)があります"
+            "(または作業ツリーの状態を確認できません)。\n"
+            "コミットしてから再レビューしてください。\n"
         )
 
     # HEAD 一致かつクリーン: レビュー済みのまま通過(センチネルは保持)
