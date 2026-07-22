@@ -72,7 +72,14 @@ test_hook "guard_bash: rm -rf relative out-of-scope is blocked" '{"tool_input":{
 test_hook "guard_bash: touch settings.json is blocked" '{"tool_input":{"command":"touch .claude/settings.json"}}' ".claude/hooks/guard_bash.py" 2
 
 test_hook "enforce_eval: no flag passes" '{}' ".claude/hooks/enforce_eval.py" 0
-test_hook "quality_gate: off when flag not set" '{}' ".claude/hooks/quality_gate.py" 0
+# セッションが CLAUDE_QUALITY_GATE=1 を注入していても素の状態をテストできるよう明示的に外す
+echo '{}' | env -u CLAUDE_QUALITY_GATE uv run python ".claude/hooks/quality_gate.py" >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+  echo "OK: quality_gate: off when flag not set (exit 0)"
+else
+  echo "NG: quality_gate: off when flag not set (expected 0)"
+  failed=$((failed+1))
+fi
 # セッションが CLAUDE_CROSS_REVIEW=1 を注入していても素の状態をテストできるよう明示的に外す
 echo '{}' | env -u CLAUDE_CROSS_REVIEW uv run python ".claude/hooks/codex_gate.py" >/dev/null 2>&1
 if [ $? -eq 0 ]; then
@@ -124,6 +131,9 @@ git -C "$CG_TMP" checkout -- f.txt
 test_codex_gate "codex_gate: clean again passes" 0
 echo new > "$CG_TMP/untracked.txt"
 test_codex_gate "codex_gate: untracked file is blocked" 2
+git -C "$CG_TMP" config status.showUntrackedFiles no
+test_codex_gate "codex_gate: untracked blocked even with showUntrackedFiles=no" 2
+git -C "$CG_TMP" config --unset status.showUntrackedFiles
 rm "$CG_TMP/untracked.txt"
 echo staged >> "$CG_TMP/f.txt"
 git -C "$CG_TMP" add f.txt
