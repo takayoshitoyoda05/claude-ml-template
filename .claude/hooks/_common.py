@@ -47,7 +47,7 @@ ARTIFACT_DIR_PATTERNS = [
 # ガード自身とフック設定・spec-compliance の承認記録(エージェントによる
 # 自己書き換え・承認偽装を防ぐ。正規化済み絶対パスに含まれていたらブロック。
 # 変更はユーザーが手動で行う)
-# last_spec_pass.txt(spec_gate のキャッシュマーカー)と design_hashes.txt
+# last_spec_pass.txt / last_quality_pass.txt(各ゲートのキャッシュマーカー)と design_hashes.txt
 # (計画承認時の設計書ハッシュ)はフック/承認スクリプト自身が書くファイルで、
 # エージェントのツール経由で書く正当な理由がないため保護対象に含める
 # (キャッシュ署名は決定的な計算なので、書ければ全検査をスキップさせる
@@ -60,6 +60,7 @@ PROTECTED_PATH_PATTERNS = [
     "/.claude/spec/last_spec_pass.txt",
     "/.claude/spec/design_hashes.txt",
     "/.claude/checkpoints/last_eval_pass.txt",
+    "/.claude/checkpoints/last_quality_pass.txt",
 ]
 
 CASE_INSENSITIVE_FS = os.name == "nt"
@@ -245,23 +246,45 @@ def read_design_hashes(spec_dir):
 
 
 def repo_state_signature(extra):
-    """リポジトリ状態(HEAD + 作業ツリー)を表すハッシュを返す。
+    """リポジトリ状態(HEAD + 作業ツリーの内容)を表すハッシュを返す。
 
-    enforce_eval.py / spec_gate.py が「前回PASSから状態が変わっていなければ
-    重い再実行をスキップする」キャッシュのキーとして共用する。
+    enforce_eval.py / spec_gate.py / quality_gate.py が「前回PASSから状態が
+    変わっていなければ重い再実行をスキップする」キャッシュのキーとして共用する。
     extra にはコマンド文字列など、状態以外にキャッシュを無効化したい
     要素を渡す。git が使えなければ None(キャッシュ無効)。
+
+    status --porcelain はファイル名と状態記号しか含まないため、dirty な
+    ファイルを「さらに編集」しても文字列が変わらない。内容の変更を確実に
+    検知するため、追跡ファイルは `git diff HEAD` の内容ハッシュ、
+    未追跡ファイルはサイズ+mtimeを署名に含める。
     """
     try:
         head = subprocess.run(
             ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5,
         ).stdout.strip()
+        # -z: NUL区切り・クォート無し。空白や日本語等を含むパスでも
+        # 正確に切り出せる(通常のporcelainは非ASCIIをクォートするため
+        # os.stat が失敗し、そのファイルの変更を見逃す)
         status = subprocess.run(
-            ["git", "status", "--porcelain"], capture_output=True, text=True, timeout=10,
+            ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+        diff = subprocess.run(
+            ["git", "diff", "HEAD"], capture_output=True, text=True, timeout=30,
         ).stdout
     except Exception:
         return None
     if not head:
         return None
-    raw = f"{extra}\n{head}\n{status}"
+    untracked_meta = []
+    for line in status.split("\0"):
+        if line.startswith("??"):
+            path = line[3:]
+            try:
+                st = os.stat(path)
+                untracked_meta.append(f"{path}:{st.st_size}:{st.st_mtime_ns}")
+            except OSError:
+                untracked_meta.append(f"{path}:gone")
+    diff_hash = hashlib.sha256(diff.encode("utf-8", "replace")).hexdigest()
+    raw = f"{extra}\n{head}\n{status}\n{diff_hash}\n" + "\n".join(untracked_meta)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
