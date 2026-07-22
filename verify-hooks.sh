@@ -64,8 +64,40 @@ test_hook "guard_bash: Remove-Item -Recurse -Force scoped dir passes" '{"tool_in
 test_hook "guard_bash: git add -u is blocked" '{"tool_input":{"command":"git add -u"}}' ".claude/hooks/guard_bash.py" 2
 test_hook "guard_bash: Anthropic-style key is blocked" '{"tool_input":{"command":"echo sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-AbCdEfGh"}}' ".claude/hooks/guard_bash.py" 2
 
+# --- guard_bash: 誤検知抑制とスコープ外削除(security-hardening) ---
+test_hook "guard_bash: grep spec_approve passes" '{"tool_input":{"command":"grep -n spec_approve README.md"}}' ".claude/hooks/guard_bash.py" 0
+test_hook "guard_bash: sed -n read on hook passes" '{"tool_input":{"command":"sed -n 1,5p .claude/hooks/auto_format.py"}}' ".claude/hooks/guard_bash.py" 0
+test_hook "guard_bash: sed -i on hook is blocked" '{"tool_input":{"command":"sed -i s/a/b/ .claude/hooks/auto_format.py"}}' ".claude/hooks/guard_bash.py" 2
+test_hook "guard_bash: rm -rf relative out-of-scope is blocked" '{"tool_input":{"command":"rm -rf ../other-project"}}' ".claude/hooks/guard_bash.py" 2
+test_hook "guard_bash: touch settings.json is blocked" '{"tool_input":{"command":"touch .claude/settings.json"}}' ".claude/hooks/guard_bash.py" 2
+
 test_hook "enforce_eval: no flag passes" '{}' ".claude/hooks/enforce_eval.py" 0
 test_hook "codex_gate: off when flag not set" '{}' ".claude/hooks/codex_gate.py" 0
+
+# --- codex_gate: HEAD束縛センチネル ---
+CG_SENTINEL=".claude/checkpoints/codex_review_done.txt"
+mkdir -p .claude/checkpoints
+
+test_codex_gate() {
+  local description="$1"
+  local expected_exit="$2"
+  echo '{}' | CLAUDE_CROSS_REVIEW=1 uv run python ".claude/hooks/codex_gate.py" >/dev/null 2>&1
+  local actual=$?
+  if [ "$actual" -eq "$expected_exit" ]; then
+    echo "OK: $description (exit $actual)"
+  else
+    echo "NG: $description (expected $expected_exit, got $actual)"
+    failed=$((failed+1))
+  fi
+}
+
+rm -f "$CG_SENTINEL"
+test_codex_gate "codex_gate: no sentinel is blocked" 2
+git rev-parse HEAD > "$CG_SENTINEL"
+test_codex_gate "codex_gate: matching HEAD passes" 0
+echo "0000000000000000000000000000000000000000" > "$CG_SENTINEL"
+test_codex_gate "codex_gate: stale HEAD is blocked" 2
+rm -f "$CG_SENTINEL"
 
 # --- spec-compliance (spec_gate / spec_approve / guard_scope連携) ---
 SPEC_GATE=".claude/hooks/spec_gate.py"

@@ -35,8 +35,9 @@ docs/         設計書・ADR・実験ログ
 プロジェクト特有の用語が多い場合は、CONTEXT.md を作成して用語集を管理する。
 
 ## 共有指示
-以下の指示は Claude Code と Codex CLI で共有される(agents/shared/ から読み込み)。
+コーディング規約と秘密情報の扱いは `.claude/rules/` が毎セッション自動で
+読み込むため、ここでは重複してインポートしない(コミット規約だけは rules に
+無いのでインポートする)。Codex CLI 向けには claude-update が agents/shared/
+の全ファイルから AGENTS.md を生成する。
 
-@agents/shared/coding-rules.md
-@agents/shared/secret-safety.md
 @agents/shared/commit-style.md
