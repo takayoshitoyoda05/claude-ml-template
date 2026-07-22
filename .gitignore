@@ -14,5 +14,6 @@ docs/
 # (コミット対象になることは無く、codex_gate の未追跡チェックを塞がないよう除外)
 /_staging_*.py
 
-# 並列実装の検証用worktree(使い捨て)
+# 並列実装のグループ別worktree(/ml-pipeline 手順5が作成し、完了後に remove する)
+/.worktrees/
 /.sandbox-worktrees/

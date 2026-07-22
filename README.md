@@ -74,8 +74,8 @@ chmod +x claude-init.sh
 `CLAUDE.md`(共通ルール)、フック設定の雛形 `.claude/settings.local.json` が作られ、
 Codex CLI 連携用に `agents/shared/` の配置・`AGENTS.md` の生成・`.codex/`
 (config.toml と skills のコピー)も行われる。`.gitignore` に
-`.claude/checkpoints/` / `.claude/settings.local.json` / `**/.claude/spec/` が自動追加される。
-対話質問はない。
+`.claude/checkpoints/` / `.claude/settings.local.json` / `**/.claude/spec/` / `/.worktrees/`
+が自動追加される。対話質問はない。
 
 プロジェクト固有の情報(評価コマンド、データの場所など)は、そのプロジェクト直下の
 `CLAUDE.md` に書く(例: `projects/Deep_MIL/CLAUDE.md`)。ドメイン用語が多いプロジェクトは
@@ -224,7 +224,8 @@ Planner が計画の各ステップに対象ファイルと依存関係を記載
 **worktree は作業スコープ配下に作る必要がある**(例: `.worktrees/group-A`)。
 guard_scope は「`CLAUDE_WORK_SCOPE`、未設定ならカレントディレクトリ」の配下しか
 書き込みを許可しないため、`/tmp` 等に作るとチームメイトの編集が全てブロックされる
-(検証済み 2026-07-22)。`.gitignore` への追加と、完了後の `git worktree remove` も忘れずに。
+(検証済み 2026-07-22)。`/.worktrees/` は claude-init が `.gitignore` に自動追加する。
+全工程の完了後は `git worktree remove` で後片付けする。
 
 #### tmux(任意・表示用)
 
