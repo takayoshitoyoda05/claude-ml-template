@@ -98,7 +98,8 @@ git init -q .
 git config user.email test@test
 git config user.name test
 "x" | Out-File -FilePath "f.txt" -Encoding utf8
-git add f.txt
+".claude/checkpoints/" | Out-File -FilePath ".gitignore" -Encoding ascii
+git add f.txt .gitignore
 git commit -qm init
 New-Item -ItemType Directory -Path ".claude\checkpoints" -Force | Out-Null
 Pop-Location
@@ -133,8 +134,20 @@ if (Test-Path $CgSentinel) {
 Test-CodexGate "codex_gate: uncommitted tracked change is blocked" 2
 git -C $CgTmp checkout -- f.txt
 Test-CodexGate "codex_gate: clean again passes" 0
-"0000000000000000000000000000000000000000" | Out-File -FilePath $CgSentinel -Encoding utf8
-Test-CodexGate "codex_gate: stale HEAD is blocked" 2
+"new" | Out-File -FilePath (Join-Path $CgTmp "untracked.txt") -Encoding utf8
+Test-CodexGate "codex_gate: untracked file is blocked" 2
+Remove-Item (Join-Path $CgTmp "untracked.txt")
+"staged" | Add-Content -Path (Join-Path $CgTmp "f.txt")
+git -C $CgTmp add f.txt
+Test-CodexGate "codex_gate: staged change is blocked" 2
+git -C $CgTmp commit -qm staged
+Test-CodexGate "codex_gate: stale HEAD after commit is blocked" 2
+if (-not (Test-Path $CgSentinel)) {
+    Write-Host "OK: codex_gate: stale sentinel is discarded"
+} else {
+    Write-Host "NG: codex_gate: stale sentinel is discarded (still present)"
+    $script:failed++
+}
 Remove-Item -Path $CgTmp -Recurse -Force
 
 # --- spec-compliance (spec_gate / spec_approve / guard_scope連携) ---

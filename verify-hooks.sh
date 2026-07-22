@@ -89,7 +89,9 @@ CG_SENTINEL="$CG_TMP/.claude/checkpoints/codex_review_done.txt"
 (
   cd "$CG_TMP" && git init -q . \
     && git config user.email test@test && git config user.name test \
-    && echo x > f.txt && git add f.txt && git commit -qm init \
+    && echo x > f.txt \
+    && echo ".claude/checkpoints/" > .gitignore \
+    && git add f.txt .gitignore && git commit -qm init \
     && mkdir -p .claude/checkpoints
 )
 
@@ -119,8 +121,20 @@ echo modified >> "$CG_TMP/f.txt"
 test_codex_gate "codex_gate: uncommitted tracked change is blocked" 2
 git -C "$CG_TMP" checkout -- f.txt
 test_codex_gate "codex_gate: clean again passes" 0
-echo "0000000000000000000000000000000000000000" > "$CG_SENTINEL"
-test_codex_gate "codex_gate: stale HEAD is blocked" 2
+echo new > "$CG_TMP/untracked.txt"
+test_codex_gate "codex_gate: untracked file is blocked" 2
+rm "$CG_TMP/untracked.txt"
+echo staged >> "$CG_TMP/f.txt"
+git -C "$CG_TMP" add f.txt
+test_codex_gate "codex_gate: staged change is blocked" 2
+git -C "$CG_TMP" commit -qm staged
+test_codex_gate "codex_gate: stale HEAD after commit is blocked" 2
+if [ ! -f "$CG_SENTINEL" ]; then
+  echo "OK: codex_gate: stale sentinel is discarded"
+else
+  echo "NG: codex_gate: stale sentinel is discarded (still present)"
+  failed=$((failed+1))
+fi
 rm -rf "$CG_TMP"
 
 # --- spec-compliance (spec_gate / spec_approve / guard_scope連携) ---
