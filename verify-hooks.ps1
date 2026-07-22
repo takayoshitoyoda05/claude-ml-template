@@ -76,6 +76,17 @@ Test-Hook "guard_bash: rm -rf relative out-of-scope is blocked" '{"tool_input":{
 Test-Hook "guard_bash: touch settings.json is blocked" '{"tool_input":{"command":"touch .claude/settings.json"}}' ".claude\hooks\guard_bash.py" 2
 
 Test-Hook "enforce_eval: no flag passes" '{}' ".claude\hooks\enforce_eval.py" 0
+# セッションが CLAUDE_QUALITY_GATE=1 を注入していても素の状態をテストできるよう明示的に外す
+$savedQualityGate = $env:CLAUDE_QUALITY_GATE
+Remove-Item Env:CLAUDE_QUALITY_GATE -ErrorAction SilentlyContinue
+'{}' | uv run python ".claude\hooks\quality_gate.py" *> $null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "OK: quality_gate: off when flag not set (exit 0)"
+} else {
+    Write-Host "NG: quality_gate: off when flag not set (expected 0)"
+    $script:failed++
+}
+if ($null -ne $savedQualityGate) { $env:CLAUDE_QUALITY_GATE = $savedQualityGate }
 # セッションが CLAUDE_CROSS_REVIEW=1 を注入していても素の状態をテストできるよう明示的に外す
 $savedCrossReview = $env:CLAUDE_CROSS_REVIEW
 Remove-Item Env:CLAUDE_CROSS_REVIEW -ErrorAction SilentlyContinue
@@ -136,6 +147,9 @@ git -C $CgTmp checkout -- f.txt
 Test-CodexGate "codex_gate: clean again passes" 0
 "new" | Out-File -FilePath (Join-Path $CgTmp "untracked.txt") -Encoding utf8
 Test-CodexGate "codex_gate: untracked file is blocked" 2
+git -C $CgTmp config status.showUntrackedFiles no
+Test-CodexGate "codex_gate: untracked blocked even with showUntrackedFiles=no" 2
+git -C $CgTmp config --unset status.showUntrackedFiles
 Remove-Item (Join-Path $CgTmp "untracked.txt")
 "staged" | Add-Content -Path (Join-Path $CgTmp "f.txt")
 git -C $CgTmp add f.txt
