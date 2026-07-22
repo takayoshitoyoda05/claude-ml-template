@@ -22,13 +22,59 @@ git clone --depth 1 --quiet "$TEMPLATE_REPO" "$TMP"
 
 # plans/ はプロジェクト固有・実行履歴なので展開しない(claude-update.shと同じ対象)
 mkdir -p .claude
-for item in agents commands hooks skills output-styles; do
+for item in agents commands hooks skills output-styles rules; do
   if [ -d "$TMP/.claude/$item" ]; then
     cp -r "$TMP/.claude/$item" .claude/
   fi
 done
 cp "$TMP/.claude/settings.json" .claude/settings.json
 echo "OK: .claude/ を展開しました"
+
+# agents/shared/ を配置(配布元にあるファイルを個別にコピー。claude-update.sh と同じ方式)
+SHARED_SRC="$TMP/agents/shared"
+if [ -d "$SHARED_SRC" ]; then
+  mkdir -p agents/shared
+  for f in "$SHARED_SRC"/*; do
+    [ -f "$f" ] && cp "$f" agents/shared/
+  done
+  echo "OK: agents/shared/ を配置しました"
+fi
+
+# agents/shared/ から AGENTS.md を生成(Codex CLI 用)
+if [ -d "agents/shared" ]; then
+  {
+    echo "# AGENTS.md"
+    echo ""
+    echo "<!-- claude-ml-template により自動生成。編集は agents/shared/ で行い claude-update で再生成 -->"
+    echo ""
+    for f in agents/shared/*.md; do
+      [ -f "$f" ] && cat "$f" && echo ""
+    done
+  } > AGENTS.md
+  echo "OK: AGENTS.md を生成しました(Codex CLI 用)"
+fi
+
+# スキルを .codex/skills/ にもコピー(Codex CLI 用。配布元にあるスキルディレクトリだけを
+# 個別に上書きし、ユーザー独自のスキルは残す)
+SKILLS_SRC="$TMP/.claude/skills"
+if [ -d "$SKILLS_SRC" ]; then
+  mkdir -p .codex/skills
+  for d in "$SKILLS_SRC"/*/; do
+    [ -d "$d" ] || continue
+    name=$(basename "$d")
+    rm -rf ".codex/skills/$name"
+    cp -r "$d" ".codex/skills/$name"
+  done
+  echo "OK: .codex/skills/ にスキルをコピーしました"
+fi
+
+# .codex/config.toml がなければテンプレートからコピー
+CODEX_TEMPLATE="$TMP/templates/codex-config.toml.template"
+if [ ! -f ".codex/config.toml" ] && [ -f "$CODEX_TEMPLATE" ]; then
+  mkdir -p .codex
+  cp "$CODEX_TEMPLATE" .codex/config.toml
+  echo "OK: .codex/config.toml を生成しました"
+fi
 
 # .gitignore に除外エントリを追加(冪等)
 for IGNORE_ENTRY in ".claude/checkpoints/" ".claude/settings.local.json" "**/.claude/spec/"; do

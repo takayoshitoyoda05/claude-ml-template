@@ -1,0 +1,6 @@
+# Codex CLI プロジェクト設定
+# プロジェクトルートの .codex/config.toml に置く
+# モデルを変更したい場合はこのファイルの model 行を編集する
+
+model = "gpt-5.2-codex"
+model_reasoning_effort = "high"

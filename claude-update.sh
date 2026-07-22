@@ -20,14 +20,60 @@ trap 'rm -rf "$TMP"' EXIT
 echo "最新テンプレートを取得中..."
 git clone --depth 1 --quiet "$TEMPLATE_REPO" "$TMP"
 
-# 更新対象: agents / commands / hooks / skills / output-styles / settings.json
+# 更新対象: agents / commands / hooks / skills / output-styles / rules / settings.json
 # plans/ と CLAUDE.md はプロジェクト固有・実行履歴なので触らない
-for item in agents commands hooks skills output-styles; do
+for item in agents commands hooks skills output-styles rules; do
   if [ -d "$TMP/.claude/$item" ]; then
     cp -r "$TMP/.claude/$item" .claude/
     echo "OK: .claude/$item を更新しました"
   fi
 done
+
+# agents/shared/ を更新(配布元にあるファイルだけを個別に上書きし、ユーザー独自のファイルは残す)
+SHARED_SRC="$TMP/agents/shared"
+if [ -d "$SHARED_SRC" ]; then
+  mkdir -p agents/shared
+  for f in "$SHARED_SRC"/*; do
+    [ -f "$f" ] && cp "$f" agents/shared/
+  done
+  echo "OK: agents/shared/ を更新しました"
+fi
+
+# agents/shared/ から AGENTS.md を生成(Codex CLI 用)
+if [ -d "agents/shared" ]; then
+  {
+    echo "# AGENTS.md"
+    echo ""
+    echo "<!-- claude-ml-template により自動生成。編集は agents/shared/ で行い claude-update で再生成 -->"
+    echo ""
+    for f in agents/shared/*.md; do
+      [ -f "$f" ] && cat "$f" && echo ""
+    done
+  } > AGENTS.md
+  echo "OK: AGENTS.md を生成しました(Codex CLI 用)"
+fi
+
+# スキルを .codex/skills/ にもコピー(Codex CLI 用。配布元にあるスキルディレクトリだけを
+# 個別に上書きし、ユーザー独自のスキルは残す)
+SKILLS_SRC="$TMP/.claude/skills"
+if [ -d "$SKILLS_SRC" ]; then
+  mkdir -p .codex/skills
+  for d in "$SKILLS_SRC"/*/; do
+    [ -d "$d" ] || continue
+    name=$(basename "$d")
+    rm -rf ".codex/skills/$name"
+    cp -r "$d" ".codex/skills/$name"
+  done
+  echo "OK: .codex/skills/ にスキルをコピーしました"
+fi
+
+# .codex/config.toml がなければテンプレートからコピー
+CODEX_TEMPLATE="$TMP/templates/codex-config.toml.template"
+if [ ! -f ".codex/config.toml" ] && [ -f "$CODEX_TEMPLATE" ]; then
+  mkdir -p .codex
+  cp "$CODEX_TEMPLATE" .codex/config.toml
+  echo "OK: .codex/config.toml を生成しました"
+fi
 
 if [ -f "$TMP/.claude/settings.json" ]; then
   cp "$TMP/.claude/settings.json" .claude/settings.json

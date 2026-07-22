@@ -55,6 +55,16 @@ evaluator-standards の担当なのでここでは判断しません。
 - manual要件(種別が manual)も判定は記入するが、承認そのものは
   ユーザーの `spec_approve.py` 実行に委ねる(evaluator は承認しない)。
 
+## フィードバック記録(NEEDS_REVISION時のみ)
+- 判定が NEEDS_REVISION または FAIL の場合、.claude/improvements/feedback.md に
+  以下の形式で1エントリ追記する(ファイル・ディレクトリが無ければ作成する)。
+
+  ## YYYY-MM-DD [evaluator: NEEDS_REVISION]
+  - 原因/理由: (差し戻しの主要な理由を1-2文で)
+  - 該当ファイル: (問題のあったファイルパス)
+
+- PASS の場合は記録しない。
+
 ## 完了時の追加手順
 - 判定が PASS の場合、参照された設計書(計画ファイル冒頭に記載)を
   docs/active/ から docs/archive/YYYYMMDD_<元のファイル名> にリネームして移動する。

@@ -69,6 +69,7 @@ Test-Hook "guard_bash: git add -u is blocked" '{"tool_input":{"command":"git add
 Test-Hook "guard_bash: Anthropic-style key is blocked" '{"tool_input":{"command":"echo sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-AbCdEfGh"}}' ".claude\hooks\guard_bash.py" 2
 
 Test-Hook "enforce_eval: no flag passes" '{}' ".claude\hooks\enforce_eval.py" 0
+Test-Hook "codex_gate: off when flag not set" '{}' ".claude\hooks\codex_gate.py" 0
 
 # --- spec-compliance (spec_gate / spec_approve / guard_scope連携) ---
 $SpecGate = ".claude\hooks\spec_gate.py"

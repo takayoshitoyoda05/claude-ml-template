@@ -1,2 +1,6 @@
 .claude/checkpoints/
 __pycache__/
+
+# 運用中に溜まるローカルなログ・作業用ドキュメント(テンプレートの配布物ではない)
+.claude/improvements/feedback.md
+docs/

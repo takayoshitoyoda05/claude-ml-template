@@ -55,6 +55,10 @@
           {
             "type": "command",
             "command": "uv run python .claude/hooks/spec_gate.py"
+          },
+          {
+            "type":"command",
+            "command": "uv run python .claude/hooks/codex_gate.py"
           }
         ]
       }

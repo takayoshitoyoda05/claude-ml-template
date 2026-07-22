@@ -1,12 +1,42 @@
-# プロジェクト共通ルール
+# プロジェクト名
 
-## 基本ルール
-- 日本語・です/ます調で応答する
-- Python環境は uv で管理。パッケージ追加は `uv add`、実行は `uv run`
-- 評価結果の数値は勝手に丸めたり四捨五入して報告しない
-- 既存の実験結果ファイルを上書きしない
+<!-- claude-ml-template により INIT_DATE に生成 -->
 
-## プロジェクト固有情報について
-- 各プロジェクトの評価コマンド・モデル定義の場所・固有ルールは、
-  そのプロジェクト直下の CLAUDE.md に記載する(例: projects/Deep_MIL/CLAUDE.md)。
-- このルートの CLAUDE.md はリポジトリ全体の共通ルールのみを扱う。
+## コアコマンド
+
+```
+uv run python -m pytest tests/ -q     # テスト実行
+uv run python <スクリプト>              # スクリプト実行
+ruff check <対象パス>                   # lint
+ruff format <対象パス>                  # フォーマット
+```
+
+## プロジェクト構造
+
+```
+このプロジェクトのディレクトリ構成を簡潔に記載する。
+例:
+src/          メインコード
+tests/        テスト
+docs/         設計書・ADR・実験ログ
+```
+
+## Git ルール
+- コミットメッセージ形式: `<type>(step N): <要約>`
+  type は fix / feat / refactor / test / docs のいずれか
+- `git add` は作業ディレクトリにパスを限定する
+
+## プロジェクト固有の情報
+- 評価コマンド: (例: `uv run python -m pytest tests/ -q`)
+- データの場所: (例: `data/raw/`, `data/processed/`)
+- モデルの保存先: (例: `checkpoints/`)
+
+## ドメイン用語
+プロジェクト特有の用語が多い場合は、CONTEXT.md を作成して用語集を管理する。
+
+## 共有指示
+以下の指示は Claude Code と Codex CLI で共有される(agents/shared/ から読み込み)。
+
+@agents/shared/coding-rules.md
+@agents/shared/secret-safety.md
+@agents/shared/commit-style.md

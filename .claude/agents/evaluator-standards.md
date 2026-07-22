@@ -39,6 +39,16 @@ evaluator の担当なのでここでは判断しません。
 #### 指摘事項
 - [重大度: HIGH/MEDIUM/LOW] ファイルパスと行番号つきで、問題点と改善案を記述
 
+## フィードバック記録(NEEDS_REVISION時のみ)
+- 判定が NEEDS_REVISION の場合、.claude/improvements/feedback.md に
+  以下の形式で1エントリ追記する(ファイル・ディレクトリが無ければ作成する)。
+
+  ## YYYY-MM-DD [evaluator-standards: NEEDS_REVISION]
+  - 指摘内容: (主要な指摘を1-2文で)
+  - 該当ファイル: (問題のあったファイルパス)
+
+- PASS の場合は記録しない。
+
 ## 重要なルール
 - 動作の正しさ(仕様を満たすか)には言及しない。それは evaluator の担当。
 - 些細な好みの指摘(重大度LOW)で全体をNEEDS_REVISIONにしない。

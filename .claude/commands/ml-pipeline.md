@@ -31,7 +31,19 @@ guard_bash がブロックする。
    (Haiku)で大まかな下調べを行い、その要約を planner への指示に含める
    (Opus の調査トークンを節約するため)。
 4. planner に「やりたいこと」+ CONTEXT要点 + Explore要約を渡し、実装計画を作成させる。
+4.5. Codex クロスレビュー(条件分岐)
+   環境変数 CLAUDE_CROSS_REVIEW の値で動作が変わる。
+   - `1`: cross-review スキルを実行する(codex_gate.py が未実行時にブロックする)
+   - `0` または未設定: スキップする
+   cross-review スキルが実行された場合、そのレポートを手順5の
+   evaluator / evaluator-standards に「Codexからの追加指摘」として渡す。
 5. 計画をユーザーに提示し、承認されるまで進めない。
+   - ユーザーが計画を却下した場合、.claude/improvements/feedback.md に
+     以下を追記してから計画を修正する
+     (.claude/improvements/ が無ければ作成する)。
+
+     ## YYYY-MM-DD [planner: 計画却下]
+     - 却下の理由: (ユーザーの発言を要約)
 6. generator に計画ファイルのパスを渡して実装させ、完了報告から変更ファイルの一覧を受け取る。
 7. 実装完了後、以下2つを独立に実行する(互いの判断が影響し合わないよう、
    それぞれ別の視点でレビューさせる)。両者には変更ファイル一覧を渡し、
