@@ -4,13 +4,15 @@
 
 センチネルはプロジェクト配下(.claude/checkpoints/codex_review_done.txt)に
 置き、中身に「レビュー時点の HEAD ハッシュ」を要求する。通過条件は
-「HEAD がセンチネルと一致」かつ「作業ツリーに未コミットの変更がない」
-(staged / unstaged / 未追跡ファイルすべてを含む。gitignore 済みは除く)。
+「HEAD がセンチネルと一致」かつ「作業ツリーに未コミットの変更がない
+(staged / unstaged / 未追跡ファイルすべてを含む。gitignore 済みは除く)」。
 - HEAD が一致する限りセンチネルは保持される(同じコミットに対する
   再レビューを要求しない)
 - レビュー後にファイルを変更・追加すると、コミットするまでブロックされる
   (コミットすると HEAD が進み、古いセンチネルは破棄→再レビュー要求)
 - git で照合できない場合は安全側に倒してブロックする
+- 未追跡の検査は --untracked-files=all を明示し、ユーザーの git 設定
+  (status.showUntrackedFiles=no)に影響されないようにする
 中身の照合はエージェント自身による偽装を完全には防げない(HEAD は
 計算可能)が、cross-review スキルを経由せず偶然通過することはなくなる。
 """
@@ -37,11 +39,12 @@ def worktree_clean():
 
     staged / unstaged / 未追跡ファイルすべてを対象にする(未追跡を除外すると
     新規ファイル中心の実装がレビューを通らずに完了できてしまうため)。
-    gitignore 済みのファイルは git status に現れないので対象外。
+    --untracked-files=all を明示し、status.showUntrackedFiles=no の環境でも
+    未追跡ファイルを見逃さない。gitignore 済みのファイルは対象外。
     """
     try:
         result = subprocess.run(
-            ["git", "status", "--porcelain"],
+            ["git", "status", "--porcelain", "--untracked-files=all"],
             capture_output=True,
             text=True,
             timeout=10,
