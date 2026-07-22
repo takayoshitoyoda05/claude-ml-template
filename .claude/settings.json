@@ -9,7 +9,9 @@
       "Bash(git status)",
       "Bash(git branch *)",
       "Bash(git log *)",
-      "Bash(uv run *)",
+      "Bash(uv run python -m pytest *)",
+      "Bash(uv lock)",
+      "Bash(uv sync *)",
       "Bash(ruff *)"
     ]
   },
@@ -61,7 +63,7 @@
             "command": "uv run python .claude/hooks/spec_gate.py"
           },
           {
-            "type":"command",
+            "type": "command",
             "command": "uv run python .claude/hooks/codex_gate.py"
           }
         ]
