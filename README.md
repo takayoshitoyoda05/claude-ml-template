@@ -241,8 +241,8 @@ main → pipeline/YYYYMMDD-<トピック> 上で実装・レビュー → マー
 #### 並列実装の場合(原子性保証)
 ```
 main → pipeline/YYYYMMDD-<トピック>(統合ブランチ)
-         ├── /group-A(チームメイトAの作業)
-         └── /group-B(チームメイトBの作業)
+         ├── pipeline/YYYYMMDD-<トピック>-group-A(チームメイトAの作業)
+         └── pipeline/YYYYMMDD-<トピック>-group-B(チームメイトBの作業)
 ```
 
 並列実装では原子性(all-or-nothing)を保証する。
@@ -258,8 +258,8 @@ mainが無傷のまま最初からやり直せる。
 git checkout main
 git branch -D pipeline/20260722-fix-attention-viz
 # 並列実装のサブブランチも削除する場合
-git branch -D pipeline/20260722-fix-attention-viz/group-A
-git branch -D pipeline/20260722-fix-attention-viz/group-B
+git branch -D pipeline/20260722-fix-attention-viz-group-A
+git branch -D pipeline/20260722-fix-attention-viz-group-B
 ```
 
 ---
