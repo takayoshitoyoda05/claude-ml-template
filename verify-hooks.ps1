@@ -88,15 +88,29 @@ if ($LASTEXITCODE -eq 0) {
 }
 if ($null -ne $savedCrossReview) { $env:CLAUDE_CROSS_REVIEW = $savedCrossReview }
 
-# --- codex_gate: HEAD束縛センチネル ---
-$CgSentinel = ".claude\checkpoints\codex_review_done.txt"
+# --- codex_gate: HEAD束縛センチネル(独立の一時リポジトリで検証。
+#     dirty-tree ケースを実リポジトリを汚さずテストするため) ---
+$AbsCodexGate = (Resolve-Path ".claude\hooks\codex_gate.py").Path
+$CgTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-gate-test-" + [Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $CgTmp | Out-Null
+Push-Location $CgTmp
+git init -q .
+git config user.email test@test
+git config user.name test
+"x" | Out-File -FilePath "f.txt" -Encoding utf8
+git add f.txt
+git commit -qm init
 New-Item -ItemType Directory -Path ".claude\checkpoints" -Force | Out-Null
+Pop-Location
+$CgSentinel = Join-Path $CgTmp ".claude\checkpoints\codex_review_done.txt"
 
 function Test-CodexGate {
     param([string]$Description, [int]$ExpectedExit)
     $env:CLAUDE_CROSS_REVIEW = "1"
-    '{}' | uv run python ".claude\hooks\codex_gate.py" *> $null
+    Push-Location $CgTmp
+    '{}' | uv run python $AbsCodexGate *> $null
     $actual = $LASTEXITCODE
+    Pop-Location
     Remove-Item Env:CLAUDE_CROSS_REVIEW -ErrorAction SilentlyContinue
     if ($actual -eq $ExpectedExit) {
         Write-Host "OK: $Description (exit $actual)"
@@ -106,19 +120,22 @@ function Test-CodexGate {
     }
 }
 
-if (Test-Path $CgSentinel) { Remove-Item $CgSentinel }
 Test-CodexGate "codex_gate: no sentinel is blocked" 2
-git rev-parse HEAD | Out-File -FilePath $CgSentinel -Encoding utf8
-Test-CodexGate "codex_gate: matching HEAD passes" 0
+git -C $CgTmp rev-parse HEAD | Out-File -FilePath $CgSentinel -Encoding utf8
+Test-CodexGate "codex_gate: matching HEAD + clean tree passes" 0
 if (Test-Path $CgSentinel) {
     Write-Host "OK: codex_gate: sentinel persists while HEAD unchanged"
 } else {
     Write-Host "NG: codex_gate: sentinel persists while HEAD unchanged (deleted)"
     $script:failed++
 }
+"modified" | Add-Content -Path (Join-Path $CgTmp "f.txt")
+Test-CodexGate "codex_gate: uncommitted tracked change is blocked" 2
+git -C $CgTmp checkout -- f.txt
+Test-CodexGate "codex_gate: clean again passes" 0
 "0000000000000000000000000000000000000000" | Out-File -FilePath $CgSentinel -Encoding utf8
 Test-CodexGate "codex_gate: stale HEAD is blocked" 2
-if (Test-Path $CgSentinel) { Remove-Item $CgSentinel }
+Remove-Item -Path $CgTmp -Recurse -Force
 
 # --- spec-compliance (spec_gate / spec_approve / guard_scope連携) ---
 $SpecGate = ".claude\hooks\spec_gate.py"

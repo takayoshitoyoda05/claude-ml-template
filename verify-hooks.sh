@@ -81,14 +81,22 @@ else
   failed=$((failed+1))
 fi
 
-# --- codex_gate: HEAD束縛センチネル ---
-CG_SENTINEL=".claude/checkpoints/codex_review_done.txt"
-mkdir -p .claude/checkpoints
+# --- codex_gate: HEAD束縛センチネル(独立の一時リポジトリで検証。
+#     dirty-tree ケースを実リポジトリを汚さずテストするため) ---
+ABS_CODEX_GATE="$(pwd)/.claude/hooks/codex_gate.py"
+CG_TMP=$(mktemp -d)
+CG_SENTINEL="$CG_TMP/.claude/checkpoints/codex_review_done.txt"
+(
+  cd "$CG_TMP" && git init -q . \
+    && git config user.email test@test && git config user.name test \
+    && echo x > f.txt && git add f.txt && git commit -qm init \
+    && mkdir -p .claude/checkpoints
+)
 
 test_codex_gate() {
   local description="$1"
   local expected_exit="$2"
-  echo '{}' | CLAUDE_CROSS_REVIEW=1 uv run python ".claude/hooks/codex_gate.py" >/dev/null 2>&1
+  ( cd "$CG_TMP" && echo '{}' | CLAUDE_CROSS_REVIEW=1 uv run python "$ABS_CODEX_GATE" >/dev/null 2>&1 )
   local actual=$?
   if [ "$actual" -eq "$expected_exit" ]; then
     echo "OK: $description (exit $actual)"
@@ -98,19 +106,22 @@ test_codex_gate() {
   fi
 }
 
-rm -f "$CG_SENTINEL"
 test_codex_gate "codex_gate: no sentinel is blocked" 2
-git rev-parse HEAD > "$CG_SENTINEL"
-test_codex_gate "codex_gate: matching HEAD passes" 0
+git -C "$CG_TMP" rev-parse HEAD > "$CG_SENTINEL"
+test_codex_gate "codex_gate: matching HEAD + clean tree passes" 0
 if [ -f "$CG_SENTINEL" ]; then
   echo "OK: codex_gate: sentinel persists while HEAD unchanged"
 else
   echo "NG: codex_gate: sentinel persists while HEAD unchanged (deleted)"
   failed=$((failed+1))
 fi
+echo modified >> "$CG_TMP/f.txt"
+test_codex_gate "codex_gate: uncommitted tracked change is blocked" 2
+git -C "$CG_TMP" checkout -- f.txt
+test_codex_gate "codex_gate: clean again passes" 0
 echo "0000000000000000000000000000000000000000" > "$CG_SENTINEL"
 test_codex_gate "codex_gate: stale HEAD is blocked" 2
-rm -f "$CG_SENTINEL"
+rm -rf "$CG_TMP"
 
 # --- spec-compliance (spec_gate / spec_approve / guard_scope連携) ---
 SPEC_GATE=".claude/hooks/spec_gate.py"
