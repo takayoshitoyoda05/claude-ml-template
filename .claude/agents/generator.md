@@ -23,6 +23,10 @@ permissionMode: acceptEdits
    `<type>(step N): <要約>`
    type は fix / feat / refactor / test / docs のいずれか。
    例: `fix(step 2): interpolation formulaの符号を修正`
+   (注: コミット先は /ml-pipeline が作成した作業ブランチ。
+   main ブランチに直接コミットしない。並列実装の場合は
+   自分の並列グループのサブブランチにコミットする。
+   他グループのファイルには一切触らない。)
 7. 完了したら作業ログを計画ファイル末尾に追記し、完了報告に変更したファイルの一覧を含める(後続のレビューが diff の範囲を絞るために使う)
 
 ## コーディングルール

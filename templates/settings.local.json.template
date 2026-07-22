@@ -8,6 +8,7 @@
     "CLAUDE_SPEC_CHECK": "",
     "CLAUDE_SPEC_RECHECK_N": "",
     "CLAUDE_CROSS_REVIEW": "0",
-    "CODEX_MODEL": ""
+    "CODEX_MODEL": "",
+    "CLAUDE_AUTO_APPROVE": "0"
   }
 }
