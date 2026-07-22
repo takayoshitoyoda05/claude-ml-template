@@ -121,9 +121,16 @@ diff の確認範囲をそのパスに限定させる。
 - evaluator: 計画通りに動作するか(Spec)。評価スクリプトを実際に実行し数値で判定。
 - evaluator-standards: コーディング規約・可読性・型安全性・コードスメル(Standards)。
 
-並列実装の場合、evaluator と evaluator-standards も
-チームメイトとして並列実行してよい(レビューは読み取り中心なので
-worktree 分離は不要)。
+並列実装の場合、レビューは**マージ前のサブブランチを対象**に行う(統合ブランチ上には
+まだ各グループの変更が無いため、単純な `git diff` では何も見えない):
+- diff の取得はブランチ参照で行う:
+  `git diff pipeline/YYYYMMDD-<トピック>...pipeline/YYYYMMDD-<トピック>-group-A`
+  (ブランチはリポジトリ共通なので、チェックアウトせずにメインの作業ディレクトリから参照できる)
+- evaluator(Spec軸)がテストを実行する場合は、対象グループのサブブランチを
+  worktree 分離でチェックアウトした環境で実行する(コード実体が必要なため)
+- evaluator-standards(Standards軸)は diff の読解が中心なので worktree 分離は不要
+
+evaluator と evaluator-standards はグループごとにチームメイトとして並列実行してよい。
 
 ### 6.5. 原子性チェック(並列実装の場合のみ)
 並列グループごとにレビュー結果を確認する。
