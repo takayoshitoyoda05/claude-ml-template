@@ -262,8 +262,11 @@ def repo_state_signature(extra):
         head = subprocess.run(
             ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5,
         ).stdout.strip()
+        # -z: NUL区切り・クォート無し。空白や日本語等を含むパスでも
+        # 正確に切り出せる(通常のporcelainは非ASCIIをクォートするため
+        # os.stat が失敗し、そのファイルの変更を見逃す)
         status = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=all"],
+            ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
             capture_output=True, text=True, timeout=10,
         ).stdout
         diff = subprocess.run(
@@ -274,9 +277,9 @@ def repo_state_signature(extra):
     if not head:
         return None
     untracked_meta = []
-    for line in status.splitlines():
+    for line in status.split("\0"):
         if line.startswith("??"):
-            path = line[3:].strip()
+            path = line[3:]
             try:
                 st = os.stat(path)
                 untracked_meta.append(f"{path}:{st.st_size}:{st.st_mtime_ns}")
