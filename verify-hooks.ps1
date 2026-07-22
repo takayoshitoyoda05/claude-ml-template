@@ -68,8 +68,41 @@ Test-Hook "guard_bash: Remove-Item -Recurse -Force scoped dir passes" '{"tool_in
 Test-Hook "guard_bash: git add -u is blocked" '{"tool_input":{"command":"git add -u"}}' ".claude\hooks\guard_bash.py" 2
 Test-Hook "guard_bash: Anthropic-style key is blocked" '{"tool_input":{"command":"echo sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-AbCdEfGh"}}' ".claude\hooks\guard_bash.py" 2
 
+# --- guard_bash: 誤検知抑制とスコープ外削除(security-hardening) ---
+Test-Hook "guard_bash: grep spec_approve passes" '{"tool_input":{"command":"grep -n spec_approve README.md"}}' ".claude\hooks\guard_bash.py" 0
+Test-Hook "guard_bash: sed -n read on hook passes" '{"tool_input":{"command":"sed -n 1,5p .claude/hooks/auto_format.py"}}' ".claude\hooks\guard_bash.py" 0
+Test-Hook "guard_bash: sed -i on hook is blocked" '{"tool_input":{"command":"sed -i s/a/b/ .claude/hooks/auto_format.py"}}' ".claude\hooks\guard_bash.py" 2
+Test-Hook "guard_bash: rm -rf relative out-of-scope is blocked" '{"tool_input":{"command":"rm -rf ../other-project"}}' ".claude\hooks\guard_bash.py" 2
+Test-Hook "guard_bash: touch settings.json is blocked" '{"tool_input":{"command":"touch .claude/settings.json"}}' ".claude\hooks\guard_bash.py" 2
+
 Test-Hook "enforce_eval: no flag passes" '{}' ".claude\hooks\enforce_eval.py" 0
 Test-Hook "codex_gate: off when flag not set" '{}' ".claude\hooks\codex_gate.py" 0
+
+# --- codex_gate: HEAD束縛センチネル ---
+$CgSentinel = ".claude\checkpoints\codex_review_done.txt"
+New-Item -ItemType Directory -Path ".claude\checkpoints" -Force | Out-Null
+
+function Test-CodexGate {
+    param([string]$Description, [int]$ExpectedExit)
+    $env:CLAUDE_CROSS_REVIEW = "1"
+    '{}' | uv run python ".claude\hooks\codex_gate.py" *> $null
+    $actual = $LASTEXITCODE
+    Remove-Item Env:CLAUDE_CROSS_REVIEW -ErrorAction SilentlyContinue
+    if ($actual -eq $ExpectedExit) {
+        Write-Host "OK: $Description (exit $actual)"
+    } else {
+        Write-Host "NG: $Description (expected $ExpectedExit, got $actual)"
+        $script:failed++
+    }
+}
+
+if (Test-Path $CgSentinel) { Remove-Item $CgSentinel }
+Test-CodexGate "codex_gate: no sentinel is blocked" 2
+git rev-parse HEAD | Out-File -FilePath $CgSentinel -Encoding utf8
+Test-CodexGate "codex_gate: matching HEAD passes" 0
+"0000000000000000000000000000000000000000" | Out-File -FilePath $CgSentinel -Encoding utf8
+Test-CodexGate "codex_gate: stale HEAD is blocked" 2
+if (Test-Path $CgSentinel) { Remove-Item $CgSentinel }
 
 # --- spec-compliance (spec_gate / spec_approve / guard_scope連携) ---
 $SpecGate = ".claude\hooks\spec_gate.py"

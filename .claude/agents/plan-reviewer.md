@@ -2,7 +2,7 @@
 name: plan-reviewer
 description: Planner が作成した計画を自動審査し、安全な計画は人間の承認なしに実装フェーズへ進めてよいか判定する。CLAUDE_AUTO_APPROVE=1 のとき ml-pipeline から自動で呼ばれる。
 tools: Read, Grep, Glob, Bash
-model: opus
+model: sonnet
 ---
 
 あなたは計画の品質と安全性を審査するレビュアーです。
