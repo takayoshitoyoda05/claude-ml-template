@@ -286,14 +286,27 @@ outputs/に出る画像が真っ黒になる問題を解消したい
 パイプラインの内部では、次のエージェントがこの順序で自動的に呼ばれる
 (各エージェントの詳細は 2.3 節を参照)。
 
-1. 作業スコープ直下の `CONTEXT.md` をメイン会話が一度だけ読み、要点を各エージェントに渡す
-2. 調査範囲が広ければ **Planner(opus)** の前に Explore(haiku)で安価に下調べする
-3. **Planner(opus)** が計画を `.claude/plans/` に保存 → ユーザーが承認するまで次に進まない
-4. **Generator(sonnet)** が計画通りに実装・コミット。変更ファイル一覧を両 Evaluator に渡す
-5. **evaluator(sonnet)** と **evaluator-standards(sonnet)** が並行して2軸レビュー
+1. 作業ブランチ `pipeline/YYYYMMDD-<トピック>` を作成する。以降の全コミットはこの上で行い、
+   main は一切変更されない(「作業ブランチと原子性」の節を参照)
+2. 作業スコープ直下の `CONTEXT.md` をメイン会話が一度だけ読み、要点を各エージェントに渡す。
+   調査範囲が広ければ **Planner(opus)** の前に Explore(haiku)で安価に下調べする
+3. **Planner(opus)** が計画を `.claude/plans/` に保存する
+4. 計画を承認する。`CLAUDE_AUTO_APPROVE=1` なら **plan-reviewer(opus)** が7条件で審査し、
+   全て満たせばユーザー承認をスキップする。デフォルト(0)ではユーザーが承認するまで進まない
+   (「計画の自動承認」の節を参照)
+5. **Generator(sonnet)** が計画通りに実装・コミット。変更ファイル一覧を両 Evaluator に渡す。
+   計画が「並列化可能」かつ tmux 環境があれば、グループごとのサブブランチで並列実装する
+   (「並列実装」の節を参照)
+6. `CLAUDE_CROSS_REVIEW=1` なら cross-review スキルが Codex CLI に別モデル視点の
+   レビューをさせ、その結果を Evaluator への追加情報として渡す
+7. **evaluator(sonnet)** と **evaluator-standards(sonnet)** が並行して2軸レビュー
    (Spec軸: 動作の正しさ / Standards軸: コード品質)
-6. 両方 PASS で完了。片方でも NEEDS_REVISION なら Generator に差し戻し、
-   evaluator が FAIL を3回出したら Planner まで巻き戻る。最大3イテレーションで打ち切り
+8. 両方 PASS で完了。片方でも NEEDS_REVISION なら Generator に差し戻し、
+   evaluator が FAIL を3回出したら Planner まで巻き戻る。最大3イテレーションで打ち切り。
+   並列実装では全グループ PASS のときだけ統合する(原子性の保証)
+9. `CLAUDE_SPEC_CHECK=1` で受け入れ条件テーブルがある設計書を扱っている場合、
+   **spec-auditor(sonnet)** が verdict の証拠を独立コンテキストで再検証する
+10. 全工程の完了後、変更の要約とともに「main にマージしますか?」と確認される
 
 ### 設計書を通すかどうかの目安(推奨)
 
@@ -674,6 +687,8 @@ claude-ml-template/
       evaluator.md                  Sonnet / Spec軸レビュー、実験ログ記録
       evaluator-standards.md        Sonnet / Standards軸(コード品質)レビュー
       spec-auditor.md                Sonnet / spec-compliance独立監査(証拠検証・スコープ外変更列挙)
+      plan-reviewer.md              Opus / 計画の自動承認判定(CLAUDE_AUTO_APPROVE=1 時)
+      improvement-reviewer.md       Opus / retrospectiveの改善案を不変条件に照らして審査・適用
     commands/
       ml-pipeline.md                エージェントを繋ぐフロー制御
     skills/
@@ -692,6 +707,16 @@ claude-ml-template/
       leakage-check/                学習/評価データ間のリーケージ確認
       python-standards/             Pythonコーディング規約の固定(参照用)
       property-test/                プロパティベーステスト生成(Hypothesis)
+      cross-review/                 Codex CLI による別モデル視点のレビュー
+      fix-ci/                       CI失敗の原因分類と修正
+      retrospective/                feedback.md の分析と改善案の生成
+    rules/
+      python-style.md               .py 編集時に自動適用されるPython規約
+      minimal-diff.md               全ファイル編集時に自動適用される最小diff規律
+      secret-safety.md              全ファイル編集時に自動適用される秘密情報の扱い
+    improvements/
+      invariants.md                 improvement-reviewer が改善案を却下する基準
+      feedback.md                   差し戻し・却下の記録(運用中に自動で溜まる。.gitignore対象)
     output-styles/
       fable-like.md                 Fable 5行動様式のoutput style(メインセッション用)
     hooks/
@@ -702,9 +727,10 @@ claude-ml-template/
       enforce_eval.py               評価コマンド実行強制(状態不変ならスキップ)
       spec_gate.py                  Stop: 設計書の受け入れ条件を機械検査(--ci でCIモード)
       spec_approve.py               manual要件の承認・設計書ハッシュの計画承認記録(ユーザーの`!`実行専用。エージェント経由の実行はguard_bashがブロック)
+      codex_gate.py                 Stop: CLAUDE_CROSS_REVIEW=1 のときCodexレビュー未完了ならブロック
       checkpoint_before_compact.py  圧縮前バックアップ(直近10世代のみ保持)
       reinject_after_compact.py     圧縮後の再注入
-    settings.json                   フックの配線
+    settings.json                   フックの配線・エージェントチーム設定
   .github/workflows/
     verify-hooks.yml                CI: push/PR時のフック自動テスト
     spec-gate.yml                   CI: push/PR時にspec_gate.py --ciを実行(init/updateが配置)
@@ -714,8 +740,14 @@ claude-ml-template/
     CONTEXT.md.template             ドメイン用語集の雛形
     settings.local.json.template    フック用環境変数の雛形(init/update が展開)
     spec-gate.yml.template          spec-gate CIワークフローの雛形(init/update が配置)
+    codex-config.toml.template      Codex CLI のモデル固定用(init/update が .codex/ に配置)
+  agents/shared/                    Claude Code と Codex CLI で共有する規約(AGENTS.md の生成元)
+    coding-rules.md                 コメント規約・最小diff・Python規約
+    secret-safety.md                秘密情報の安全な取り扱い
+    commit-style.md                 Conventional Commits 簡易版
   claude-init.ps1 / .sh             初回セットアップ
-  claude-update.ps1 / .sh           更新(agents/commands/hooks/skills/output-styles/settings.json)
+  claude-update.ps1 / .sh           更新(agents/commands/hooks/skills/output-styles/rules/settings.json
+                                    に加え agents/shared/ の配置、AGENTS.md 生成、.codex/ への連携)
   verify-hooks.ps1 / .sh            フックの自動テスト
   doctor.ps1 / .sh                  テンプレートとの差分確認
   CHANGELOG.md                      変更履歴
