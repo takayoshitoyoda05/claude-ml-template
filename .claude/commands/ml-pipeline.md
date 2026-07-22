@@ -127,7 +127,9 @@ diff の確認範囲をそのパスに限定させる。
   `git diff pipeline/YYYYMMDD-<トピック>...pipeline/YYYYMMDD-<トピック>-group-A`
   (ブランチはリポジトリ共通なので、チェックアウトせずにメインの作業ディレクトリから参照できる)
 - evaluator(Spec軸)がテストを実行する場合は、対象グループのサブブランチを
-  worktree 分離でチェックアウトした環境で実行する(コード実体が必要なため)
+  worktree 分離でチェックアウトした環境で実行する(コード実体が必要なため)。
+  このとき `git checkout --detach <サブブランチ>` を使う(同一ブランチは
+  実装側 worktree がチェックアウト済みで、通常のチェックアウトは git に拒否される)
 - evaluator-standards(Standards軸)は diff の読解が中心なので worktree 分離は不要
 
 evaluator と evaluator-standards はグループごとにチームメイトとして並列実行してよい。
