@@ -76,7 +76,17 @@ Test-Hook "guard_bash: rm -rf relative out-of-scope is blocked" '{"tool_input":{
 Test-Hook "guard_bash: touch settings.json is blocked" '{"tool_input":{"command":"touch .claude/settings.json"}}' ".claude\hooks\guard_bash.py" 2
 
 Test-Hook "enforce_eval: no flag passes" '{}' ".claude\hooks\enforce_eval.py" 0
-Test-Hook "codex_gate: off when flag not set" '{}' ".claude\hooks\codex_gate.py" 0
+# セッションが CLAUDE_CROSS_REVIEW=1 を注入していても素の状態をテストできるよう明示的に外す
+$savedCrossReview = $env:CLAUDE_CROSS_REVIEW
+Remove-Item Env:CLAUDE_CROSS_REVIEW -ErrorAction SilentlyContinue
+'{}' | uv run python ".claude\hooks\codex_gate.py" *> $null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "OK: codex_gate: off when flag not set (exit 0)"
+} else {
+    Write-Host "NG: codex_gate: off when flag not set (expected 0)"
+    $script:failed++
+}
+if ($null -ne $savedCrossReview) { $env:CLAUDE_CROSS_REVIEW = $savedCrossReview }
 
 # --- codex_gate: HEAD束縛センチネル ---
 $CgSentinel = ".claude\checkpoints\codex_review_done.txt"
@@ -100,6 +110,12 @@ if (Test-Path $CgSentinel) { Remove-Item $CgSentinel }
 Test-CodexGate "codex_gate: no sentinel is blocked" 2
 git rev-parse HEAD | Out-File -FilePath $CgSentinel -Encoding utf8
 Test-CodexGate "codex_gate: matching HEAD passes" 0
+if (Test-Path $CgSentinel) {
+    Write-Host "OK: codex_gate: sentinel persists while HEAD unchanged"
+} else {
+    Write-Host "NG: codex_gate: sentinel persists while HEAD unchanged (deleted)"
+    $script:failed++
+}
 "0000000000000000000000000000000000000000" | Out-File -FilePath $CgSentinel -Encoding utf8
 Test-CodexGate "codex_gate: stale HEAD is blocked" 2
 if (Test-Path $CgSentinel) { Remove-Item $CgSentinel }

@@ -3,10 +3,10 @@
 完了していなければブロックする。
 
 センチネルはプロジェクト配下(.claude/checkpoints/codex_review_done.txt)に
-置き、中身に「レビュー時点の HEAD ハッシュ」を要求する。これにより
-(1) /tmp 固定名だった旧方式の、並行プロジェクト間の相互干渉を防ぎ、
-(2) 過去のセンチネルの使い回し(レビュー後にコミットが進んだのに
-    ゲートが開いたままになる)を防ぐ。
+置き、中身に「レビュー時点の HEAD ハッシュ」を要求する。
+HEAD が一致する限りセンチネルは保持される(同じ HEAD に対する再レビューを
+要求しない)。レビュー後にコミットが進む(HEAD が変わる)と不一致になり、
+古いセンチネルを破棄した上で再レビューを要求する。
 中身の照合はエージェント自身による偽装を完全には防げない(HEAD は
 計算可能)が、cross-review スキルを経由せず偶然通過することはなくなる。
 """
@@ -40,17 +40,19 @@ def main():
                 recorded = f.read().strip()
         except OSError:
             recorded = None
+
+    head = current_head()
+    if recorded and (head is None or recorded == head):
+        # HEAD が変わっていなければレビュー済みのまま通過(センチネルは保持)。
+        # git が使えない環境ではハッシュ照合を諦めてセンチネルの存在のみ見る。
+        sys.exit(0)
+
+    if recorded:
+        # 古い HEAD のセンチネルは無効なので破棄してから再レビューを要求する
         try:
             os.remove(SENTINEL)
         except OSError:
             pass
-
-    head = current_head()
-    if recorded and (head is None or recorded == head):
-        # git が使えない環境ではハッシュ照合を諦めてセンチネルの存在のみ見る
-        sys.exit(0)
-
-    if recorded:
         detail = (
             "[codex_gate] センチネルの HEAD が現在と一致しません"
             "(レビュー後にコミットが進んでいます)。\n"
