@@ -6,5 +6,6 @@ __pycache__/
 docs/
 
 # agents/shared/ からの生成物と Codex ローカル設定(claude-update が再生成する)
-AGENTS.md
-.codex/
+# ルート直下のみ対象(サブディレクトリの階層別 AGENTS.md を誤って無視しないため)
+/AGENTS.md
+/.codex/
