@@ -21,7 +21,7 @@ echo "最新テンプレートを取得中..."
 git clone --depth 1 --quiet "$TEMPLATE_REPO" "$TMP"
 
 diff_count=0
-for item in agents commands hooks skills output-styles; do
+for item in agents commands hooks skills output-styles rules; do
   local_dir=".claude/$item"
   remote_dir="$TMP/.claude/$item"
   [ -d "$remote_dir" ] || continue
@@ -40,6 +40,23 @@ for item in agents commands hooks skills output-styles; do
     fi
   done < <(find "$remote_dir" -type f -print0)
 done
+
+# agents/shared/(リポジトリ直下。Codex CLI 共有指示の配布元)も比較する
+if [ -d "$TMP/agents/shared" ]; then
+  while IFS= read -r -d '' rf; do
+    rel_path="${rf#$TMP/agents/shared/}"
+    local_file="agents/shared/$rel_path"
+    if [ ! -f "$local_file" ]; then
+      echo "NEW: agents/shared/$rel_path (テンプレートにあるがローカルに無い)"
+      diff_count=$((diff_count+1))
+      continue
+    fi
+    if ! diff -q "$rf" "$local_file" >/dev/null 2>&1; then
+      echo "DIFF: agents/shared/$rel_path (内容が異なる)"
+      diff_count=$((diff_count+1))
+    fi
+  done < <(find "$TMP/agents/shared" -type f -print0)
+fi
 
 if [ -f ".claude/settings.json" ] && [ -f "$TMP/.claude/settings.json" ]; then
   if ! diff -q ".claude/settings.json" "$TMP/.claude/settings.json" >/dev/null 2>&1; then

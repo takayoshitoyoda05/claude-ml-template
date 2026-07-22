@@ -22,7 +22,7 @@ try {
     git clone --depth 1 --quiet $TemplateRepo $Tmp
 
     $diffCount = 0
-    foreach ($item in @("agents", "commands", "hooks", "skills", "output-styles")) {
+    foreach ($item in @("agents", "commands", "hooks", "skills", "output-styles", "rules")) {
         $localDir = Join-Path ".claude" $item
         $remoteDir = Join-Path $Tmp ".claude\$item"
         if (-not (Test-Path $remoteDir)) { continue }
@@ -40,6 +40,27 @@ try {
             $localHash = (Get-FileHash -Path $localFile -Algorithm SHA256).Hash
             if ($remoteHash -ne $localHash) {
                 Write-Host "DIFF: $item/$relPath (内容が異なる)"
+                $diffCount++
+            }
+        }
+    }
+
+    # agents/shared/(リポジトリ直下。Codex CLI 共有指示の配布元)も比較する
+    $remoteShared = Join-Path $Tmp "agents\shared"
+    if (Test-Path $remoteShared) {
+        $sharedFiles = Get-ChildItem -Path $remoteShared -Recurse -File
+        foreach ($rf in $sharedFiles) {
+            $relPath = $rf.FullName.Substring($remoteShared.Length).TrimStart("\")
+            $localFile = Join-Path "agents\shared" $relPath
+            if (-not (Test-Path $localFile)) {
+                Write-Host "NEW: agents/shared/$relPath (テンプレートにあるがローカルに無い)"
+                $diffCount++
+                continue
+            }
+            $remoteHash = (Get-FileHash -Path $rf.FullName -Algorithm SHA256).Hash
+            $localHash = (Get-FileHash -Path $localFile -Algorithm SHA256).Hash
+            if ($remoteHash -ne $localHash) {
+                Write-Host "DIFF: agents/shared/$relPath (内容が異なる)"
                 $diffCount++
             }
         }

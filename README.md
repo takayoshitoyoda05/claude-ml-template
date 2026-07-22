@@ -760,6 +760,29 @@ retrospective が会話中の好みの発言を検出して追記を提案する
 push / PR のたびに GitHub Actions で verify-hooks が自動実行される。
 フックを変更したらローカルでも `.\verify-hooks.ps1` で確認してからpushする。
 
+## 4.6 実プロジェクトでの初回実走(スモークテスト推奨)
+
+このテンプレートの多くの機能は、実プロジェクトで最低1周回して初めて
+「そのプロジェクトでの穴」が見える。初回は**意図的に小さいタスク**で
+フルパイプラインを通すことを推奨する。
+
+1. 研究プロジェクトのルートで claude-init を実行し、`settings.local.json` の
+   `env` に最低限 `CLAUDE_WORK_SCOPE` と `CLAUDE_EVAL_CMD` を設定する
+2. 単一ファイルのバグ修正程度の小タスクで `/ml-pipeline` を1周通す
+   (planner → 承認 → generator → evaluator ×2 → マージ確認)
+3. 通ったら段階的にゲートを足す: `CLAUDE_ENFORCE_EVAL=1` → 設計書+
+   `CLAUDE_SPEC_CHECK=1` → 必要に応じて `CLAUDE_CROSS_REVIEW` / `CLAUDE_QUALITY_GATE`
+
+初回に確認すべきポイント(未実走の機能ほど最初に壊れやすい):
+
+| 確認対象 | 見るべきこと |
+|---|---|
+| enforce_eval | CLAUDE_EVAL_CMD が実際の pytest で PASS/FAIL を正しく判定するか |
+| spec-compliance | 受け入れ条件テーブルの auto 要件が verdict まで通るか |
+| 並列実装 | **未実走の実験的機能**。初回は逐次で通し、慣れてから試す |
+| quality_gate | radon / mypy 導入後に有効化。導入前は自動スキップされる |
+| Windows(.ps1) | 全 .ps1 は Linux 上で構文検証できていない。Windows 初回は verify-hooks.ps1 の実行から始める |
+
 ---
 
 ## 5. トラブルシューティング
