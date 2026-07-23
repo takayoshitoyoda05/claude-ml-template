@@ -47,12 +47,17 @@
 - `git init` 直後のコミットには author/committer 情報が要る。tmp repo 内で
   `git -c user.email=... -c user.name=...` 形式か環境変数(GIT_AUTHOR_NAME 等)で
   ユーザー設定に依存せず自己完結させる。
-- torch 自己整合(R-009)は、テスト実行インタプリタに torch が有る/無いどちらでも
-  成立するよう「import 可否」と「出力の null 有無」の一致だけを主張する(値の固定はしない)。
+- torch 検証(R-009)は実値比較にする(Codex指摘の採用): 同一 `sys.executable` の別プロセスで
+  `import torch` を試み、可能なら期待値 `str(torch.__version__)` / `str(torch.version.cuda) if torch.version.cuda is not None else None`
+  を JSON で取得し、スクリプト出力と**フィールドごとに個別比較**する。import 不可なら両方 None を期待。
+  CPU ビルド(torch有り・cuda None)でも正しく PASS する。
 - BrokenPipe テストは `subprocess.Popen(stdout=PIPE)` で子の stdout を即 `close()` し、
   `wait()` の returncode が 0 であることを確認(親側で全読みしない)。移植性のため
   SIGPIPE ではなく returncode==0 を判定基準にする。
 - サブプロセスの cwd を tmp_path にしても、スクリプトのパスは絶対パスで渡す。
+- R-004 の「git 外」保証(Codex指摘の採用): `tmp_path` がリポジトリ配下に作られる環境でも
+  親探索で本リポジトリを拾わないよう、サブプロセス環境変数に
+  `GIT_CEILING_DIRECTORIES=<tmp_pathの親>` を設定して探索境界を固定する。
 
 ## 並列化判定
 並列化可能(グループ A, B, C)。3ステップが `tests/test_env_fingerprint.py` /
@@ -64,6 +69,8 @@
    `uv run --with pytest python -m pytest tests/ -q`
    → 期待: 全テスト PASS(exit 0)。
 2. ミューテーションでの検出力確認(恒久ファイルは変更しない。ワークツリーで一時的に壊して戻す):
+   - 前提確認(Codex指摘の採用): 改変前に `git status --porcelain scripts/env_fingerprint.py` が
+     空(クリーン)であることを確認する(未コミット変更の巻き添え破棄を防ぐ)。
    - 例: `scripts/env_fingerprint.py` の `collect_fingerprint` のキー名を1つ改変
      (例 `"platform"` → `"platfrm"`)して 1 の pytest を実行 → 期待: R-003(キー固定)が FAIL。
    - 実行後、必ず `git checkout -- scripts/env_fingerprint.py` で原状復帰し、
@@ -74,8 +81,8 @@
    - `CHANGELOG.md` 冒頭に `### Added(2026-07-24)` が存在。
 
 ## リスク
-- 未確認の仮定: なし(主要挙動はすべて実測済み。R-010/R-011 の tmp_path 経路のみ
-  テスト実装時に初回実行で確認する)。
+- 未確認の仮定: R-010/R-011 の tmp_path 経路と GIT_CEILING_DIRECTORIES の効き(いずれも
+  テスト実装時の初回実行で確認する)。それ以外の主要挙動は実測済み。
 - torch 依存: 検証環境に torch が入る/入らないで R-009 の分岐が変わるが、
   「import 可否と出力の一致」だけを主張する設計なのでどちらでも PASS する。
 - 代替案1(スクリプトを import して関数を直接テスト): 実装コストは低いが、
@@ -94,10 +101,10 @@
 | R-002 | 出力が有効 JSON | Step 1 | `pytest tests/ -q` で該当テスト PASS(`json.loads` 成功+exit 0) |
 | R-003 | キーが固定6個・固定順 | Step 1 | 同上(`list(d) == [...]` 一致)。ミューテーション2で FAIL することも確認 |
 | R-004 | uv.lock 無し・git 外で両方 null | Step 1 | 同上(tmp_path 実行で `git_commit`/`uv_lock_sha256` が None) |
-| R-009 | torch import 可否と出力の自己整合 | Step 1 | 同上(import 可否と null 有無の一致) |
+| R-009 | torch の実値一致(import 不可なら両方 None、CPUビルドは cuda のみ None) | Step 1 | 同上(同一インタプリタで期待値を取得しフィールド個別比較) |
 | R-010 | 既知内容の uv.lock で SHA-256 一致 | Step 1 | 同上(tmp_path に既知バイト列を置き `hashlib.sha256` 期待値一致) |
 | R-011 | git 内で HEAD 一致 | Step 1 | 同上(tmp repo の `git rev-parse HEAD` と一致) |
 | (追加) | BrokenPipe 耐性(exit 0) | Step 1 | 同上(子 stdout を即 close して returncode==0) |
 | (ドキュメント) | README/CHANGELOG 同期 | Step 2, 3 | 検証方法3(grep/目視) |
 
-全 R-ID を網羅。Step 2/3 は要件ではなくドキュメント同期タスクのため R-ID 非対応(備考どおり)。
+本計画で回帰テスト化する全 R-ID(R-002〜004, 009〜011)を網羅(R-001/005〜008 は使い捨て検証・manual・ドキュメント系のため対象外)。Step 2/3 はドキュメント同期タスクのため R-ID 非対応。
