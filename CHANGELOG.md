@@ -53,6 +53,13 @@
   rules / agents/shared を追加
 - plan-reviewer のモデルを opus から sonnet に(機械的な7条件チェックに opus は過剰)
 
+### Changed(2026-07-23)
+- **敵対的レビューを Claude Security プラグイン統合に置き換え**: adversarial-reviewer +
+  `CLAUDE_ADVERSARIAL`(攻撃的レビュー+リーダーによる検証パス)を、Anthropic 公式の
+  claude-security プラグイン統合(`CLAUDE_SECURITY_SCAN`、Panel quorum 2/3 で
+  verified な指摘のみ採用)に置き換え。security-review スキルの用途a(コード脆弱性
+  チェック)は公式プラグイン未導入環境向けのフォールバックに降格
+
 ### Fixed(2026-07-22)
 - guard_bash の誤検知を解消: `sed -n` 等の読み取りは通し `-i` 付きのみブロック、
   spec_approve は grep/cat 等の読み取り専用コマンドなら許可
