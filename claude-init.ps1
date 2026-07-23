@@ -104,12 +104,17 @@ try {
         Copy-Item (Join-Path $Tmp "templates\settings.local.json.template") ".claude\settings.local.json"
         Write-Host "OK: .claude/settings.local.json を生成しました(env の値を記入するとフックが有効になります)"
     }
-    # 参照専用テンプレ(templates/*.template)を配布(常に最新で上書き)
+    # 参照専用テンプレ(templates/*.template)を配布(既存ファイルは保持)
     New-Item -ItemType Directory -Path "templates" -Force | Out-Null
     Get-ChildItem -Path (Join-Path $Tmp "templates") -Filter "*.template" | ForEach-Object {
-        Copy-Item $_.FullName -Destination "templates\" -Force
+        $destPath = Join-Path "templates" $_.Name
+        if (Test-Path $destPath) {
+            Write-Host "OK: templates/$($_.Name) は既存のものを保持します"
+        } else {
+            Copy-Item $_.FullName -Destination $destPath
+            Write-Host "OK: templates/$($_.Name) を配布しました"
+        }
     }
-    Write-Host "OK: templates/ に参照用テンプレートを配布しました"
     # GitHub Actions ワークフロー(spec-gate)の配置(既存なら保持)
     if (Test-Path ".github/workflows/spec-gate.yml") {
         Write-Host "OK: .github/workflows/spec-gate.yml は既存のものを保持します"
