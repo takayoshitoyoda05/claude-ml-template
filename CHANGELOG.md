@@ -37,6 +37,9 @@
   デスクトップ通知(Windows/macOS/Linux対応)
 - **研究ワークフロー**: mlflow-log / literature-review / paper-writing スキルを追加し、
   arXiv MCP の推奨設定雛形を用意。evaluator が PASS 時に指標を MLflow へ自動記録
+- **3層レビュー**: adversarial-reviewer(攻撃的レビュー+リーダーによる検証パスで
+  偽陽性除外)と final-gate(Fable 5によるマージ承認の三択判断)を追加。
+  `CLAUDE_ADVERSARIAL` / `CLAUDE_FINAL_GATE` で有効化
 
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規
