@@ -109,7 +109,8 @@ try:
     import torch; e=torch.__version__
 except Exception:
     e=None
-assert d['torch_version']==e"; echo "exit=$?"  # exit=0
+c=None if e is None else torch.version.cuda
+assert d['torch_version']==e and d['cuda_version']==c"; echo "exit=$?"  # exit=0
 
 # R-010 uv.lock があるとき正しい SHA-256
 T=$(mktemp -d) && printf test > "$T/uv.lock" && cd "$T" && uv run --project /home/toyod/claude-ml-template python /home/toyod/claude-ml-template/scripts/env_fingerprint.py | python3 -c "import json,sys,hashlib; assert json.load(sys.stdin)['uv_lock_sha256'] == hashlib.sha256(b'test').hexdigest()"; echo "exit=$?"; cd - >/dev/null  # exit=0
@@ -169,7 +170,7 @@ bash ./verify-hooks.sh; echo "exit=$?"                        # exit=0(全PASS)
 | R-006 | Step 3 | `grep -q env_fingerprint README.md` → exit 0 |
 | R-007 | Step 4 | `grep -q env_fingerprint CHANGELOG.md` → exit 0 |
 | R-008 | Step 2, 3, 4 | `bash ./verify-hooks.sh` → exit 0(全PASS) |
-| R-009 | Step 1, 2 | torch の import 可否と出力の null/非null が一致(自己整合) → exit 0 |
+| R-009 | Step 1, 2 | torch の import 可否と `torch_version`/`cuda_version` の値が一致(自己整合) → exit 0 |
 | R-010 | Step 1, 2 | 既知内容の uv.lock で SHA-256 が期待値一致 → exit 0 |
 | R-011 | Step 1, 2 | `git_commit` が `git rev-parse HEAD` と一致 → exit 0 |
 
