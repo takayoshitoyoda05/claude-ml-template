@@ -13,6 +13,9 @@ import sys
 from pathlib import Path
 
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "scripts" / "env_fingerprint.py"
+# 全 subprocess 呼び出しで一貫させるタイムアウト(秒)。値がバラつくと
+# CI 環境差でハングの検出漏れが起きるため定数化する。
+_SUBPROCESS_TIMEOUT = 10
 EXPECTED_KEYS = [
     "python_version",
     "platform",
@@ -50,7 +53,7 @@ def _run_fingerprint(
         capture_output=True,
         text=True,
         env=env,
-        timeout=10,
+        timeout=_SUBPROCESS_TIMEOUT,
     )
 
 
@@ -97,13 +100,32 @@ def test_git_commit_matches_head_in_repo(tmp_path: Path) -> None:
 
     tmp_path 内に user.email/user.name をコマンド引数で指定した使い捨てリポジトリを
     作り、ユーザーの git 設定(グローバル/システム)に依存せず自己完結させる。
+    実行環境のグローバル/システム git 設定(例: commit.gpgsign)や対話プロンプトが
+    テスト結果に影響しないよう、全 git 呼び出しに専用 env を渡して遮断する。
     """
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    git_env = os.environ.copy()
+    git_env.update(
+        {
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_TERMINAL_PROMPT": "0",
+        }
+    )
+    subprocess.run(
+        ["git", "init"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        env=git_env,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
     (tmp_path / "README.md").write_text("test")
     subprocess.run(
         ["git", "-C", str(tmp_path), "add", "README.md"],
         check=True,
         capture_output=True,
+        env=git_env,
+        timeout=_SUBPROCESS_TIMEOUT,
     )
     subprocess.run(
         [
@@ -120,12 +142,16 @@ def test_git_commit_matches_head_in_repo(tmp_path: Path) -> None:
         ],
         check=True,
         capture_output=True,
+        env=git_env,
+        timeout=_SUBPROCESS_TIMEOUT,
     )
     expected = subprocess.run(
         ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
         capture_output=True,
         text=True,
         check=True,
+        env=git_env,
+        timeout=_SUBPROCESS_TIMEOUT,
     ).stdout.strip()
     result = _run_fingerprint(tmp_path)
     data = json.loads(result.stdout)
@@ -137,6 +163,7 @@ def test_torch_info_matches_actual_import(tmp_path: Path) -> None:
 
     別プロセスで `import torch` を試み、可能なら実際の版数(CPU ビルドは
     cuda_version=None)を、不可能なら両方 None を期待値として個別比較する。
+    torch 未導入環境では None 分岐のみ実行される(torch 有り経路は torch 導入環境でのみ検証される)。
     """
     probe_code = (
         "import json\n"
@@ -151,7 +178,11 @@ def test_torch_info_matches_actual_import(tmp_path: Path) -> None:
         "    print(json.dumps({'torch_version': None, 'cuda_version': None}))\n"
     )
     probe = subprocess.run(
-        [sys.executable, "-c", probe_code], capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe_code],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=_SUBPROCESS_TIMEOUT,
     )
     expected = json.loads(probe.stdout)
     env = {"GIT_CEILING_DIRECTORIES": str(tmp_path.parent)}
@@ -163,8 +194,15 @@ def test_torch_info_matches_actual_import(tmp_path: Path) -> None:
 
 def test_broken_pipe_returns_exit_zero() -> None:
     """子の stdout を即クローズしても exit code 0 で終了する(BrokenPipe 耐性)。"""
-    proc = subprocess.Popen([sys.executable, str(SCRIPT_PATH)], stdout=subprocess.PIPE)
-    assert proc.stdout is not None
-    proc.stdout.close()
-    returncode = proc.wait(timeout=10)
+    with subprocess.Popen(
+        [sys.executable, str(SCRIPT_PATH)], stdout=subprocess.PIPE
+    ) as proc:
+        assert proc.stdout is not None
+        proc.stdout.close()
+        try:
+            returncode = proc.wait(timeout=_SUBPROCESS_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise
     assert returncode == 0
