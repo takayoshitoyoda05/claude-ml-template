@@ -40,6 +40,8 @@
 - **3層レビュー**: adversarial-reviewer(攻撃的レビュー+リーダーによる検証パスで
   偽陽性除外)と final-gate(Fable 5によるマージ承認の三択判断)を追加。
   `CLAUDE_ADVERSARIAL` / `CLAUDE_FINAL_GATE` で有効化
+- **multi-seed スキル**: worktree 並列のマルチシード実験転用(自動キュー化・
+  部分集計・セッション非依存実行)
 
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規
