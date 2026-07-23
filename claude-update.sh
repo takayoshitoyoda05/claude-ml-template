@@ -105,6 +105,7 @@ fi
 # 参照専用テンプレ(templates/*.template)を配布(既存ファイルは保持)
 mkdir -p templates
 for f in "$TMP"/templates/*.template; do
+  [ -f "$f" ] || continue
   name=$(basename "$f")
   if [ -f "templates/$name" ]; then
     echo "OK: templates/$name は既存のものを保持します"
