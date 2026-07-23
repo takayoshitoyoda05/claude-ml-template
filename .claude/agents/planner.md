@@ -90,7 +90,7 @@ model: opus
 
 設計書がある場合のトレーサビリティ表の例:
 
-| 要件ID | 対応ステップ | 検証方法 |
+| ID | 対応ステップ | 検証方法 |
 |--------|------------|---------|
 | R-001 | Step 1, 3 | uv run python -m pytest tests/test_norm.py -q |
 | R-002 | Step 2 | uv run python scripts/check_seed.py |

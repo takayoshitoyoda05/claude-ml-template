@@ -114,7 +114,9 @@ fi
 
 # 参照専用テンプレ(templates/*.template)を配布(常に最新で上書き)
 mkdir -p templates
-cp "$TMP"/templates/*.template templates/
+for f in "$TMP"/templates/*.template; do
+  [ -f "$f" ] && cp "$f" templates/
+done
 echo "OK: templates/ に参照用テンプレートを配布しました"
 
 # GitHub Actions ワークフロー(spec-gate)の配置(既存なら保持)

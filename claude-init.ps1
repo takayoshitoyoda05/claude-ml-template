@@ -106,7 +106,9 @@ try {
     }
     # 参照専用テンプレ(templates/*.template)を配布(常に最新で上書き)
     New-Item -ItemType Directory -Path "templates" -Force | Out-Null
-    Copy-Item (Join-Path $Tmp "templates\*.template") "templates\" -Force
+    Get-ChildItem -Path (Join-Path $Tmp "templates") -Filter "*.template" | ForEach-Object {
+        Copy-Item $_.FullName -Destination "templates\" -Force
+    }
     Write-Host "OK: templates/ に参照用テンプレートを配布しました"
     # GitHub Actions ワークフロー(spec-gate)の配置(既存なら保持)
     if (Test-Path ".github/workflows/spec-gate.yml") {
