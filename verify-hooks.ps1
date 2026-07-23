@@ -89,6 +89,17 @@ if ($LASTEXITCODE -eq 0) {
     $script:failed++
 }
 if ($null -ne $savedQualityGate) { $env:CLAUDE_QUALITY_GATE = $savedQualityGate }
+# セッションが CLAUDE_NOTIFY=1 を注入していても素の状態をテストできるよう明示的に外す
+$savedNotify = $env:CLAUDE_NOTIFY
+Remove-Item Env:CLAUDE_NOTIFY -ErrorAction SilentlyContinue
+'{}' | uv run python ".claude\hooks\notify.py" *> $null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "OK: notify: off when flag not set (exit 0)"
+} else {
+    Write-Host "NG: notify: off when flag not set (expected 0)"
+    $script:failed++
+}
+if ($null -ne $savedNotify) { $env:CLAUDE_NOTIFY = $savedNotify }
 # セッションが CLAUDE_CROSS_REVIEW=1 を注入していても素の状態をテストできるよう明示的に外す
 $savedCrossReview = $env:CLAUDE_CROSS_REVIEW
 Remove-Item Env:CLAUDE_CROSS_REVIEW -ErrorAction SilentlyContinue
