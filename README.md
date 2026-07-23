@@ -89,7 +89,9 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/clau
 Codex CLI 連携用に `agents/shared/` の配置・`AGENTS.md` の生成・`.codex/`
 (config.toml と skills のコピー)も行われる。`.gitignore` に
 `.claude/checkpoints/` / `.claude/settings.local.json` / `**/.claude/spec/` / `/.worktrees/`
-が自動追加される。対話質問はない。
+が自動追加される。対話質問は無い(既存の `.claude` があるプロジェクトで再実行した
+場合のみ上書き確認が出る。確認は端末から受け付けるため `curl | bash` でも機能し、
+CI 等の非対話環境では上書きせず安全に中止する)。
 
 プロジェクト固有の情報(評価コマンド、データの場所など)は、そのプロジェクト直下の
 `CLAUDE.md` に書く(例: `projects/Deep_MIL/CLAUDE.md`)。ドメイン用語が多いプロジェクトは

@@ -11,8 +11,14 @@ done
 TEMPLATE_REPO="https://github.com/takayoshitoyoda05/claude-ml-template.git"
 
 if [ -d ".claude" ]; then
-  read -p ".claude が既に存在します。上書きしますか? [y/N] " ans
-  [[ "$ans" =~ ^[Yy]$ ]] || { echo "中止しました"; exit 1; }
+  # curl | bash 実行時は stdin がスクリプト本文のため、確認入力は必ず端末
+  # (/dev/tty)から受ける。端末が無い(CI等の非対話)場合は安全側に倒して中止する
+  if read -r -p ".claude が既に存在します。上書きしますか? [y/N] " ans 2>/dev/null < /dev/tty; then
+    [[ "$ans" =~ ^[Yy]$ ]] || { echo "中止しました"; exit 1; }
+  else
+    echo ".claude が既に存在します。対話端末が無いため上書きせず中止しました"
+    exit 1
+  fi
 fi
 
 TMP=$(mktemp -d)
