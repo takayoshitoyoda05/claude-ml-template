@@ -561,6 +561,9 @@ flowchart LR
 | retrospective | フィードバック分析、改善案提案 | 「振り返りして」「改善提案を出して」 | 改善案のみ |
 | mutation-test | テストが本当にバグを検出できるか(テストの質)をmutmutで検証 | 「ミューテーションテストして」「テストの質を確認して」 | レポート + テスト補強の提案 |
 | codex-delegate | 独立した定型タスクをCodexに規律付きで委譲(cwd明示・コミット禁止・範囲固定) | 「Codexにやらせて」「Codexに委譲して」 | 委譲結果のdiff確認後にClaude側でコミット |
+| mlflow-log | MLflowへの実験記録・過去実験の比較・検索 | 「実験を記録して」「実験AとBを比較して」 | mlruns/ に記録、比較表を提示 |
+| literature-review | スコープ固定→検索→スクリーニング→統合の構造化文献調査 | 「サーベイして」「文献調査して」 | literature/ に調査記録一式 |
+| paper-writing | 論文の構造チェック・引用実在確認・査読対応・推敲 | 「論文をチェックして」「査読対応を手伝って」 | チェック結果と修正提案 |
 
 表の「呼び出し方」のような自然文で発動する(完全一致でなくてよい。スキルの description に
 マッチする言い回しなら伝わる)。
@@ -798,6 +801,35 @@ plan-reviewer の自動承認(CLAUDE_AUTO_APPROVE=1)と組み合わせると、
 Windows はトースト通知、macOS は通知センター、Linux は notify-send を使う。
 通知の失敗は作業に影響しない(通知だけが出ない)。
 
+### 3.15 研究ワークフロー(実験管理・文献調査・論文執筆)
+
+#### MLflow 実験管理
+
+EXPERIMENT_LOG.md(人間が読む要約)に加えて、MLflow(機械が比較する詳細)を
+併用できる。ローカル・スタンドアロンで動くため実験データは外部に出ない。
+
+```
+uv add --dev mlflow          # 導入
+uv run mlflow ui             # ブラウザUI(http://localhost:5000)
+```
+
+- evaluator が PASS 時に指標を自動記録(mlflow導入済みの場合)
+- 「実験AとBを比較して」で過去実験の比較表が出る
+- mlruns/ は .gitignore に追加する(容量が大きいため)
+
+#### 文献調査(literature-review)
+
+「サーベイして」で、スコープ固定→検索→スクリーニング→抽出→統合の
+構造化された調査が literature/ 配下に記録される。
+arXiv MCP(.mcp.json で設定、templates/mcp.json.template 参照)を
+接続すると arXiv を直接検索できる。
+
+#### 論文執筆(paper-writing)
+
+「論文をチェックして」で、主張-根拠-限界の構造チェック、
+引用の実在確認(literature/ の調査記録と突合)、査読対応表の作成、
+推敲ができる。実験結果の数値改変や存在しない文献の生成は行わない。
+
 ---
 
 ## 4. テンプレートの育て方
@@ -938,6 +970,9 @@ claude-ml-template/
       retrospective/                feedback.md の分析と改善案の生成
       mutation-test/                mutmutによるテストの質(ミューテーションスコア)の検証
       codex-delegate/               独立した定型タスクをCodexに規律付きで委譲(cwd明示・コミット禁止・範囲固定)
+      mlflow-log/                   MLflowへの実験記録・比較・検索
+      literature-review/            構造化された文献調査
+      paper-writing/                論文の品質チェック(構造・引用実在確認・査読対応・推敲)
     rules/
       python-style.md               .py 編集時に自動適用されるPython規約
       minimal-diff.md               全ファイル編集時に自動適用される最小diff規律
