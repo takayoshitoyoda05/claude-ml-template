@@ -77,7 +77,7 @@
 | 13 | L6 `docs/` を `docs/*` + `!docs/reports/` に変更し、`logs/` を追加(§9-2)。`git check-ignore`で検証 | .gitignore | なし | C |
 | 14 | フック表に3行、環境変数表に CLAUDE_ACTION_LOG 1行、新2節(no-guess/完全トレース)をフック表3.4直後に追記。§10本文の「手順7.5」は「8.5」に読み替え | README.md | なし | C |
 | 15 | [Unreleased] `### Added(2026-07-24)` を新設し、完全トレース+no-guessの1項目を追加 | CHANGELOG.md | なし | C |
-| 16 | `_staging_settings_hooks.py`(gitignored)を作成: 現settings.jsonを読み、PostToolUse配列にmatcher無しaction_logエントリ追加+SubagentStopセクション追加してWrite。**ユーザーに `! uv run python _staging_settings_hooks.py` 実行を依頼**。実行後 settings.json がJSON妥当か確認。この変更はローカル設定でコミットに含めない | _staging_settings_hooks.py, (.claude/settings.json はユーザー手動) | Step2,3 | D |
+| 16 | `_staging_settings_hooks.py`(gitignored)を作成: 現settings.jsonを読み、PostToolUse配列にmatcher無しaction_logエントリ追加+SubagentStopセクション追加してWrite。**ユーザーに `! uv run python _staging_settings_hooks.py` 実行を依頼**。実行後 settings.json の内容検証(両フック登録 assert)。**訂正(レビュー発見): .claude/settings.json は git 追跡対象のテンプレート成果物であり、配線変更はブランチにコミットする**(feat(step 16))。過去にも手動反映後コミットの前例あり(7e72602) | _staging_settings_hooks.py, .claude/settings.json | Step2,3 | D |
 
 ## 並列化判定
 **並列化可能**(グループ A / B / C / D)。
@@ -156,7 +156,7 @@ print('OK: settings.json valid & hooks registered')"
 コミット案(各ステップ完了ごと。作業ブランチ pipeline/20260724-full-trace 上):
 1-4: `feat(step 1..4): <各フック名>`  / 5: `test(step 5): 新フックの空ペイロードexit0テスト`
 6-11,14,15: `docs(step N): <要約>`  / 12,13: `feat(step 12/13): <要約>`
-16: コミットなし(ローカル設定。ステージング副産物 `_staging_*.py` は gitignore 済み)
+16: `feat(step 16): settings.json に action_log/agent_log を配線`(ユーザーのステージング実行後にコミット。`_staging_*.py` 自体は gitignore 済み)
 最終: `git push` と設計書削除は**ユーザー明示指示まで行わない**(タスク指示#7)。
 
 ## リスク
