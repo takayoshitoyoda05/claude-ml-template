@@ -943,6 +943,8 @@ arXiv MCP(.mcp.json で設定、templates/mcp.json.template 参照)を
 git commit・uv.lock の SHA-256・torch/CUDA版数を1つの JSON として標準出力に
 出す。実験結果に添付しておけば、後から「どの環境で走らせたか」を再現できる。
 標準ライブラリのみで動作し、torch 未導入でもエラーにせず null を返す。
+uv.lock はカレントディレクトリ基準で探索するため、リポジトリルート
+(uv.lock のある場所)で実行すること。
 
 ### 3.16 3層レビュー(セキュリティスキャンと最終ゲート)
 

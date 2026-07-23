@@ -4,7 +4,9 @@
 Python 版数・プラットフォーム・git commit・uv.lock のハッシュ・
 torch/CUDA 版数を1コマンドで機械可読な形に固定し、MLflow や実験ログに
 添付できるようにする。標準ライブラリのみで動作し、torch は任意依存として
-扱う。いかなる収集の失敗も exit code 0 で JSON を返す(部分的な null を許す)。
+扱う。stdout に書き込める限り JSON を出力し、いかなる場合も exit code 0 を返す
+(収集の部分的な失敗は当該キーの null で許容し、直列化自体の失敗時は
+全キー null の固定 JSON を出力する)。
 """
 
 import hashlib
@@ -52,6 +54,7 @@ def _collect_git_commit() -> str | None:
             capture_output=True,
             text=True,
             check=True,
+            timeout=5,
         )
         return result.stdout.strip()
     except Exception:
@@ -81,9 +84,12 @@ def _collect_torch_info() -> tuple[str | None, str | None]:
         場合や版数取得に失敗した場合は両方 None。
     """
     try:
-        import torch  # noqa: PLC0415 (任意依存のため関数内 import)
+        import torch
 
-        return torch.__version__, torch.version.cuda
+        cuda_version = torch.version.cuda
+        return str(torch.__version__), None if cuda_version is None else str(
+            cuda_version
+        )
     except Exception:
         return None, None
 
@@ -111,10 +117,28 @@ def main() -> int:
     """環境フィンガープリントを収集し JSON として標準出力へ出力する。
 
     Returns:
-        常に 0(いかなる収集失敗でも部分的な null を許容し exit 0 とする)。
+        常に 0。stdout に書き込める限り JSON を出力するが(部分的な null は
+        許容)、直列化自体が失敗した場合は全キー null の固定 JSON を出力し、
+        それすら書き込めない場合は何も出力せずに 0 を返す。
     """
-    fingerprint = collect_fingerprint()
-    print(json.dumps(fingerprint))
+    try:
+        fingerprint = collect_fingerprint()
+        print(json.dumps(fingerprint))
+    except Exception:
+        try:
+            fallback = dict.fromkeys(
+                [
+                    "python_version",
+                    "platform",
+                    "git_commit",
+                    "uv_lock_sha256",
+                    "torch_version",
+                    "cuda_version",
+                ]
+            )
+            print(json.dumps(fallback))
+        except Exception:
+            pass
     return 0
 
 
