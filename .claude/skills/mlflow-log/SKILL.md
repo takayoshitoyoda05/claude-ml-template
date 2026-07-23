@@ -43,6 +43,8 @@ with mlflow.start_run(run_name="<この実行の名前>"):
 
 ```python
 import mlflow
+
+mlflow.set_tracking_uri("file:./mlruns")  # ローカル保存を明示(環境変数による外部送信を防ぐ)
 runs = mlflow.search_runs(experiment_names=["<実験グループ名>"])
 # runs は DataFrame。params.*, metrics.* 列で比較できる
 ```
@@ -53,8 +55,10 @@ runs = mlflow.search_runs(experiment_names=["<実験グループ名>"])
 ユーザーが視覚的に確認したい場合は、以下を案内する。
 
 ```
-uv run mlflow ui
+MLFLOW_TRACKING_URI=file:./mlruns uv run mlflow ui
 ```
+
+ローカルの mlruns/ を確実に参照するため、環境変数で明示する。
 
 http://localhost:5000 でダッシュボードが開く。
 
