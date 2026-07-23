@@ -421,8 +421,8 @@ planner → (ユーザー承認) → generator → evaluator / evaluator-standar
 - **渡すもの**: 計画ファイルのパス。変更ファイル一覧があれば diff の確認範囲が絞られる
 - **すること**: 計画の評価コマンドを実際に実行し、期待値と数値で照合。「たぶん合っている」では通さない
 - **出力**: PASS / NEEDS_REVISION / FAIL の判定と重大度つき指摘。PASS 時は設計書の
-  `docs/archive/` への移動と `docs/EXPERIMENT_LOG.md` への記録も行う(mlflow 導入済みなら
-  指標を MLflow にも自動記録する。3.15節)。受け入れ条件テーブルが
+  `docs/archive/` への移動と `docs/EXPERIMENT_LOG.md` への記録も行う(検証コマンドが数値指標を出力し、かつ mlflow 導入済みなら
+  その指標を MLflow にも自動記録する。3.15節)。受け入れ条件テーブルが
   あれば `.claude/spec/verdict-*.md` も出力(spec-compliance、1節参照)
 - **単体で呼ぶ場面**: 実装は既に終わっていて、評価だけやり直したいとき
 
