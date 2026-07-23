@@ -109,3 +109,24 @@
 | (ドキュメント) | README/CHANGELOG 同期 | Step 2, 3 | 検証方法3(grep/目視) |
 
 本計画で回帰テスト化する全 R-ID(R-002〜004, 009〜011)を網羅(R-001/005〜008 は使い捨て検証・manual・ドキュメント系のため対象外)。Step 2/3 はドキュメント同期タスクのため R-ID 非対応。
+
+## 作業ログ(2026-07-24 実装)
+- Step 1: 骨組み(`test_skeleton_placeholder` の `NotImplementedError`)で
+  `uv run --with pytest python -m pytest tests/ -q` を実行し、1件 FAIL の失敗形を確認してから
+  `tests/test_env_fingerprint.py` を全面実装。R-002/003/004/009/010/011 + BrokenPipe の7テスト。
+  git commit `1828522`。
+- Step 2: README 6章ツリーに `tests/` 行、3.15 env_fingerprint 小節末尾にテスト実行コマンドを追記。
+  git commit `aeecd87`。
+- Step 3: CHANGELOG `[Unreleased]` に `### Added(2026-07-24)` を新設(既存の
+  Added(2026-07-22)→Added(2026-07-23) 昇順配置に続く位置)。git commit `b022c06`。
+- 検証:
+  1. `uv run --with pytest python -m pytest tests/ -q` → `7 passed`(コミット後も再実行し同結果)。
+  2. ミューテーション検証: `git status --porcelain scripts/env_fingerprint.py` がクリーンなことを
+     確認 → `"platform"` キーを `"platfrm"` に改変 → 同コマンド実行で
+     `test_fixed_keys_in_order` が `AssertionError: ... 'platfrm' != 'platform'` で FAIL
+     (`1 failed, 6 passed`)、他6件はPASSのまま → `git checkout -- scripts/env_fingerprint.py` で
+     復帰 → 再実行で `7 passed` を確認。
+  3. `grep -n "tests/" README.md`(L1180 のツリー行含む)、`grep -n "pytest tests/ -q" README.md`
+     (L948)、`grep -n "### Added(2026-07-24)" CHANGELOG.md`(L53)いずれも一致を確認。
+- 計画からの逸脱: なし。テストヘルパー `_run_fingerprint` は7テスト共通で使う subprocess 起動処理の
+  重複排除のため追加(「一回きりの操作にヘルパー関数を作らない」規約には抵触しない)。
