@@ -88,8 +88,9 @@ def _collect_torch_info() -> tuple[str | None, str | None]:
         import torch
 
         cuda_version = torch.version.cuda
-        return str(torch.__version__), None if cuda_version is None else str(
-            cuda_version
+        return (
+            str(torch.__version__),
+            str(cuda_version) if cuda_version is not None else None,
         )
     except Exception:
         return None, None
