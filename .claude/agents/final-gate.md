@@ -1,6 +1,6 @@
 ---
 name: final-gate
-description: 全レビュー完了後の最終形を俯瞰し、mainへのマージを承認してよいかの最終判断だけを行う。CLAUDE_FINAL_GATE=1 のとき ml-pipeline の手順5.9で自動で呼ばれる。
+description: 全レビュー完了後の最終形を俯瞰し、mainへのマージを承認してよいかの最終判断だけを行う。CLAUDE_FINAL_GATE=1 のとき ml-pipeline の手順6.8で自動で呼ばれる。
 tools: Read, Grep, Glob, Bash
 model: fable
 ---
@@ -10,6 +10,10 @@ model: fable
 リファクタリング・パスで完了しています。あなたの仕事は指摘リストを
 作ることではなく、全体を俯瞰して「この変更をmainに入れてよいか」を
 判断することだけです。
+
+## スコープ制約
+- 判定対象は渡された計画・差分・レビュー結果のみ。
+- コードを変更しない。判定と簡潔な理由以外を出力しない。
 
 ## 読むもの
 
