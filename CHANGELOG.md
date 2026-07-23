@@ -25,6 +25,17 @@
 - 新スキル: cross-review / fix-ci / retrospective / mutation-test(mutmut による
   テストの質検証)
 
+### Added(2026-07-23)
+- **Codex高度運用**(前回マージ分の記録漏れ): MCP経由でのCodex登録用テンプレート
+  (`templates/mcp.json.template`)、独立タスクの委譲用スキル codex-delegate、
+  レート制限時の退避先としての委譲運用、Codexとevaluator系の指摘一致で
+  重大度を1段引き上げる優先度ルール
+- **プラグインマニフェストと完了通知フック**: `.claude-plugin/plugin.json` を追加
+  (現行のプラグイン仕様確認結果に基づく暫定対応。コンポーネントの読み込みは
+  プラグインルート直下が前提のため未対応。フル機能は引き続き claude-init を使用)。
+  `notify.py`(Stop)が `CLAUDE_NOTIFY=1` のとき、全ゲート通過後の実際の停止時に
+  デスクトップ通知(Windows/macOS/Linux対応)
+
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規
   generator に指摘全文を渡す・再レビューは失敗軸のみ、のトークン節約規律を明文化

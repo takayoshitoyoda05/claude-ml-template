@@ -1,0 +1,11 @@
+{
+  "name": "claude-ml-template",
+  "version": "1.0.0",
+  "description": "Planner/Generator/Evaluator 3分離パターン + 品質ゲート + 研究ワークフローのテンプレート",
+  "author": {
+    "name": "takayoshitoyoda05"
+  },
+  "homepage": "https://github.com/takayoshitoyoda05/claude-ml-template",
+  "repository": "https://github.com/takayoshitoyoda05/claude-ml-template",
+  "license": "MIT"
+}
