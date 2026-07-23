@@ -1,0 +1,13 @@
+{
+  "name": "claude-ml-template",
+  "owner": {
+    "name": "takayoshitoyoda05"
+  },
+  "plugins": [
+    {
+      "name": "claude-ml-template",
+      "source": "./",
+      "description": "Planner/Generator/Evaluator 3分離パターン + 品質ゲート + 研究ワークフローのテンプレート"
+    }
+  ]
+}
