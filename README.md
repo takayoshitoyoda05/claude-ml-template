@@ -806,7 +806,8 @@ Windows はトースト通知、macOS は通知センター、Linux は notify-s
 #### MLflow 実験管理
 
 EXPERIMENT_LOG.md(人間が読む要約)に加えて、MLflow(機械が比較する詳細)を
-併用できる。ローカル・スタンドアロンで動くため実験データは外部に出ない。
+併用できる。既定ではローカルの mlruns/ に保存される(スキルが tracking URI を
+ローカルに明示固定する。MLFLOW_TRACKING_URI による意図しない外部送信を防ぐため)。
 
 ```
 uv add --dev mlflow          # 導入

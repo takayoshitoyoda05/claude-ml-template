@@ -104,6 +104,7 @@ evaluator-standards の担当なのでここでは判断しません。
 
   ```python
   import mlflow
+  mlflow.set_tracking_uri("file:./mlruns")  # ローカル保存を明示(環境変数による外部送信を防ぐ)
   mlflow.set_experiment("pipeline-runs")
   with mlflow.start_run(run_name="<計画ファイル名>"):
       mlflow.log_param("plan", "<計画ファイルパス>")
