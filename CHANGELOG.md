@@ -42,6 +42,10 @@
   `CLAUDE_ADVERSARIAL` / `CLAUDE_FINAL_GATE` で有効化
 - **multi-seed スキル**: worktree 並列のマルチシード実験転用(自動キュー化・
   部分集計・セッション非依存実行)
+- **設計書リッチ化**: design-interview に曖昧性タクソノミー(clarify)と EARS 記法を追加、
+  spec-checklist スキル(完全性・明確性・一貫性・測定可能性・カバレッジの5次元検査、
+  Planner 後の手順3.3で必須自動実行)を新規追加、planner にトレーサビリティ表
+  (R-ID⇔対応ステップ⇔検証方法)の必須化を追加、`templates/design-doc.md.template` を新規追加
 
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規

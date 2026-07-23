@@ -112,6 +112,19 @@ else
   echo "OK: .claude/settings.local.json を生成しました(env の値を記入するとフックが有効になります)"
 fi
 
+# 参照専用テンプレ(templates/*.template)を配布(既存ファイルは保持)
+mkdir -p templates
+for f in "$TMP"/templates/*.template; do
+  [ -f "$f" ] || continue
+  name=$(basename "$f")
+  if [ -f "templates/$name" ]; then
+    echo "OK: templates/$name は既存のものを保持します"
+  else
+    cp "$f" "templates/$name"
+    echo "OK: templates/$name を配布しました"
+  fi
+done
+
 # GitHub Actions ワークフロー(spec-gate)の配置(既存なら保持)
 if [ -f ".github/workflows/spec-gate.yml" ]; then
   echo "OK: .github/workflows/spec-gate.yml は既存のものを保持します"
