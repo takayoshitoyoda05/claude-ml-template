@@ -34,8 +34,14 @@ final-gate(第3層)は既存のまま、「読むもの」に CLAUDE-SECURITY-RE
 - 確認済み: .claude/settings.json に CLAUDE_ADVERSARIAL は無い(内容変更不要。検証で JSON 妥当性のみ確認)。
 - 確認済み: README のワークフロー mermaid 図に AD(敵対的レビュー)ノードがある(L18,21,23)。
   設計書は図に未言及だが、6.6 置換に伴い図も更新しないと齟齬が出るため最小変更する。
-- 確認済み: final-gate.md L9 の散文に「敵対的」が残るが CLAUDE_ADVERSARIAL ではなく、
-  設計書のスコープ外(読むもの項目3のみ変更指示)。minimal-diff に従い据え置く(リスク欄参照)。
+- 確認済み: final-gate.md L9 の散文「3段階のレビュー(Spec / Standards / 敵対的)」は
+  エージェント自身の前提説明であり、敵対的レビュー廃止後は誤りになる
+  → Step 3 で「敵対的」を「セキュリティスキャン」に同期更新する(Codexレビュー指摘の採用)。
+- 確認済み(Codexレビュー指摘の採用): README L1032 のファイル一覧ツリーに
+  adversarial-reviewer.md の行がある → Step 7 で削除する。
+- 確認済み(Web検証 2026-07-23): security-guidance / claude-security 両プラグインは
+  実在する(anthropics/claude-plugins-official)。claude-security はベータで
+  `/claude-security` コマンドに「Scan changes」モードあり。設計書の記述と整合。
 - 確認済み: docs/adr/ が存在し(0001-multi-seed-design.md)、リポジトリは ADR 運用実績あり。
   本件は「自作 → 公式プラグイン」という後戻りしづらいトレードオフ決定のため ADR を1本追加する。
 
@@ -59,13 +65,13 @@ final-gate(第3層)は既存のまま、「読むもの」に CLAUDE-SECURITY-RE
 | 0 | 受け入れ検証の空振り確認: 置換前に「検証方法」の grep/verify-hooks を実行し、現状の CLAUDE_ADVERSARIAL 出現(置換対象のみ)を基準として記録 | (検証コマンドのみ) | なし | A |
 | 1 | adversarial-reviewer.md を削除 | .claude/agents/adversarial-reviewer.md | なし | A |
 | 2 | 6.6 見出し・本文を「### 6.6. セキュリティスキャン(条件分岐)」に全体置換(設計書セクション2の文面を採用)。スキップ先を「手順6.7へ」、(c)の差し戻し先を「手順5に戻る」、0件時を「手順6.7へ進む」に補正。さらに 6.8 の「各レビュー(evaluator / evaluator-standards / 敵対的レビュー)の結果要約」を「…/ セキュリティスキャン)の結果要約」に更新 | .claude/commands/ml-pipeline.md | なし | A |
-| 3 | 「読むもの」項目3を設計書セクション3の文面に置換(CLAUDE-SECURITY-RESULTS.md を追加)。frontmatter・観点・出力形式は不変 | .claude/agents/final-gate.md | なし | A |
+| 3 | 「読むもの」項目3を設計書セクション3の文面に置換(CLAUDE-SECURITY-RESULTS.md を追加)。あわせて冒頭散文の「(Spec / Standards / 敵対的)」を「(Spec / Standards / セキュリティスキャン)」に同期。frontmatter・観点・出力形式は不変 | .claude/agents/final-gate.md | なし | A |
 | 4 | 「# セキュリティレビュー」見出し直後に設計書セクション4の注記ブロックを挿入(用途aは公式プラグイン優先、用途bは本スキル継続) | .claude/skills/security-review/SKILL.md | なし | A |
 | 5 | env ブロックの "CLAUDE_ADVERSARIAL": "0" を "CLAUDE_SECURITY_SCAN": "0" に置換(CLAUDE_FINAL_GATE は残す) | templates/settings.local.json.template | なし | A |
 | 6 | config-set の JSON雛形 L33 と説明表 L56、config-explain の確認表 L26 を CLAUDE_SECURITY_SCAN に同期(説明文は「`1` でclaude-securityプラグインによる差分スキャンを2軸レビュー後に実行(既定 `0`)」) | .claude/skills/config-set/SKILL.md, .claude/skills/config-explain/SKILL.md | なし | A |
-| 7 | README を更新: 図L18ノード名→「セキュリティスキャン<br>※CLAUDE_SECURITY_SCAN=1時のみ」、L21 "ADVERSARIAL無効時"→"SECURITY_SCAN無効時"、L23 エッジ"実在する問題あり"→"verifiedな指摘あり"; L203環境変数表を設計書の CLAUDE_SECURITY_SCAN 行に置換; L381手順9を差分スキャン版に書換; L580 adversarial-reviewer 行を削除; L881〜の3.16節を設計書セクション6の「3層レビュー」文面に全体置換(見出しは "### 3.16 3層レビュー(セキュリティスキャンと最終ゲート)" として節番号を維持); L963 の CLAUDE_ADVERSARIAL→CLAUDE_SECURITY_SCAN; セットアップ節末尾(L338 の直後、L339 "---" の前)に設計書セクション6の「セキュリティプラグインの導入(推奨)」節を追加 | README.md | なし | B |
+| 7 | README を更新: 図L18ノード名→「セキュリティスキャン<br>※CLAUDE_SECURITY_SCAN=1時のみ」、L21 "ADVERSARIAL無効時"→"SECURITY_SCAN無効時"、L23 エッジ"実在する問題あり"→"verifiedな指摘あり"; L203環境変数表を設計書の CLAUDE_SECURITY_SCAN 行に置換; L381手順9を差分スキャン版に書換; L580 adversarial-reviewer 行を削除; L881〜の3.16節を設計書セクション6の「3層レビュー」文面に全体置換(見出しは "### 3.16 3層レビュー(セキュリティスキャンと最終ゲート)" として節番号を維持); L963 の CLAUDE_ADVERSARIAL→CLAUDE_SECURITY_SCAN; L1032 のファイル一覧ツリーから adversarial-reviewer.md の行を削除; セットアップ節末尾(L338 の直後、L339 "---" の前)に設計書セクション6の「セキュリティプラグインの導入(推奨)」節を追加(導入コマンドに「Marketplace未登録なら `/plugin marketplace add anthropics/claude-plugins-official`」の注記を1行添える) | README.md | なし | B |
 | 8 | [Unreleased] に "### Changed(2026-07-23)" を新設し1項目追加(敵対的レビュー/CLAUDE_ADVERSARIAL を Claude Security プラグイン統合/CLAUDE_SECURITY_SCAN に置き換え、security-review スキルはフォールバックに降格)。過去の Added(2026-07-23) エントリは変更しない | CHANGELOG.md | なし | B |
-| 9 | ADR を新規作成(決定・背景・代替案・影響を各数行)。docs/adr/ 既存の書式に合わせる | docs/adr/0002-security-plugin-replacement.md | Step 1-8 | B |
+| 9 | ADR を新規作成(決定・背景・代替案・影響を各数行)。docs/adr/ 既存の書式に合わせる。docs/ は git 管理外のためコミットは作らない(0001 と同じ扱い) | docs/adr/0002-security-plugin-replacement.md | Step 1-8 | B |
 | 10 | 全検証を実行(下記「検証方法」)。全 PASS を確認 | (検証コマンドのみ) | Step 1-9 | - |
 
 注意(Step 2): 設計書の (c) は「手順4へ」「手順5.7へ」と書くが、これは spec 想定の旧番号。
@@ -100,18 +106,20 @@ test ! -f .claude/agents/adversarial-reviewer.md && echo "OK: deleted"
 # (2) ml-pipeline.md に置換後の文言がある
 grep -l "CLAUDE_SECURITY_SCAN" .claude/commands/ml-pipeline.md
 
-# (3) 旧環境変数が実運用ファイルに残っていない
+# (3) 旧環境変数・旧エージェント参照が実運用ファイルに残っていない
 #     ※ .claude/checkpoints/(トランスクリプト)/ .claude/plans/(過去+本計画)/ CHANGELOG.md(過去エントリ)
 #       は履歴的記録のため grep 対象から除外している(設計書の元コマンドの偽陽性を修正)
-! grep -rn "CLAUDE_ADVERSARIAL" \
+! grep -rn "CLAUDE_ADVERSARIAL\|adversarial-reviewer" \
     .claude/agents/ .claude/commands/ .claude/skills/ .claude/hooks/ \
     templates/ README.md \
   && echo "OK: no leftover in operational files"
 
-# (4) 置換後の環境変数が README / config 系 / テンプレートに揃っている
-grep -rl "CLAUDE_SECURITY_SCAN" \
-    README.md templates/settings.local.json.template \
-    .claude/skills/config-set/SKILL.md .claude/skills/config-explain/SKILL.md
+# (4) 置換後の環境変数が README / config 系 / テンプレートの全4ファイルに揃っている
+#     (grep -rl は1ファイルでも exit 0 になるため、ファイルごとに個別判定する)
+for f in README.md templates/settings.local.json.template \
+         .claude/skills/config-set/SKILL.md .claude/skills/config-explain/SKILL.md; do
+  grep -q "CLAUDE_SECURITY_SCAN" "$f" && echo "OK: $f" || { echo "MISSING: $f"; exit 1; }
+done
 
 # (5) settings.json が妥当な JSON
 python -c "import json; json.load(open('.claude/settings.json'))"
@@ -119,15 +127,15 @@ python -c "import json; json.load(open('.claude/settings.json'))"
 # (6) テンプレートも妥当な JSON
 python -c "import json; json.load(open('templates/settings.local.json.template'))"
 
-# (7) フックテスト全 PASS
-./verify-hooks.sh
+# (7) フックテスト全 PASS(verify-hooks.sh は実行ビット無し(644)のため bash 経由で呼ぶ)
+bash ./verify-hooks.sh
 ```
 
 期待結果:
 - (1) `OK: deleted`
 - (2) パス出力(`.claude/commands/ml-pipeline.md`)
 - (3) grep がヒット0(exit 1)で `OK: no leftover in operational files` が出る
-- (4) 4ファイルのパスが列挙される
+- (4) 4ファイル全てに `OK:` が出て exit 0(1つでも欠ければ `MISSING:` で exit 1)
 - (5)(6) 例外なく終了(exit 0)
 - (7) verify-hooks.sh が全項目 PASS
 
@@ -141,11 +149,10 @@ python -c "import json; json.load(open('templates/settings.local.json.template')
   過去計画・本計画を拾って偽陽性になる。検証(3)を実運用ディレクトリに絞って回避済み。
 - **README マージ衝突**: multi-seed の未マージ変更が別ブランチにある。CLAUDE_ADVERSARIAL の6箇所と
   新規2節以外に触れないことで衝突面を最小化。
-- **未確認の仮定**: claude-security / security-guidance プラグインの実挙動(6フェーズ・Panel quorum 等)は
-  設計書の記述をそのまま採用しており、実プラグインの現仕様とのズレは未検証。文書上の記述のため実害は小。
-- **設計書スコープ外の据え置き**: final-gate.md L9 の散文「3段階のレビュー(Spec / Standards / 敵対的)」に
-  「敵対的」が残る。CLAUDE_ADVERSARIAL ではなく検証(3)を汚さないため、minimal-diff と設計書スコープ
-  (読むもの項目3のみ変更)に従い今回は据え置く。将来の整合更新は別タスク。
+- **一部未確認の仮定**: プラグインの実在・導入コマンド・「Scan changes」モードは Web で確認済み
+  (2026-07-23)。ただし内部詳細(6フェーズ名・Panel quorum 2/3・CLAUDE-SECURITY-RESULTS.md の
+  verification.status 形式)は設計書の記述をそのまま採用。未導入環境では 6.6(a) が graceful skip
+  するため実行不能にはならないが、初回実走時に結果ファイル名・形式の実態確認を推奨(README に注記不要、運用で確認)。
 - **検討した代替案(不採用)**:
   - 案X: A/B 並列(worktree 分離)。→ 上記「文言ドリフト」と小規模ゆえのオーバーヘッド超過で不採用。
   - 案Y: 全変更を1コミットに集約(設計書の元方針)。→ リポジトリ慣例の feat/refactor(step N) 粒度と
@@ -164,7 +171,7 @@ python -c "import json; json.load(open('templates/settings.local.json.template')
 | 6 | `refactor(step 6): config-set/config-explain を CLAUDE_SECURITY_SCAN に同期` |
 | 7 | `refactor(step 7): README の敵対的レビュー記述をセキュリティスキャン版に置換し導入手順を追加` |
 | 8 | `docs(step 8): CHANGELOG に Claude Security 置換を Changed として記録` |
-| 9 | `docs(step 9): ADR にセキュリティプラグイン置換の決定を記録` |
+| 9 | (コミットなし — docs/ は git 管理外のため ADR はローカル成果物として作成のみ) |
 
 - Step 6 は2ファイルだが同期という単一意図なので1コミットにまとめる。
 - 各コミット前に「検証方法」の該当項目を回し、最終 Step 10 で全項目を通す。
