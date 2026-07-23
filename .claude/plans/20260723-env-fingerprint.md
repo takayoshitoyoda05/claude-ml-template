@@ -175,3 +175,30 @@ bash ./verify-hooks.sh; echo "exit=$?"                        # exit=0(全PASS)
 | R-011 | Step 1, 2 | `git_commit` が `git rev-parse HEAD` と一致 → exit 0 |
 
 全 R-ID に対応ステップあり(未対応の R-ID なし)。
+
+## 作業ログ(2026-07-23 実装)
+
+- Step 1: 実装前に R-001〜R-004, R-009〜R-011 の検証コマンドを実行し、
+  全て `scripts/env_fingerprint.py` 未存在で失敗(exit=1 or 2)することを確認。
+- Step 2: `scripts/env_fingerprint.py` を新規作成(stdlib のみ・torch は
+  関数内 try-import・収集は小関数+個別 try/except・キー固定順6個・
+  常に exit 0・uv.lock は cwd 基準・python3 単体でも動作確認済み)。
+  実装後、auto 検証コマンド全件(R-001〜R-004, R-009〜R-011)が exit 0 で PASS。
+  コミット: `76708c1 feat(step 2): 環境フィンガープリント収集スクリプトを追加`
+- Step 3: README 3.15 節に「環境フィンガープリント(env_fingerprint)」小節を
+  追記、6章ファイル一覧ツリーに `scripts/env_fingerprint.py` の行を追加。
+  R-006 (`grep -q env_fingerprint README.md`) PASS。
+  コミット: `5d2d628 feat(step 3): READMEに env_fingerprint の説明とファイル一覧を追記`
+- Step 4: CHANGELOG `[Unreleased]` の `### Added(2026-07-23)` 末尾に
+  env_fingerprint スクリプトの項目を1つ追加。R-007 PASS。
+  コミット: `ba3dc7b feat(step 4): CHANGELOG に env_fingerprint 追加を記録`
+- 最終確認: R-001〜R-004, R-006〜R-011 全て auto コマンドで exit 0。
+  R-005 は grep 出力を人間承認用に報告(トップレベル import は
+  hashlib/json/platform/subprocess/sys/pathlib のみ、torch は関数内 try-import)。
+  R-008 (`bash ./verify-hooks.sh`) 全テスト PASS。
+- 計画からの逸脱: なし。
+
+変更ファイル一覧:
+- 新規: `scripts/env_fingerprint.py`
+- 変更: `README.md`(3.15節・6章ファイル一覧)
+- 変更: `CHANGELOG.md`(Added 2026-07-23 節)
