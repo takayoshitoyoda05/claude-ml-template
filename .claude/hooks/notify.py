@@ -20,10 +20,12 @@ import sys
 
 
 def _sq(text: str) -> str:
-    """PowerShell / AppleScript の単一引用符文字列に安全に埋め込む。
+    """PowerShell の単一引用符文字列に安全に埋め込む(Windows 分岐用)。
 
     環境変数由来のパスに引用符が含まれるとスクリプトが壊れる
     (任意コマンド注入にもなり得る)ため、最低限のエスケープを行う。
+    macOS 分岐は AppleScript の二重引用符文字列のため、別途
+    ダブルクォート除去でサニタイズしている。
     """
     return text.replace("'", "''")
 
