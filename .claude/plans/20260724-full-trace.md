@@ -135,10 +135,11 @@ tail -1 logs/actions/*smoketes*.jsonl | grep -q "MASKED" && \
 SMOKE="smoke-$$" && \
 test ! -e "docs/reports/$SMOKE" && \
 uv run python .claude/hooks/report_gen.py "$SMOKE" && \
-test -f "docs/reports/$SMOKE/evidence/stats.json" && echo "OK: evidence generated" ; \
-rm -rf "docs/reports/$SMOKE"
+test -f "docs/reports/$SMOKE/evidence/stats.json" && echo "OK: evidence generated" ; RC=$? ; \
+rm -rf "docs/reports/$SMOKE" ; exit $RC
 ```
-期待結果: `OK: evidence generated`。一時IDで既存成果物と衝突せず、後始末は自動(rm は成否に関わらず実行)。
+(サブシェルで実行すること: `( ... )` — exit がシェルを殺さないように)
+期待結果: `OK: evidence generated` かつ exit 0。失敗時は失敗ステータスが保存され、後始末は成否に関わらず実行される。
 
 settings.json(ユーザー手作業後):
 ```bash
