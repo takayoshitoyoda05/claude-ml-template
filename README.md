@@ -62,8 +62,12 @@ flowchart TD
 | uv | フックの実行(`uv run python`) | `uv --version` |
 | git | テンプレート取得・バージョン管理 | `git --version` |
 | Claude Code | 本体 | `claude --version` |
+| Codex CLI(任意) | Codex連携 — cross-review(別モデルレビュー)/ codex-delegate(実装委譲) | `codex --version` |
 
 ruff は任意(自動整形用)。無ければ整形がスキップされるだけで他は動く。
+Codex CLI も任意で、`CLAUDE_CROSS_REVIEW=1` のゲートや「Codexにやらせて」を使う
+場合のみ必要。インストール後に `codex login` で認証しておくこと(未認証だと
+cross-review はスキップ扱いになる)。無くても Codex 連携以外の全機能は動く。
 
 ### 初回展開(方法A: claude-init — 推奨・フル機能)
 
