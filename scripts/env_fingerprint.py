@@ -131,6 +131,7 @@ def main() -> int:
         # stdout を devnull に差し替えてから正常終了する(Python公式パターン)
         devnull = os.open(os.devnull, os.O_WRONLY)
         os.dup2(devnull, sys.stdout.fileno())
+        os.close(devnull)
         return 0
     except Exception:
         try:
@@ -149,6 +150,7 @@ def main() -> int:
         except BrokenPipeError:
             devnull = os.open(os.devnull, os.O_WRONLY)
             os.dup2(devnull, sys.stdout.fileno())
+            os.close(devnull)
         except Exception:
             pass
     return 0
