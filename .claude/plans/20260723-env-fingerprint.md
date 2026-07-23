@@ -202,3 +202,26 @@ bash ./verify-hooks.sh; echo "exit=$?"                        # exit=0(全PASS)
 - 新規: `scripts/env_fingerprint.py`
 - 変更: `README.md`(3.15節・6章ファイル一覧)
 - 変更: `CHANGELOG.md`(Added 2026-07-23 節)
+
+## 作業ログ(2026-07-23 手順6.7 磨き1周)
+
+- 対象: `scripts/env_fingerprint.py` のみ(README/CHANGELOG は対象外)。
+- 観点1(音読テスト)〜観点5(対称性)を順に確認。
+  - `_collect_torch_info` の戻り値タプルが
+    `str(torch.__version__), None if cuda_version is None else str(cuda_version)`
+    という、三項演算子がコンマの直後で折り返される読みにくい形になっていたため、
+    `str(cuda_version) if cuda_version is not None else None` という cuda_version の
+    有無で分岐する自然な語順に整形(条件式の真偽分岐順序のみの変更で、
+    戻り値・動作は不変)。
+  - 命名・whatコメント・簡潔化・対称性の他の観点は磨く価値のある箇所なし
+    (BrokenPipeError の3行×2箇所の重複は、指示どおり新規ヘルパー関数を
+    追加しない判断のため現状維持)。
+- 検証: R-001〜R-004, R-009〜R-011 を再実行し全て exit=0(PASS)。
+  BrokenPipe を `| true` と `| head -c 0` の2形式で確認し両方 exit=0。
+  `bash ./verify-hooks.sh` 実行し全テストPASS(exit=0)。
+- git status で未追跡ファイルなしを確認。
+- コミット: `4ca8d9a refactor(step 2): env_fingerprint を磨き`
+- 計画からの逸脱: なし。
+
+変更ファイル一覧(本磨きパス):
+- 変更: `scripts/env_fingerprint.py`(`_collect_torch_info` の戻り値タプル整形のみ)
