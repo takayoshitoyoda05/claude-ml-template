@@ -609,6 +609,7 @@ flowchart LR
 | mlflow-log | MLflowへの実験記録・過去実験の比較・検索 | 「実験を記録して」「実験AとBを比較して」 | mlruns/ に記録、比較表を提示 |
 | literature-review | スコープ固定→検索→スクリーニング→統合の構造化文献調査 | 「サーベイして」「文献調査して」 | literature/ に調査記録一式 |
 | paper-writing | 論文の構造チェック・引用実在確認・査読対応・推敲 | 「論文をチェックして」「査読対応を手伝って」 | チェック結果と修正提案 |
+| multi-seed | 同一コードを複数seedで実行し平均±分散まで自動集計(worktree分離・自動キュー化) | 「seedを振って」「マルチシードで回して」 | mlruns/ に記録、集計表を提示 |
 
 表の「呼び出し方」のような自然文で発動する(完全一致でなくてよい。スキルの description に
 マッチする言い回しなら伝わる)。
@@ -876,6 +877,14 @@ arXiv MCP(.mcp.json で設定、templates/mcp.json.template 参照)を
 引用の実在確認(literature/ の調査記録と突合)、査読対応表の作成、
 推敲ができる。実験結果の数値改変や存在しない文献の生成は行わない。
 
+#### マルチシード実験(multi-seed)
+
+「seed 42-46 で回して」で、worktree 分離した N 本の実験を
+バックグラウンドで実行し(GPU 1枚ならキュー化)、MLflow 集計で
+平均±標準偏差まで出す。セッションを閉じてもジョブは継続し、
+後続セッションで「結果を集計して」と回収できる。失敗 seed が
+あっても完走分で部分集計し、失敗の内訳を明示する。
+
 ### 3.16 3層レビュー(敵対的レビューと最終ゲート)
 
 CLAUDE_ADVERSARIAL=1 と CLAUDE_FINAL_GATE=1 を設定すると、
@@ -1057,6 +1066,7 @@ claude-ml-template/
       mlflow-log/                   MLflowへの実験記録・比較・検索
       literature-review/            構造化された文献調査
       paper-writing/                論文の品質チェック(構造・引用実在確認・査読対応・推敲)
+      multi-seed/                   worktree並列で複数seedを自動実行・自動集計(自動キュー化)
     rules/
       python-style.md               .py 編集時に自動適用されるPython規約
       minimal-diff.md               全ファイル編集時に自動適用される最小diff規律
