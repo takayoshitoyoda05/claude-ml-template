@@ -16,8 +16,12 @@ if [ -d ".claude" ]; then
   # 分けるのは、readにまとめて2>/dev/nullを付けるとプロンプト表示まで
   # 消えてしまうため)、端末が無い非対話環境では安全側に倒して中止する
   if { : < /dev/tty; } 2>/dev/null; then
-    read -r -p ".claude が既に存在します。上書きしますか? [y/N] " ans < /dev/tty
-    [[ "$ans" =~ ^[Yy]$ ]] || { echo "中止しました"; exit 1; }
+    if read -r -p ".claude が既に存在します。上書きしますか? [y/N] " ans < /dev/tty; then
+      [[ "$ans" =~ ^[Yy]$ ]] || { echo "中止しました"; exit 1; }
+    else
+      echo "入力が中断されたため中止しました"
+      exit 1
+    fi
   else
     echo ".claude が既に存在します。対話端末が無いため上書きせず中止しました"
     exit 1
