@@ -18,9 +18,11 @@ flowchart TD
     E & F -->|両方PASS| AD[敵対的レビュー: 攻撃+偽陽性除外<br>※CLAUDE_ADVERSARIAL=1時のみ]
     E & F -->|NEEDS_REVISION| D
     E -->|FAIL 3回| B
+    E & F -.->|CLAUDE_ADVERSARIAL無効時| P
     AD --> P[リファクタリング・パス<br>動作を変えない磨き1周]
     AD -->|実在する問題あり| D
     P --> FG[final-gate fable: マージ可否の三択判断<br>※CLAUDE_FINAL_GATE=1時のみ]
+    P -.->|CLAUDE_FINAL_GATE無効時| M
     FG -->|APPROVE| M{mainにマージしますか?}
     FG -->|SEND_BACK| D
     M -->|はい| G[mainへ--no-ffマージ]
