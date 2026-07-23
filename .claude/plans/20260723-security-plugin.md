@@ -185,3 +185,51 @@ bash ./verify-hooks.sh
 - (b) トレードオフ決定 → ADR: 「自作の敵対的レビュー → 公式 Claude Security プラグイン」は
   後戻りしづらい選択。Step 9 で docs/adr/0002-security-plugin-replacement.md を作成して記録する。
 - (c) 実験の再現条件 → EXPERIMENT_LOG: 数値・シード・データセット等の確定情報は無いため追記なし。
+
+## 作業ログ(実装完了 2026-07-23)
+
+Step 0〜10 を計画通り逐次実行し、全て完了した。
+
+- **Step 0**: 置換前 grep 基準を記録。実運用ディレクトリ
+  (`.claude/agents/ commands/ skills/ hooks/ templates/ README.md`)で
+  `CLAUDE_ADVERSARIAL|adversarial-reviewer` が15件ヒット(想定通り)。
+- **Step 1**: `.claude/agents/adversarial-reviewer.md` を `git rm` で削除。
+- **Step 2**: `.claude/commands/ml-pipeline.md` の「### 6.6. 敵対的レビュー(条件分岐)」を
+  「### 6.6. セキュリティスキャン(条件分岐)」に全体置換。飛び先は設計書の
+  旧番号(手順4/5.7)ではなく現番号に補正: スキップ先「手順6.7へ」、差し戻し先
+  「手順5に戻る」、0件時「手順6.7へ進む」。6.8 の「各レビュー(evaluator /
+  evaluator-standards / 敵対的レビュー)の結果要約」は
+  「…/ セキュリティスキャン)の結果要約」に更新。
+- **Step 3**: `.claude/agents/final-gate.md` の「読むもの」項目3に
+  CLAUDE-SECURITY-RESULTS.md 参照を追記。冒頭散文「(Spec / Standards / 敵対的)」を
+  「(Spec / Standards / セキュリティスキャン)」に同期(Codexレビュー指摘の採用分)。
+- **Step 4**: `.claude/skills/security-review/SKILL.md` の見出し直後に
+  公式プラグイン優先の注記ブロックを追加。
+- **Step 5**: `templates/settings.local.json.template` の
+  `CLAUDE_ADVERSARIAL` を `CLAUDE_SECURITY_SCAN` に置換。JSON妥当性を確認。
+- **Step 6**: `.claude/skills/config-set/SKILL.md`(JSON雛形+説明表)と
+  `.claude/skills/config-explain/SKILL.md`(確認表)を `CLAUDE_SECURITY_SCAN` に同期。
+  説明文言は README と完全一致させた。
+- **Step 7**: README.md を計画列挙箇所のみ更新
+  (図L18/21/23、環境変数表、手順9、エージェント表、3.16節全体、スモーク手順、
+  ファイル一覧ツリー、セットアップ末尾の新節)。新節に
+  「Marketplace未登録なら `/plugin marketplace add anthropics/claude-plugins-official`」を
+  1行添えた。`git diff --stat` で他セクション(multi-seed 等)への影響がないことを確認済み。
+- **Step 8**: CHANGELOG.md の [Unreleased] に「### Changed(2026-07-23)」を新設。
+  過去の Added(2026-07-23) エントリは無変更のまま維持(diff で確認)。
+- **Step 9**: `docs/adr/0002-security-plugin-replacement.md` を新規作成
+  (docs/ は .gitignore 対象のためコミットなし。0001 と同じ書式)。
+- **Step 10**: 検証(1)〜(7)を全て実行、全 PASS。詳細は完了報告を参照。
+
+### 逸脱点
+なし。計画の全ステップ・補正指示(6.6/6.8の飛び先補正、README編集範囲、
+文言統一、Step 9のコミットなし)を計画通りに実行した。
+
+### 変更ファイル一覧
+- 削除: `.claude/agents/adversarial-reviewer.md`
+- 変更: `.claude/commands/ml-pipeline.md`, `.claude/agents/final-gate.md`,
+  `.claude/skills/security-review/SKILL.md`,
+  `templates/settings.local.json.template`,
+  `.claude/skills/config-set/SKILL.md`, `.claude/skills/config-explain/SKILL.md`,
+  `README.md`, `CHANGELOG.md`
+- 新規(git管理外): `docs/adr/0002-security-plugin-replacement.md`
