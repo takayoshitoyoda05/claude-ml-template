@@ -8,7 +8,10 @@ Planner / Generator / Evaluator の役割分離パターンを軸に、スキル
 flowchart TD
     A[ユーザー: 要件を伝える] --> BR[作業ブランチを自動作成<br>mainは無傷のまま]
     BR --> B[Planner opus: 調査して実装計画<br>並列化判定つき]
-    B --> C{計画の承認<br>CLAUDE_AUTO_APPROVE=1なら<br>plan-reviewerが自動審査}
+    B --> SC{spec-checklist<br>品質ゲート 手順3.3}
+    SC -->|READY| C{計画の承認<br>CLAUDE_AUTO_APPROVE=1なら<br>plan-reviewerが自動審査}
+    SC -->|NEEDS_WORK 最大2周| DI[design-interview<br>指摘箇所を解消]
+    DI --> B
     C -->|承認| D[Generator sonnet: 実装・コミット<br>並列化可能ならworktree分離で並列実装]
     D --> X[cross-review: Codexによる<br>別モデルレビュー<br>※CLAUDE_CROSS_REVIEW=1時のみ]
     D -.->|CLAUDE_CROSS_REVIEW無効時| E
@@ -549,6 +552,35 @@ flowchart LR
 毎回全部を踏む必要はない。設計が固まっているなら `/ml-pipeline` から始めてよい。
 スキル一覧は 3.2 節を参照。
 
+### 設計書ワークフロー(仕様駆動)
+
+設計の密度が実装の品質と手戻りの少なさに直結する。設計書は以下の流れで
+「余すことなく」詰めてからパイプラインに渡す。
+
+```
+brainstorm(発散)
+  ↓ 方向を1つ選ぶ
+design-interview(収束)
+  - 曖昧性タクソノミー(境界値/例外系/状態/データ/非機能/スコープ境界
+    + 研究系: 仮説/変数/ベースライン/成功基準/再現性)で聞き尽くす
+  - 要件を EARS 記法で記述(曖昧な要件を構造的に書けなくする)
+  - 受け入れ条件テーブル(R-ID、機械照合可能な期待結果)を必須生成
+  ↓ 設計書完成
+/ml-pipeline
+  - Planner が R-ID → ステップ → 検証方法のトレーサビリティ表を必須生成
+    (対応ステップの無い R-ID があれば計画を出せない)
+  - 手順3.3: spec-checklist が計画作成のたびに必ず自動実行される
+    (完全性・明確性・一貫性・測定可能性・カバレッジの5次元)
+    NEEDS_WORK → design-interview が必ず起動し、指摘箇所を1問ずつ解消
+    → 計画更新 → 再検査(最大2周、解消しなければユーザー判断)
+  - 実装後は evaluator が R-ID ごとに判定、spec-auditor が独立監査
+```
+
+設計書のテンプレートは `templates/design-doc.md.template`。
+spec-checklist ゲートは設計書の有無に関わらず毎回動く(設計書が無い場合は
+計画そのものを検査する)。設計書規模に応じた判定をするため、軽微な修正で
+過剰な指摘は出ない。
+
 ### 実例: アイデア出しから完了まで
 
 「Deep_MIL に attention 可視化を追加したい、が方式は決めきれていない」場合の流れ。
@@ -606,7 +638,8 @@ flowchart LR
 | 名前 | いつ使うか | 呼び出し方(例) | 出力 |
 |---|---|---|---|
 | brainstorm | 方向性が定まっていない(発散) | 「ブレストして」「アイディア出しして」 | `ideas/` にアイデア一覧 |
-| design-interview | ラフな設計書を一問一答で固める(収束) | 「詰めて」「grillして」「深掘りして」 | `docs/drafts/` の設計書を更新 |
+| design-interview | ラフな設計書を一問一答で固める(収束)。曖昧性タクソノミーで聞き尽くし、要件を EARS 記法で記述 | 「詰めて」「grillして」「深掘りして」 | `docs/drafts/` の設計書を更新 + 受け入れ条件テーブル |
+| spec-checklist | 設計書の品質(完全性・明確性・一貫性・測定可能性・カバレッジ)を実装前に検査 | 「設計書をチェックして」「spec-checklistして」 | READY / NEEDS_WORK のレポート |
 | diagnosing-bugs | 原因不明のバグを再現→仮説→計測で診断 | 「原因を調べて」「なぜこうなるか分からない」 | 診断ログ、原因の特定 |
 | tdd | 入出力が明確な新機能を red-green-refactor で | 「テスト駆動で実装して」「red-green-refactorで」 | テストファーストの実装 |
 | adr | トレードオフを伴う設計判断の記録 | 「この決定をADRに残して」 | `docs/adr/` に ADR |
