@@ -155,3 +155,19 @@ git commit `aeecb83`(`fix(step 1): テストの隔離と資源回収を堅牢化
 - `uvx ruff check tests/` → `All checks passed!`。
 
 変更ファイル: `tests/test_env_fingerprint.py`(修正のみ、新規ファイルなし)。
+
+## 作業ログ(2026-07-24 手順6.7 リファクタリング・パス)
+5観点(音読・命名・whatコメント・簡潔化・対称性)で `tests/test_env_fingerprint.py` を通し読み。
+1〜4は既に問題なし(名前は自然、既存コメントは全て why、簡潔化に値する箇所は無し)。
+5(対称性)のみ1件発見: `test_git_commit_matches_head_in_repo` 内の4つの git
+subprocess.run 呼び出しのうち、rev-parse だけ `check=True` の位置が
+init/add/commit と異なっていた(capture_output/text の後ろ)。キーワード引数の
+順序を揃える1行移動のみ実施(挙動不変)。git commit `cb88f97`
+(`refactor(step 1): テストコードを磨き`)。
+
+検証:
+- `uv run --with pytest python -m pytest tests/ -q` → `7 passed`。
+- `uvx ruff check tests/` → `All checks passed!`。
+- `bash ./verify-hooks.sh` → 全PASS。
+
+変更ファイル: `tests/test_env_fingerprint.py`(1行のキーワード引数順序のみ変更)。
