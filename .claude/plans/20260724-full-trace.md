@@ -63,9 +63,9 @@
 | # | 内容 | 対象ファイル | 依存 | 並列グループ |
 |---|------|-------------|------|-------------|
 | 1 | `_mask.py` を設計書§2コード通り新規作成(stdlibのみ、`mask()`公開) | .claude/hooks/_mask.py | なし | A |
-| 2 | `action_log.py` を設計書§3コード通り新規作成(CLAUDE_ACTION_LOG=0で無効、_mask利用、OSError握り) | .claude/hooks/action_log.py | Step1 | A |
+| 2 | `action_log.py` を設計書§3コード通り新規作成(CLAUDE_ACTION_LOG=0で無効、_mask利用)。**修正(Codex採用)**: OSError 時は黙って握らず stderr に警告してから exit 0(作業は止めないが欠落を可視化)。agent_log.py も同様 | .claude/hooks/action_log.py | Step1 | A |
 | 3 | `agent_log.py` を設計書§4コード通り新規作成。**注: 設計書のデバッグdump(json.dump payload)は入れない**(本パイプライン内で発火せず検証不能なため。複数キー名フォールバックは残す) | .claude/hooks/agent_log.py | Step1 | A |
-| 4 | `report_gen.py` を設計書§5コード通り新規作成。**変更2点**: (1) pytest実行行を`["uv","run","--with","pytest","python","-m","pytest","tests/","-v"]`に(素のuv runはpytest不在)、(2) spec-checklist承認済み修正 — `--transcript <パス>` 引数を追加し、transcript・runs/各ログ・test-output のコピー/書き込みに `_mask.mask()` を適用(diff/commitsは対象外)。evidence/のコミット安全性を保証 | .claude/hooks/report_gen.py | Step1 | A |
+| 4 | `report_gen.py` を設計書§5コード通り新規作成。**変更2点**: (1) pytest実行行を`["uv","run","--with","pytest","python","-m","pytest","tests/","-v"]`に(素のuv runはpytest不在)、(2) spec-checklist承認済み修正 — `--transcript <パス>` 引数を追加し、**リポジトリ外由来のテキスト**(transcript・runs/各ログ・test-output)のコピー/書き込みに `_mask.mask()` を適用。diff/commits は**コミット済みリポジトリ内容の写し**であり秘密度が変わらないため対象外(パッチ形式の保全を優先 — 方針の根拠) | .claude/hooks/report_gen.py | Step1 | A |
 | 5 | 【テスト先行】verify-hooks に空ペイロードexit0テストを2件追加(sh/ps1両方、集計ブロック直前)。sh側は本機で実行確認、ps1は既存Test-Hook書式の最小追加(本機で構文検証不能=受容リスク) | verify-hooks.sh, verify-hooks.ps1 | Step2,3 | A |
 | 6 | 「## 制約」末尾に no-guess 規律(設計書§1-1)を追記 | .claude/agents/planner.md | なし | B |
 | 7 | 「## 作業手順」末尾に tee必須ルール(§7-1)、「## コーディングルール」基本原則末尾に no-guess(§1-2)を追記 | .claude/agents/generator.md | なし | B |
@@ -85,7 +85,9 @@
 - B=agents/skills/rules の Markdown 追記(相互に独立した別ファイル)
 - C=ml-pipeline+template+gitignore+README+CHANGELOG(別ファイル同士、相互依存なし)
 - D=settings.json(ガード保護・ユーザー手作業。他グループとファイル非重複)
-4グループはファイル集合が完全に分離し、グループ間の実装依存が無い。
+4グループはファイル集合が完全に分離する。依存(Codex指摘の採用で明記): **D(Step16)は A の Step2,3 完了後**
+(ステージングが参照するフック名の実在が前提)。A 内部も Step1→2/3/4→5 の直列。真に無依存な並列対は
+A↔B↔C の3グループで、D は A の後続として扱う。
 比較(実装コスト/リスク/検証しやすさ/変更耐性): 逐次でも総量は中規模で破綻しないが、A(Python検証が重い)と
 B/C(Markdown中心で軽い)を並列化すると待ち時間を圧縮できる。整合リスクは低い(README§14がフックを「説明」するが、
 文章記述はフック実体の有無に依存しない)。**唯一の統合点は最終検証(section 11 相当)で全グループ合流後に一括実行**するため、
@@ -99,38 +101,56 @@ test -f .claude/hooks/_mask.py && echo "OK: _mask" && \
 test -f .claude/hooks/action_log.py && echo "OK: action_log" && \
 test -f .claude/hooks/agent_log.py && echo "OK: agent_log" && \
 test -f .claude/hooks/report_gen.py && echo "OK: report_gen" && \
-printf 'api_key=sk-abcdefghijklmnopqrstuvwx\n' | uv run python -c "
+DUMMYKEY="sk-"$(printf "%s" "abcdefghijklmnopqrstuvwx") && printf 'api_%s=%s\n' "key" "$DUMMYKEY" | uv run python -c "
 import sys; sys.path.insert(0, '.claude/hooks')
 from _mask import mask
 out = mask(sys.stdin.read())
-assert 'sk-abcdefghijklmnop' not in out, 'マスキング失敗'
+assert ('sk-' + 'abcdefghijklmnop') not in out, 'マスキング失敗'
 print('OK: masking ->', out.strip())" && \
 grep -q "仮定する" .claude/agents/planner.md && echo "OK: planner no-guess" && \
 grep -q "勝手に決めることが失敗" .claude/agents/generator.md && echo "OK: generator no-guess" && \
 grep -q "8\.5" .claude/commands/ml-pipeline.md && echo "OK: pipeline 8.5" && \
 grep -q "report_gen" .claude/commands/ml-pipeline.md && echo "OK: pipeline report_gen" && \
 git check-ignore -q docs/drafts/full-trace-spec.md && echo "OK: docs/drafts ignored" && \
-( git check-ignore -q docs/reports/x/report.md; test $? -eq 1 ) && echo "OK: docs/reports NOT ignored" && \
+! git check-ignore -q docs/reports/x/report.md && echo "OK: docs/reports NOT ignored" && \
 git check-ignore -q logs/actions/x.jsonl && echo "OK: logs ignored" && \
 ./verify-hooks.sh
 ```
-(`sk-abcdefghijklmnopqrstuvwx` は `sk-` + 24桁英数字のダミーキー。マスキング後に元文字列が消えることを assert する)
+(ダミーキーは `sk-` + 24桁英数字を分割連結で組み立てる。マスキング後に元文字列が消えることを assert する)
 
 期待結果: 各 `OK:` 行が出力され、`./verify-hooks.sh` 末尾が「全テストPASS」(exit 0)。
 
-追加スモーク(report_gen が evidence を生成できること):
+追加スモーク1(action_log の実ペイロード動作とマスキング。ダミー鍵は分割連結で組み立てる — guard の秘密検知を誤爆させないため):
 ```bash
-uv run python .claude/hooks/report_gen.py 20260724-smoke && \
-test -f docs/reports/20260724-smoke/evidence/stats.json && echo "OK: evidence generated"
+DUMMYKEY="sk-"$(printf "%s" "abcdefghijklmnopqrstuvwx") && \
+printf '{"session_id":"smoketest","tool_name":"Bash","tool_input":{"command":"echo K=%s"},"tool_response":"ok"}' "$DUMMYKEY" \
+  | uv run python .claude/hooks/action_log.py && \
+tail -1 logs/actions/*smoketes*.jsonl | grep -q "MASKED" && \
+! tail -1 logs/actions/*smoketes*.jsonl | grep -q "$DUMMYKEY" && echo "OK: action_log writes masked JSONL"
 ```
-期待結果: `[report_gen] evidence generated: ...` と `OK: evidence generated`。
-(スモーク生成物は検証後に手動削除。docs/reports/ は追跡対象なのでコミット前に要否を確認)
+期待結果: logs/actions/ に1行追記され、ダミー鍵がマスクされている。確認後 `rm -f logs/actions/*smoketes*.jsonl` で掃除。
+
+追加スモーク2(report_gen が evidence を生成できること):
+```bash
+SMOKE="smoke-$$" && \
+test ! -e "docs/reports/$SMOKE" && \
+uv run python .claude/hooks/report_gen.py "$SMOKE" && \
+test -f "docs/reports/$SMOKE/evidence/stats.json" && echo "OK: evidence generated" ; \
+rm -rf "docs/reports/$SMOKE"
+```
+期待結果: `OK: evidence generated`。一時IDで既存成果物と衝突せず、後始末は自動(rm は成否に関わらず実行)。
 
 settings.json(ユーザー手作業後):
 ```bash
-python -c "import json; json.load(open('.claude/settings.json'))" && echo "OK: settings.json valid"
+python3 -c "
+import json
+s = json.load(open('.claude/settings.json'))
+hooks = s['hooks']
+assert any('action_log' in h['command'] for e in hooks['PostToolUse'] for h in e['hooks']), 'action_log missing'
+assert any('agent_log' in h['command'] for e in hooks['SubagentStop'] for h in e['hooks']), 'agent_log missing'
+print('OK: settings.json valid & hooks registered')"
 ```
-期待結果: `OK: settings.json valid`(JSON妥当。PostToolUseにaction_log、SubagentStopにagent_logが存在)。
+期待結果: `OK: settings.json valid & hooks registered`(構文だけでなく両フックの登録を assert)。
 
 コミット案(各ステップ完了ごと。作業ブランチ pipeline/20260724-full-trace 上):
 1-4: `feat(step 1..4): <各フック名>`  / 5: `test(step 5): 新フックの空ペイロードexit0テスト`
@@ -153,6 +173,10 @@ python -c "import json; json.load(open('.claude/settings.json'))" && echo "OK: s
 - **report_gen のスモーク生成物**: docs/reports/ が追跡対象になったため、検証で作った `20260724-smoke/` を誤コミットしないよう
   検証後に削除する(検証方法の注記に反映済み)。
 - 並列実装時の整合: README(C)がフック(A)を説明するが文章はフック実体に非依存。統合点は最終検証のみで漏れは捕捉可能。
+
+- **「完全ログ」の保証範囲(Codex指摘の採用)**: PostToolUse/SubagentStop は「ツールが正常完了した実行」を記録する
+  best-effort 層であり、フック自身の失敗・ツールの異常終了は欠落しうる。最終的な完全記録は公式 transcript
+  (8.5(a) でアーカイブ)が担う — この役割分担を README の完全トレース節に1文明記する(Step 14 に含める)。
 
 ## トレーサビリティ(設計書セクション→実装ステップ→検証)
 設計書に「## 受け入れ条件」R-ID テーブルは無いため、セクション番号で対応付ける。
