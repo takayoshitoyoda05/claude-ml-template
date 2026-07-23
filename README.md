@@ -6,15 +6,23 @@ Planner / Generator / Evaluator の役割分離パターンを軸に、スキル
 
 ```mermaid
 flowchart TD
-    A[ユーザー: 要件を伝える] --> B[Planner opus: 調査して実装計画を書く]
-    B --> C{ユーザーが計画をレビュー・承認}
-    C -->|承認| D[Generator sonnet: 計画に沿って実装・コミット]
-    D --> E[evaluator: Spec軸 数値で判定]
-    D --> F[evaluator-standards: Standards軸 品質レビュー]
-    E & F -->|両方PASS| G[完了]
+    A[ユーザー: 要件を伝える] --> BR[作業ブランチを自動作成<br>mainは無傷のまま]
+    BR --> B[Planner opus: 調査して実装計画<br>並列化判定つき]
+    B --> C{計画の承認<br>AUTO_APPROVE=1ならplan-reviewerが自動審査}
+    C -->|承認| D[Generator sonnet: 実装・コミット<br>並列化可能ならworktree分離で並列実装]
+    D --> X[cross-review: Codexによる<br>別モデルレビュー ※CROSS_REVIEW=1時]
+    X --> E[evaluator: Spec軸 数値で判定]
+    X --> F[evaluator-standards: Standards軸 品質レビュー]
+    E & F -->|両方PASS| P[リファクタリング・パス<br>動作を変えない磨き1周]
     E & F -->|NEEDS_REVISION| D
     E -->|FAIL 3回| B
+    P --> M{mainにマージしますか?}
+    M -->|はい| G[mainへ--no-ffマージ]
+    M -->|いいえ/全部捨てて| K[ブランチ保持または破棄<br>mainは無傷]
 ```
+
+このほか Stop 時には機械ゲート(評価強制 / spec適合 / Codexレビュー必須化 /
+品質チェック / 完了通知)がフラグに応じて働く(3.4節)。
 
 役割を分ける理由: 1体に「計画・実装・自己採点」を全部やらせると同じ視点で採点してしまい、
 自分の間違いに気づけない。役割ごとに視点を変えることで問題を検出しやすくする。
