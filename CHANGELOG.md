@@ -50,6 +50,11 @@
   Python版数・プラットフォーム・git commit・uv.lock の SHA-256・torch/CUDA版数を
   JSON で標準出力へ出し、実験の再現性記録(MLflow 添付等)に使えるようにする
 
+### Added(2026-07-24)
+- **env_fingerprint の受け入れテスト恒久化**: `scripts/env_fingerprint.py` の受け入れ検証を
+  使い捨てワンライナーから `tests/test_env_fingerprint.py` の pytest 回帰テストへ移行
+  (R-002〜004/009〜011 + BrokenPipe 耐性を CLI 起動のまま検証)
+
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規
   generator に指摘全文を渡す・再レビューは失敗軸のみ、のトークン節約規律を明文化
