@@ -130,3 +130,28 @@
      (L948)、`grep -n "### Added(2026-07-24)" CHANGELOG.md`(L53)いずれも一致を確認。
 - 計画からの逸脱: なし。テストヘルパー `_run_fingerprint` は7テスト共通で使う subprocess 起動処理の
   重複排除のため追加(「一回きりの操作にヘルパー関数を作らない」規約には抵触しない)。
+
+## 作業ログ(2026-07-24 レビュー指摘対応)
+`tests/test_env_fingerprint.py` のレビュー指摘4件を最小diffで修正。
+1. `test_git_commit_matches_head_in_repo` の git init/add/commit/rev-parse 全4呼び出しに
+   `GIT_CONFIG_GLOBAL=os.devnull` / `GIT_CONFIG_SYSTEM=os.devnull` / `GIT_TERMINAL_PROMPT=0` を
+   マージした専用 env を渡し、実行環境のグローバル/システム git 設定と対話プロンプトを遮断
+   (既存の `-c user.*` はそのまま維持)。
+2. `test_broken_pipe_returns_exit_zero` の裸の `Popen` を `with subprocess.Popen(...) as proc:` に変更し、
+   `proc.wait(timeout=...)` を try/except `subprocess.TimeoutExpired` で包んで `kill()`+`wait()` してから
+   re-raise する形に変更(タイムアウト時の資源回収)。
+3. モジュールレベル定数 `_SUBPROCESS_TIMEOUT = 10` を新設し、`_run_fingerprint` / torch probe /
+   git 4呼び出し / BrokenPipe wait の全 subprocess 呼び出しに一貫適用(従来はハードコード `10`)。
+4. `test_torch_info_matches_actual_import` の docstring に「torch 未導入環境では None 分岐のみ実行される
+   (torch 有り経路は torch 導入環境でのみ検証される)」を1行追記。
+
+git commit `aeecb83`(`fix(step 1): テストの隔離と資源回収を堅牢化(git設定遮断・Popen回収・timeout一貫化)`)。
+
+検証:
+- `uv run --with pytest python -m pytest tests/ -q` → `7 passed`。
+- 隔離の実証: `/tmp` 配下(スクラッチディレクトリ)に `[commit]\n\tgpgsign = true` を書いた
+  一時ファイルを作成し、`GIT_CONFIG_GLOBAL=<そのファイル>` を付けて同 pytest を実行 → `7 passed`
+  のまま(修正前は環境のグローバル設定次第で R-011 が FAIL しうる状態だった)。
+- `uvx ruff check tests/` → `All checks passed!`。
+
+変更ファイル: `tests/test_env_fingerprint.py`(修正のみ、新規ファイルなし)。
