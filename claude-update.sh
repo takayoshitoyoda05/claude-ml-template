@@ -102,6 +102,11 @@ else
   echo "OK: .claude/settings.local.json を生成しました(env の値を記入するとフックが有効になります)"
 fi
 
+# 参照専用テンプレ(templates/*.template)を配布(常に最新で上書き)
+mkdir -p templates
+cp "$TMP"/templates/*.template templates/
+echo "OK: templates/ に参照用テンプレートを配布しました"
+
 # GitHub Actions ワークフロー(spec-gate)の配置(既存なら保持)
 if [ -f ".github/workflows/spec-gate.yml" ]; then
   echo "OK: .github/workflows/spec-gate.yml は既存のものを保持します"

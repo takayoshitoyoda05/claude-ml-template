@@ -104,6 +104,10 @@ try {
         Copy-Item (Join-Path $Tmp "templates\settings.local.json.template") ".claude\settings.local.json"
         Write-Host "OK: .claude/settings.local.json を生成しました(env の値を記入するとフックが有効になります)"
     }
+    # 参照専用テンプレ(templates/*.template)を配布(常に最新で上書き)
+    New-Item -ItemType Directory -Path "templates" -Force | Out-Null
+    Copy-Item (Join-Path $Tmp "templates\*.template") "templates\" -Force
+    Write-Host "OK: templates/ に参照用テンプレートを配布しました"
     # GitHub Actions ワークフロー(spec-gate)の配置(既存なら保持)
     if (Test-Path ".github/workflows/spec-gate.yml") {
         Write-Host "OK: .github/workflows/spec-gate.yml は既存のものを保持します"
