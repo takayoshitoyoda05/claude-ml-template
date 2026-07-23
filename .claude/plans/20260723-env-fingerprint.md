@@ -58,15 +58,15 @@ MLflow や実験ログに添付できるようにする。
 
 | # | 内容 | 対象ファイル | 依存 | 並列グループ |
 |---|------|-------------|------|-------------|
-| 1 | (R-001〜R-005 対応 / テストファースト)auto要件の受け入れ検証をスクリプト化した確認手順を用意し、まず失敗することを確認 | (検証コマンド。恒久ファイルは作らず「検証方法」節のコマンドをそのまま使う) | なし | A |
+| 1 | (auto要件 R-001〜R-004, R-009〜R-011 / テストファースト)受け入れ検証コマンドを実装前に実行し、まず失敗することを確認 | (検証コマンド。恒久ファイルは作らず設計書の検証方法をそのまま使う) | なし | A |
 | 2 | env_fingerprint.py 本体を実装(stdlib のみ・torch try-import・全キー固定・常に exit 0) | scripts/env_fingerprint.py | Step 1 | A |
 | 3 | README 3.15 に env_fingerprint 説明を追記、6章ファイル一覧に scripts/env_fingerprint.py を追加 | README.md | なし | B |
 | 4 | CHANGELOG の Added(2026-07-23) 末尾に1項目追加 | CHANGELOG.md | なし | C |
 
 補足:
 - Step 1 は「実装前に auto 要件テストを書く」プランナー必須ステップの充足。
-  本タスクは tests/ 配下の pytest ではなく受け入れ条件が CLI 検証(R-001〜R-004)
-  で構成されるため、恒久テストファイルは新設せず、下記「検証方法」の
+  本タスクは tests/ 配下の pytest ではなく受け入れ条件が CLI 検証(auto要件
+  R-001〜R-004, R-009〜R-011)で構成されるため、恒久テストファイルは新設せず、下記「検証方法」の
   コマンド群を Step 2 実装前に実行し全て失敗(スクリプト未存在)することを
   先に確認する形でテストファーストを担保する。
 - Step 2 の注意(自己批判由来): (a) uv.lock を script のディレクトリ基準で
@@ -95,17 +95,30 @@ uv run python scripts/env_fingerprint.py; echo "exit=$?"     # exit=0
 # R-002 有効なJSON
 uv run python scripts/env_fingerprint.py | python3 -c "import json,sys; json.load(sys.stdin)"; echo "exit=$?"  # exit=0
 
-# R-003 固定キー網羅
-uv run python scripts/env_fingerprint.py | python3 -c "import json,sys; d=json.load(sys.stdin); assert set(d) >= {'python_version','platform','git_commit','uv_lock_sha256','torch_version','cuda_version'}"; echo "exit=$?"  # exit=0
+# R-003 キーが固定6個・固定順(過不足なし)
+uv run python scripts/env_fingerprint.py | python3 -c "import json,sys; d=json.load(sys.stdin); assert list(d) == ['python_version','platform','git_commit','uv_lock_sha256','torch_version','cuda_version']"; echo "exit=$?"  # exit=0
 
-# R-004 uv.lock が無く git 外の場所では両方 null
-cd /tmp && uv run --project /home/toyod/claude-ml-template python /home/toyod/claude-ml-template/scripts/env_fingerprint.py | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['uv_lock_sha256'] is None and d['git_commit'] is None"; echo "exit=$?"  # exit=0
+# R-004 空の一時ディレクトリ(uv.lock無し・git外)では両方 null
+T=$(mktemp -d) && cd "$T" && uv run --project /home/toyod/claude-ml-template python /home/toyod/claude-ml-template/scripts/env_fingerprint.py | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['uv_lock_sha256'] is None and d['git_commit'] is None"; echo "exit=$?"; cd - >/dev/null  # exit=0
 
-# R-009 torch 未導入環境では torch/cuda が null
-uv run python scripts/env_fingerprint.py | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['torch_version'] is None and d['cuda_version'] is None"; echo "exit=$?"  # exit=0
+# R-009 torch の import 可否と出力の null/非null が一致(自己整合)
+uv run python scripts/env_fingerprint.py | uv run python -c "
+import json,sys
+d=json.load(sys.stdin)
+try:
+    import torch; e=torch.__version__
+except Exception:
+    e=None
+assert d['torch_version']==e"; echo "exit=$?"  # exit=0
 
-# R-005 標準ライブラリのみ(目視/manual): import 行を確認
-grep -nE "^import |^from " /home/toyod/claude-ml-template/scripts/env_fingerprint.py
+# R-010 uv.lock があるとき正しい SHA-256
+T=$(mktemp -d) && printf test > "$T/uv.lock" && cd "$T" && uv run --project /home/toyod/claude-ml-template python /home/toyod/claude-ml-template/scripts/env_fingerprint.py | python3 -c "import json,sys,hashlib; assert json.load(sys.stdin)['uv_lock_sha256'] == hashlib.sha256(b'test').hexdigest()"; echo "exit=$?"; cd - >/dev/null  # exit=0
+
+# R-011 git リポジトリ内では現在の HEAD と一致
+[ "$(uv run python scripts/env_fingerprint.py | python3 -c "import json,sys; print(json.load(sys.stdin)['git_commit'])")" = "$(git rev-parse HEAD)" ]; echo "exit=$?"  # exit=0
+
+# R-005 標準ライブラリのみ(目視/manual): 関数内含む全 import 行を確認
+grep -nE "^\s*(import |from )" /home/toyod/claude-ml-template/scripts/env_fingerprint.py
 #   → 期待: json/sys/platform/hashlib/subprocess/pathlib のみ。torch は関数内 try-import で、
 #     トップレベル import に torch が無いことを人間が承認する
 
@@ -150,12 +163,14 @@ bash ./verify-hooks.sh; echo "exit=$?"                        # exit=0(全PASS)
 |----|------------|---------|
 | R-001 | Step 1, 2 | `uv run python scripts/env_fingerprint.py; echo $?` → exit 0 |
 | R-002 | Step 1, 2 | 出力を `json.load` で読める → exit 0 |
-| R-003 | Step 1, 2 | 固定6キーが `set(d) >=` を満たす → exit 0 |
-| R-004 | Step 1, 2 | `/tmp` から実行時 `uv_lock_sha256` と `git_commit` が None → exit 0 |
+| R-003 | Step 1, 2 | 固定6キー・固定順に `list(d) ==` で一致 → exit 0 |
+| R-004 | Step 1, 2 | 空の一時ディレクトリで `uv_lock_sha256` と `git_commit` が None → exit 0 |
 | R-005 | Step 2 | (manual/人間承認)import 行が stdlib+条件付き torch のみ |
 | R-006 | Step 3 | `grep -q env_fingerprint README.md` → exit 0 |
 | R-007 | Step 4 | `grep -q env_fingerprint CHANGELOG.md` → exit 0 |
 | R-008 | Step 2, 3, 4 | `bash ./verify-hooks.sh` → exit 0(全PASS) |
-| R-009 | Step 1, 2 | torch 未導入の本環境で `torch_version`/`cuda_version` が None → exit 0 |
+| R-009 | Step 1, 2 | torch の import 可否と出力の null/非null が一致(自己整合) → exit 0 |
+| R-010 | Step 1, 2 | 既知内容の uv.lock で SHA-256 が期待値一致 → exit 0 |
+| R-011 | Step 1, 2 | `git_commit` が `git rev-parse HEAD` と一致 → exit 0 |
 
 全 R-ID に対応ステップあり(未対応の R-ID なし)。
