@@ -147,9 +147,9 @@ def test_git_commit_matches_head_in_repo(tmp_path: Path) -> None:
     )
     expected = subprocess.run(
         ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+        check=True,
         capture_output=True,
         text=True,
-        check=True,
         env=git_env,
         timeout=_SUBPROCESS_TIMEOUT,
     ).stdout.strip()
