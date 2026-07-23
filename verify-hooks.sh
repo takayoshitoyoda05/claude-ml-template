@@ -378,6 +378,10 @@ EOF
   rm -rf "$SPEC_FIXTURE"
   trap - EXIT
 
+# --- action_log / agent_log: 空ペイロードでも exit 0(記録失敗で作業を止めない) ---
+test_hook "action_log: exits 0 on empty payload" '{}' ".claude/hooks/action_log.py" 0
+test_hook "agent_log: exits 0 on empty payload" '{}' ".claude/hooks/agent_log.py" 0
+
 echo ""
 if [ "$failed" -gt 0 ]; then
   echo "$failed 件のテストが失敗しました"

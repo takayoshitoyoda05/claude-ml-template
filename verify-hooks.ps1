@@ -423,6 +423,10 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
         Remove-Item -Path $SpecFixture -Recurse -Force -ErrorAction SilentlyContinue
     }
 
+# --- action_log / agent_log: 空ペイロードでも exit 0(記録失敗で作業を止めない) ---
+Test-Hook "action_log: exits 0 on empty payload" '{}' ".claude\hooks\action_log.py" 0
+Test-Hook "agent_log: exits 0 on empty payload" '{}' ".claude\hooks\agent_log.py" 0
+
 Write-Host ""
 if ($script:failed -gt 0) {
     Write-Host "$($script:failed) 件のテストが失敗しました"
