@@ -65,24 +65,24 @@ flowchart TD
 
 ruff は任意(自動整形用)。無ければ整形がスキップされるだけで他は動く。
 
-### 初回展開
+### 初回展開(方法A: claude-init — 推奨・フル機能)
 
-プロジェクトのルートで実行する。
-
-PowerShell (Windows):
-
-```powershell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-init.ps1" -OutFile "claude-init.ps1"
-.\claude-init.ps1
-```
+**これが本テンプレートの正式な導入方法。** プロジェクトのルートで1コマンド実行する。
 
 bash (WSL/Linux/Git Bash):
 
 ```bash
-curl -sO https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-init.sh
-chmod +x claude-init.sh
-./claude-init.sh
+curl -sSL https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-init.sh | bash
 ```
+
+PowerShell (Windows):
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-init.ps1" -OutFile "claude-init.ps1"; .\claude-init.ps1
+```
+
+(スクリプトの中身を確認してから実行したい場合は、従来どおりダウンロード→実行の
+2段階でもよい)
 
 `.claude/`(agents / commands / skills / hooks / output-styles / rules / settings.json)と
 `CLAUDE.md`(共通ルール)、フック設定の雛形 `.claude/settings.local.json` が作られ、
@@ -95,26 +95,35 @@ Codex CLI 連携用に `agents/shared/` の配置・`AGENTS.md` の生成・`.co
 `CLAUDE.md` に書く(例: `projects/Deep_MIL/CLAUDE.md`)。ドメイン用語が多いプロジェクトは
 `templates/CONTEXT.md.template` をコピーして `CONTEXT.md`(用語集)も置く。
 
-### 方法B: プラグインとして導入(実験的)
+### 方法B: プラグインとして導入(実験的・現時点では非推奨)
 
-Claude Code の公式プラグイン機能でも導入できる。インストールは2段階。
+**立ち位置**: 方法B は将来のプラグイン仕様対応に向けた**実験的な布石**であり、
+現時点で実用的な導入手段ではない。本テンプレートの正式な導入・更新経路は
+方法A(claude-init / claude-update)で、当面 A を主軸に開発を進める。
+
+理由(B が A を置き換えられない構造的制約):
+- 現行のプラグイン仕様はコンポーネント(スキル・フック等)をプラグインルート
+  直下に置く前提のため、`.claude/` 配下に置く本テンプレートの構成では
+  **プラグイン経由でスキル・フックが読み込まれない**
+- CLAUDE.md 生成・.gitignore 自動設定・settings.local.json 雛形・CI 配置・
+  Codex 連携(AGENTS.md / .codex/)は「プロジェクト側への書き込み」であり、
+  プラグインの仕組みでは扱えない
+- ガードの自己防御モデル(フックはユーザーの git 管理下にあり手動編集のみ)は
+  リポジトリ内 `.claude/hooks/` を前提としており、プラグイン配布とは相容れない
+
+`.claude-plugin/`(plugin.json / marketplace.json)はこの布石として維持する。
+プラグイン仕様が `.claude/` 構成をサポートするか安定した時点で再検討する。
+
+<details>
+<summary>実験したい場合のコマンド(自己責任)</summary>
 
 ```
 /plugin marketplace add takayoshitoyoda05/claude-ml-template
 /plugin install claude-ml-template@claude-ml-template
-```
-
-更新は次のコマンドで行う。
-
-```
 /plugin update claude-ml-template@claude-ml-template
 ```
 
-**制限**: 現行のプラグイン仕様は、スキル・フック等のコンポーネントを
-プラグインルート直下に置くことが前提のため、本テンプレート(コンポーネントを
-`.claude/` 配下に置く構成)はプラグイン経由ではスキル・フックが読み込まれない。
-`.claude-plugin/plugin.json` は将来のプラグイン仕様対応の準備であり、
-フル機能を使う場合は従来どおり「初回展開」の claude-init を使うこと。
+</details>
 
 ### 更新(2回目以降・テンプレート側の改善を反映)
 
