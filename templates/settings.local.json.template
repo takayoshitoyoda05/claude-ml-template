@@ -10,6 +10,7 @@
     "CLAUDE_CROSS_REVIEW": "0",
     "CODEX_MODEL": "",
     "CLAUDE_AUTO_APPROVE": "0",
-    "CLAUDE_QUALITY_GATE": "0"
+    "CLAUDE_QUALITY_GATE": "0",
+    "CLAUDE_NOTIFY": "0"
   }
 }
