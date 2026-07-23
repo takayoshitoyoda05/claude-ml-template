@@ -41,13 +41,6 @@
   偽陽性除外)と final-gate(Fable 5によるマージ承認の三択判断)を追加。
   `CLAUDE_ADVERSARIAL` / `CLAUDE_FINAL_GATE` で有効化
 
-### Changed(2026-07-23)
-- **敵対的レビューを Claude Security プラグイン統合に置き換え**: adversarial-reviewer +
-  `CLAUDE_ADVERSARIAL`(攻撃的レビュー+リーダーによる検証パス)を、Anthropic 公式の
-  claude-security プラグイン統合(`CLAUDE_SECURITY_SCAN`、Panel quorum 2/3 で
-  verified な指摘のみ採用)に置き換え。security-review スキルの用途a(コード脆弱性
-  チェック)は公式プラグイン未導入環境向けのフォールバックに降格
-
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規
   generator に指摘全文を渡す・再レビューは失敗軸のみ、のトークン節約規律を明文化
@@ -57,6 +50,13 @@
   上書き」方式に変更(ユーザー独自ファイルを消さない)。doctor の比較対象に
   rules / agents/shared を追加
 - plan-reviewer のモデルを opus から sonnet に(機械的な7条件チェックに opus は過剰)
+
+### Changed(2026-07-23)
+- **敵対的レビューを Claude Security プラグイン統合に置き換え**: adversarial-reviewer +
+  `CLAUDE_ADVERSARIAL`(攻撃的レビュー+リーダーによる検証パス)を、Anthropic 公式の
+  claude-security プラグイン統合(`CLAUDE_SECURITY_SCAN`、Panel quorum 2/3 で
+  verified な指摘のみ採用)に置き換え。security-review スキルの用途a(コード脆弱性
+  チェック)は公式プラグイン未導入環境向けのフォールバックに降格
 
 ### Fixed(2026-07-22)
 - guard_bash の誤検知を解消: `sed -n` 等の読み取りは通し `-i` 付きのみブロック、

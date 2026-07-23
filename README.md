@@ -19,7 +19,7 @@ flowchart TD
     E & F -->|NEEDS_REVISION| D
     E -->|FAIL 3回| B
     E & F -.->|両方PASSかつSECURITY_SCAN無効時| P
-    AD --> P[リファクタリング・パス<br>動作を変えない磨き1周]
+    AD -->|verifiedな指摘なし| P[リファクタリング・パス<br>動作を変えない磨き1周]
     AD -->|verifiedな指摘あり| D
     P --> FG[final-gate fable: マージ可否の三択判断<br>※CLAUDE_FINAL_GATE=1時のみ]
     P -.->|CLAUDE_FINAL_GATE無効時| M
@@ -932,7 +932,8 @@ unverified の指摘は差し戻しに使わず参考情報に留める。
 毎回有効にするとパイプライン1回あたりのコストが大きく増えるため、
 重要な変更(学習ロジック、評価指標、データ分割、入力処理)のときだけ
 有効にする運用も可能。両方ともデフォルトは無効(0)。
-security-guidance(常時安全層)は無料なので常に入れておいてよい。
+security-guidance(常時安全層)は編集時チェックが無料なので常に入れておいてよい
+(ターン終了レビューは通常利用料)。
 
 ---
 
