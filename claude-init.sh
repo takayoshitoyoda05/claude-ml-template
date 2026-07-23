@@ -12,8 +12,11 @@ TEMPLATE_REPO="https://github.com/takayoshitoyoda05/claude-ml-template.git"
 
 if [ -d ".claude" ]; then
   # curl | bash 実行時は stdin がスクリプト本文のため、確認入力は必ず端末
-  # (/dev/tty)から受ける。端末が無い(CI等の非対話)場合は安全側に倒して中止する
-  if read -r -p ".claude が既に存在します。上書きしますか? [y/N] " ans 2>/dev/null < /dev/tty; then
+  # (/dev/tty)から受ける。まず端末の有無だけを静かに判定し(判定とreadを
+  # 分けるのは、readにまとめて2>/dev/nullを付けるとプロンプト表示まで
+  # 消えてしまうため)、端末が無い非対話環境では安全側に倒して中止する
+  if { : < /dev/tty; } 2>/dev/null; then
+    read -r -p ".claude が既に存在します。上書きしますか? [y/N] " ans < /dev/tty
     [[ "$ans" =~ ^[Yy]$ ]] || { echo "中止しました"; exit 1; }
   else
     echo ".claude が既に存在します。対話端末が無いため上書きせず中止しました"
