@@ -4,6 +4,11 @@
       "command": "codex",
       "args": ["mcp-server"],
       "comment": "Codex CLI をMCPサーバーとして登録。cross-review / codex-delegate が使う。codex CLI のインストールと認証(ChatGPTサインイン or APIキー)が別途必要。実験的仕様のため、動かない場合は codex exec 方式にフォールバックする"
+    },
+    "arxiv": {
+      "command": "uvx",
+      "args": ["arxiv-mcp-server"],
+      "comment": "arXiv検索・論文取得。literature-review スキルが優先的に使う。uvx が無い場合は 'uv tool run arxiv-mcp-server' に読み替える"
     }
   }
 }

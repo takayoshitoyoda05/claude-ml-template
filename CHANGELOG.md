@@ -35,6 +35,8 @@
   プラグインルート直下が前提のため未対応。フル機能は引き続き claude-init を使用)。
   `notify.py`(Stop)が `CLAUDE_NOTIFY=1` のとき、全ゲート通過後の実際の停止時に
   デスクトップ通知(Windows/macOS/Linux対応)
+- **研究ワークフロー**: mlflow-log / literature-review / paper-writing スキルを追加し、
+  arXiv MCP の推奨設定雛形を用意。evaluator が PASS 時に指標を MLflow へ自動記録
 
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規

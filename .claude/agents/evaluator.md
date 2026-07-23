@@ -98,6 +98,20 @@ evaluator-standards の担当なのでここでは判断しません。
   前回より複雑度が 0.5 以上悪化している場合、PASS 判定は維持しつつ
   「複雑度が悪化傾向にあります。architecture-check の実行を検討してください」と
   レポートに警告を含める。
+- 判定が PASS で、かつ計画の検証コマンドが数値指標を出力した場合、
+  mlflow が導入されていれば(`uv run python -c "import mlflow"` が通れば)
+  その指標を MLflow にも記録する。
+
+  ```python
+  import mlflow
+  mlflow.set_tracking_uri("file:./mlruns")  # ローカル保存を明示(環境変数による外部送信を防ぐ)
+  mlflow.set_experiment("pipeline-runs")
+  with mlflow.start_run(run_name="<計画ファイル名>"):
+      mlflow.log_param("plan", "<計画ファイルパス>")
+      mlflow.log_metric("<指標名>", <値>)
+  ```
+
+  mlflow が未導入なら EXPERIMENT_LOG.md への記録のみでよい(スキップ)。
 
 ## 重要なルール
 - 「たぶん合っている」は禁止。必ずコマンドを実行して数値で確認する
