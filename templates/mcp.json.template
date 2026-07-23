@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "codex": {
+      "command": "codex",
+      "args": ["mcp-server"],
+      "comment": "Codex CLI をMCPサーバーとして登録。cross-review / codex-delegate が使う。codex CLI のインストールと認証(ChatGPTサインイン or APIキー)が別途必要。実験的仕様のため、動かない場合は codex exec 方式にフォールバックする"
+    }
+  }
+}
