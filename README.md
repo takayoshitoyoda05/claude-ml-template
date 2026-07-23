@@ -11,8 +11,8 @@ flowchart TD
     B --> C{計画の承認<br>AUTO_APPROVE=1ならplan-reviewerが自動審査}
     C -->|承認| D[Generator sonnet: 実装・コミット<br>並列化可能ならworktree分離で並列実装]
     D --> X[cross-review: Codexによる<br>別モデルレビュー<br>※CLAUDE_CROSS_REVIEW=1時のみ]
-    D -.->|CLAUDE_CROSS_REVIEW未設定| E
-    D -.->|CLAUDE_CROSS_REVIEW未設定| F
+    D -.->|CLAUDE_CROSS_REVIEW無効時| E
+    D -.->|CLAUDE_CROSS_REVIEW無効時| F
     X --> E[evaluator: Spec軸 数値で判定]
     X --> F[evaluator-standards: Standards軸 品質レビュー]
     E & F -->|両方PASS| P[リファクタリング・パス<br>動作を変えない磨き1周]
