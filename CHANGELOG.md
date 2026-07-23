@@ -46,6 +46,9 @@
   spec-checklist スキル(完全性・明確性・一貫性・測定可能性・カバレッジの5次元検査、
   Planner 後の手順3.3で必須自動実行)を新規追加、planner にトレーサビリティ表
   (R-ID⇔対応ステップ⇔検証方法)の必須化を追加、`templates/design-doc.md.template` を新規追加
+- **env_fingerprint スクリプト**: `scripts/env_fingerprint.py` を新規追加。
+  Python版数・プラットフォーム・git commit・uv.lock の SHA-256・torch/CUDA版数を
+  JSON で標準出力へ出し、実験の再現性記録(MLflow 添付等)に使えるようにする
 
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規

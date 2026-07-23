@@ -937,6 +937,15 @@ arXiv MCP(.mcp.json で設定、templates/mcp.json.template 参照)を
 後続セッションで「結果を集計して」と回収できる。失敗 seed が
 あっても完走分で部分集計し、失敗の内訳を明示する。
 
+#### 環境フィンガープリント(env_fingerprint)
+
+`uv run python scripts/env_fingerprint.py` で、Python版数・プラットフォーム・
+git commit・uv.lock の SHA-256・torch/CUDA版数を1つの JSON として標準出力に
+出す。実験結果に添付しておけば、後から「どの環境で走らせたか」を再現できる。
+標準ライブラリのみで動作し、torch 未導入でもエラーにせず null を返す。
+uv.lock はカレントディレクトリ基準で探索するため、リポジトリルート
+(uv.lock のある場所)で実行すること。
+
 ### 3.16 3層レビュー(セキュリティスキャンと最終ゲート)
 
 CLAUDE_SECURITY_SCAN=1 と CLAUDE_FINAL_GATE=1 を設定すると、
@@ -1159,6 +1168,8 @@ claude-ml-template/
     codex-config.toml.template      Codex CLI のモデル固定用(init/update が .codex/ に配置)
     mcp.json.template               Codex を MCP サーバーとして登録する雛形
     mcp.json.README.md              mcp.json.template の使い方・トラブルシューティング
+  scripts/
+    env_fingerprint.py             実行環境(Python版数/git commit/uv.lock ハッシュ/torch・CUDA版数)をJSONで標準出力へ
   agents/shared/                    Claude Code と Codex CLI で共有する規約(AGENTS.md の生成元)
     coding-rules.md                 コメント規約・最小diff・Python規約
     secret-safety.md                秘密情報の安全な取り扱い
