@@ -7,19 +7,22 @@
 
 import re
 
-# guard_bash.py の検知パターンと同じ系統。マスキング用に再定義
-_PATTERNS = [
-    re.compile(r"(sk-[A-Za-z0-9_\-]{16,})"),  # OpenAI/Anthropic系APIキー
-    re.compile(r"(ghp_[A-Za-z0-9]{20,})"),  # GitHub PAT
-    re.compile(r"(gho_[A-Za-z0-9]{20,})"),  # GitHub OAuth
-    re.compile(r"(AKIA[0-9A-Z]{16})"),  # AWS Access Key
-    re.compile(r"(xox[baprs]-[A-Za-z0-9\-]{10,})"),  # Slack token
-    re.compile(
-        r"((?:api[_-]?key|token|secret|password|passwd)\s*[=:]\s*)"
-        r"(['\"]?)([^\s'\"]{8,})(\2)",
-        re.IGNORECASE,
-    ),  # key=value 形式
+from _common import SECRET_CONTENT_PATTERNS
+
+# 設計書からの逸脱(レビュー指摘採用): 検知パターンの二重管理によるドリフトを
+# 避けるため、guard系と共有の _common.SECRET_CONTENT_PATTERNS を土台にする。
+# マスキング専用の追加分(guard側に無いghp_/gho_)と、値だけを伏せるkey=value
+# 形式(キャプチャ置換が必要なため _common のパターンとは別立て)のみここで持つ。
+_SIMPLE_PATTERNS = [re.compile(p) for p in SECRET_CONTENT_PATTERNS] + [
+    re.compile(r"ghp_[A-Za-z0-9]{20,}"),  # GitHub PAT
+    re.compile(r"gho_[A-Za-z0-9]{20,}"),  # GitHub OAuth
 ]
+
+_KEYVALUE_PATTERN = re.compile(
+    r"((?:api[_-]?key|token|secret|password|passwd)\s*[=:]\s*)"
+    r"(['\"]?)([^\s'\"]{8,})(\2)",
+    re.IGNORECASE,
+)
 
 
 def mask(text: str) -> str:
@@ -27,8 +30,8 @@ def mask(text: str) -> str:
     if not text:
         return text
     masked = text
-    for pat in _PATTERNS[:5]:
+    for pat in _SIMPLE_PATTERNS:
         masked = pat.sub("[MASKED]", masked)
     # key=value 形式は値だけマスクする
-    masked = _PATTERNS[5].sub(r"\1\2[MASKED]\4", masked)
+    masked = _KEYVALUE_PATTERN.sub(r"\1\2[MASKED]\4", masked)
     return masked

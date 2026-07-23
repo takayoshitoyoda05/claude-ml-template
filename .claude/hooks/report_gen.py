@@ -7,7 +7,8 @@
 Usage: uv run python .claude/hooks/report_gen.py <report_dir_name> [--transcript <path>]
   例: uv run python .claude/hooks/report_gen.py 20260723-143022
   --transcript: セッション transcript ファイルのパス。指定時は
-    evidence/transcript.jsonl にマスキング済みでコピーする。
+    evidence/transcript.jsonl にマスキング済みでコピーし、ファイル名から
+    導出したセッションID(先頭8桁)で actions/agents ログも絞り込む。
 生成先: docs/reports/<report_dir_name>/evidence/
 """
 
@@ -22,6 +23,10 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _mask import mask  # noqa: E402
 
+MAX_COPY_BYTES = (
+    10 * 1024 * 1024
+)  # 1ファイルの上限(action_logのMAX_FIELDクリップ方針と整合)
+
 
 def run(cmd: list[str]) -> str:
     try:
@@ -33,8 +38,28 @@ def run(cmd: list[str]) -> str:
 
 def _copy_masked(src: str, dst: str) -> None:
     """runs/ 配下のファイルをマスキングしてからコピーする(evidence/はコミット対象のため)。"""
-    text = Path(src).read_text(encoding="utf-8", errors="replace")
+    raw = Path(src).read_bytes()
+    if len(raw) > MAX_COPY_BYTES:
+        text = raw[:MAX_COPY_BYTES].decode("utf-8", errors="replace")
+        text += f"\n...[clipped {len(raw) - MAX_COPY_BYTES} bytes]"
+    else:
+        text = raw.decode("utf-8", errors="replace")
     Path(dst).write_text(mask(text), encoding="utf-8")
+
+
+def _make_symlink_ignorer(skipped: list[str]):
+    """symlink をコピー対象から除外する copytree の ignore コールバックを返す。
+
+    symlink はリポジトリ外(作業スコープ外)を指しうるため、そのまま
+    追うと evidence/ にスコープ外の内容が混入する。名前は skipped に集める。
+    """
+
+    def _ignore(directory: str, names: list[str]) -> set[str]:
+        found = {n for n in names if os.path.islink(os.path.join(directory, n))}
+        skipped.extend(os.path.join(directory, n) for n in found)
+        return found
+
+    return _ignore
 
 
 def main():
@@ -61,6 +86,9 @@ def main():
 
     report_dir = Path("docs/reports") / args[0]
     evidence = report_dir / "evidence"
+    # 機械生成物なので、前回実行の残留を防ぐため毎回作り直す
+    if evidence.exists():
+        shutil.rmtree(evidence)
     evidence.mkdir(parents=True, exist_ok=True)
 
     stats: dict[str, object] = {"generated_at": datetime.now(timezone.utc).isoformat()}
@@ -73,16 +101,20 @@ def main():
     (evidence / "commits.txt").write_text(
         run(["git", "log", "main..HEAD", "--stat"]), encoding="utf-8"
     )
-    stats["changed_files"] = (
-        run(["git", "diff", "--name-only", "main...HEAD"]).strip().count("\n") + 1
-    )
+    diff_names = run(["git", "diff", "--name-only", "main...HEAD"]).strip()
+    stats["changed_files"] = len(diff_names.splitlines()) if diff_names else 0
 
-    # 2. ツール実行ログとエージェントログ(当日分をコピー。書き込み時に既にマスク済み)
+    # 2. このセッション分のツール実行ログとエージェントログ。--transcript の
+    #    ファイル名(<session-id>.jsonl)からセッションを絞り込む。無指定の
+    #    場合は全件結合し、絞り込んでいないことを stats に明記する。
+    session8 = Path(transcript_arg).stem[:8] if transcript_arg else None
+    stats["session_filter"] = session8 if session8 else "none(all files)"
+    pattern = f"*-{session8}.jsonl" if session8 else "*.jsonl"
     for src_dir, name in [("logs/actions", "actions"), ("logs/agents", "agents")]:
         src = Path(src_dir)
         if src.exists():
             merged: list[str] = []
-            for f in sorted(src.glob("*.jsonl")):
+            for f in sorted(src.glob(pattern)):
                 merged.append(f.read_text(encoding="utf-8"))
             if merged:
                 (evidence / f"{name}.jsonl").write_text(
@@ -91,13 +123,20 @@ def main():
                 stats[f"{name}_entries"] = sum(m.count("\n") for m in merged)
 
     # 3. プログラム実行ログ(tee で保存された runs/。リポジトリ外由来テキストのため
-    #    マスクを適用してからコピーする)
+    #    マスクを適用してからコピーする。symlink はスコープ外混入を防ぐため除外)
     runs_src = Path("logs/runs")
     if runs_src.exists() and any(runs_src.iterdir()):
+        skipped_symlinks: list[str] = []
         shutil.copytree(
-            runs_src, evidence / "runs", dirs_exist_ok=True, copy_function=_copy_masked
+            runs_src,
+            evidence / "runs",
+            dirs_exist_ok=True,
+            copy_function=_copy_masked,
+            ignore=_make_symlink_ignorer(skipped_symlinks),
         )
         stats["run_logs"] = len(list((evidence / "runs").glob("*")))
+        if skipped_symlinks:
+            stats["skipped_symlinks"] = skipped_symlinks
 
     # 4. 最終テスト出力(全文。素の `uv run` は pytest 未導入のため --with pytest で実行)
     (evidence / "test-output.txt").write_text(
@@ -125,7 +164,7 @@ def main():
         if transcript_path.exists():
             text = transcript_path.read_text(encoding="utf-8", errors="replace")
             (evidence / "transcript.jsonl").write_text(mask(text), encoding="utf-8")
-            stats["transcript_lines"] = text.count("\n") + 1
+            stats["transcript_lines"] = len(text.splitlines())
         else:
             stats["transcript"] = f"not found: {transcript_arg}"
 
