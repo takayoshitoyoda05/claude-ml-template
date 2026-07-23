@@ -107,11 +107,11 @@ try {
     # 参照専用テンプレ(templates/*.template)を配布(既存ファイルは保持)
     New-Item -ItemType Directory -Path "templates" -Force | Out-Null
     Get-ChildItem -Path (Join-Path $Tmp "templates") -Filter "*.template" | ForEach-Object {
-        $destPath = Join-Path "templates" $_.Name
-        if (Test-Path $destPath) {
+        $dest = Join-Path "templates" $_.Name
+        if (Test-Path $dest) {
             Write-Host "OK: templates/$($_.Name) は既存のものを保持します"
         } else {
-            Copy-Item $_.FullName -Destination $destPath
+            Copy-Item $_.FullName -Destination $dest
             Write-Host "OK: templates/$($_.Name) を配布しました"
         }
     }
