@@ -14,6 +14,7 @@
     "CLAUDE_NOTIFY": "0",
     "CLAUDE_SECURITY_SCAN": "0",
     "CLAUDE_FINAL_GATE": "0",
-    "CLAUDE_ACTION_LOG": "1"
+    "CLAUDE_ACTION_LOG": "1",
+    "CLAUDE_REFACTOR_SWARM": "0"
   }
 }

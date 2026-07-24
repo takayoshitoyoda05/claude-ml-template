@@ -59,6 +59,12 @@
   委譲チェーンを機械記録する action_log.py / agent_log.py、パイプライン完了時に
   evidence/(機械集約・短縮ゼロ)と report.md(モデル執筆)の2層レポートを生成する
   手順8.5(report_gen.py)を追加
+- **branch-naming スキルと Haiku スカウト隊**: /ml-pipeline 手順1.5 でプロジェクトの
+  ブランチ命名規則を自動探索(CONTRIBUTING/README/.github/既存ブランチの実績、
+  無ければ既定形式にフォールバック)、手順6.7 のリファクタリング・パスを
+  スカウト7体(命名/重複/複雑度/コメント/対称性/docstring/デッドコード)による
+  並列偵察+実装者1人での適用判断に変更(`CLAUDE_REFACTOR_SWARM=1`)。
+  単独呼び出し用に refactor-scout スキルも追加
 
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規
