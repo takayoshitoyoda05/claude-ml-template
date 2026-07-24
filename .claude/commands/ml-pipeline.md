@@ -162,6 +162,9 @@ git worktree add -b pipeline/YYYYMMDD-<トピック>-group-B .worktrees/group-B
   worktree だけ**。別リポジトリの worktree は拒否される
 - tmux 内で起動していると各チームメイトの進行が分割ペインで見えるが、
   **tmux は表示用であり並列実行の必須条件ではない**(検証済み 2026-07-22)
+- worktree 担当エージェントがメインリポジトリ側へ書き込もうとした場合、guard_scope が
+  cwd 基準でブロックする(worktree 分離違反の再発防止。ペイロードに cwd が無い環境では
+  効かない補助線)
 - 全工程が完了したら `git worktree remove` で後片付けする
 
 各チームメイトが実装完了したら手順5.5へ進む。
