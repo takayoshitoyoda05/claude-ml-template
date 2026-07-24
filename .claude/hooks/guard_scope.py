@@ -36,19 +36,41 @@ def contains_secret(text):
     return False
 
 
-def worktree_root(data, allowed_root):
-    """ペイロード cwd が作業スコープ直下の .worktrees/<名前> 配下なら、
-    その worktree ルート(realpath 解決済み・スラッシュ区切り)を返す。
+def _effective_cwd(data: dict) -> str:
+    """ペイロードの cwd を検証して採用する。
 
-    任意の場所の .worktrees を worktree と誤認しないよう、判定は
-    realpath(allowed_root)/.worktrees/ 直下に限定する。cwd はペイロードの
-    値が非空文字列の場合のみ採用し、それ以外は os.getcwd() にフォールバック。
-    判定不能・例外時は None(ゲート不活性 = 誤ブロックしない安全側)。
+    Args:
+        data: フックが stdin から受け取ったペイロード全体。
+
+    Returns:
+        ペイロードの cwd が非空文字列ならその値。それ以外(欠落・空・
+        文字列以外・例外)は os.getcwd()(誤ブロックしない安全側)。
     """
     try:
         cwd = data.get("cwd")
-        if not (isinstance(cwd, str) and cwd.strip()):
-            cwd = os.getcwd()
+        if isinstance(cwd, str) and cwd.strip():
+            return cwd
+    except Exception:
+        pass
+    return os.getcwd()
+
+
+def _worktree_root(cwd: str, allowed_root: str) -> str | None:
+    """cwd が作業スコープ直下の .worktrees/<名前> 配下なら worktree ルートを返す。
+
+    任意の場所の .worktrees を worktree と誤認しないよう、判定は
+    realpath(allowed_root)/.worktrees/ 直下に限定する。
+
+    Args:
+        cwd: 判定対象の cwd(_effective_cwd の返り値)。
+        allowed_root: 作業スコープのルート(絶対パス)。
+
+    Returns:
+        worktree ルート(realpath 解決済み・スラッシュ区切り)。cwd が
+        worktree 配下でない・判定不能・例外時は None(ゲート不活性 =
+        誤ブロックしない安全側)。
+    """
+    try:
         cwd_norm = os.path.realpath(cwd).replace("\\", "/")
         base_norm = (
             os.path.realpath(allowed_root).replace("\\", "/").rstrip("/")
@@ -78,7 +100,12 @@ def main():
     if not file_path:
         sys.exit(0)
 
-    abs_path = os.path.abspath(file_path)
+    # 相対パスはペイロード cwd(無ければ os.getcwd())基準で解決する。
+    # フックプロセスの cwd とツールが実際に書き込む基準(ペイロード cwd)は
+    # 一致するとは限らないため。絶対パスは os.path.join が cwd を捨てるので
+    # 従来と同じ結果になる。
+    effective_cwd = _effective_cwd(data)
+    abs_path = os.path.abspath(os.path.join(effective_cwd, file_path))
     norm = abs_path.replace("\\", "/")
     basename = os.path.basename(norm)
     _, ext = os.path.splitext(basename)
@@ -149,7 +176,7 @@ def main():
     # worktree 担当の cwd がスコープ直下の .worktrees/<名前> 配下なら、
     # 書き込み先も同じ worktree 配下に限定する(メインリポジトリ本体への
     # 誤書き込み防止)。symlink 迂回を塞ぐため両辺とも realpath で解決する。
-    wt_root = worktree_root(data, allowed_root)
+    wt_root = _worktree_root(effective_cwd, allowed_root)
     if wt_root:
         wt_allowed = wt_root.rstrip("/") + "/"
         wt_target = os.path.realpath(abs_path).replace("\\", "/") + "/"
