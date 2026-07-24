@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.7, pytest-9.1.1, pluggy-1.6.0 -- /home/toyod/.cache/uv/builds-v0/.tmplaNoLi/bin/python
+cachedir: .pytest_cache
+rootdir: /home/toyod/claude-ml-template
+collecting ... collected 7 items
+
+tests/test_env_fingerprint.py::test_output_is_valid_json PASSED          [ 14%]
+tests/test_env_fingerprint.py::test_fixed_keys_in_order PASSED           [ 28%]
+tests/test_env_fingerprint.py::test_git_and_uv_lock_null_outside_repo PASSED [ 42%]
+tests/test_env_fingerprint.py::test_uv_lock_sha256_matches_known_content PASSED [ 57%]
+tests/test_env_fingerprint.py::test_git_commit_matches_head_in_repo PASSED [ 71%]
+tests/test_env_fingerprint.py::test_torch_info_matches_actual_import PASSED [ 85%]
+tests/test_env_fingerprint.py::test_broken_pipe_returns_exit_zero PASSED [100%]
+
+============================== 7 passed in 0.26s ===============================
