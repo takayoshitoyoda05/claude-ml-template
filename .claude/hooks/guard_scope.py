@@ -36,7 +36,29 @@ def contains_secret(text):
     return False
 
 
-def _effective_cwd(data: dict) -> str:
+def _is_path_within(target: str, root: str) -> bool:
+    """target が root 配下(root 自身を含む)にあるかを判定する。
+
+    前方一致の誤許可(root=/work/proj で /work/proj-evil が通る)を防ぐため
+    双方に末尾スラッシュを付けて比較する。Windows は大文字小文字を
+    区別しないので nt のときのみ小文字化して揃える。
+
+    Args:
+        target: 判定対象の絶対パス(スラッシュ区切り)。
+        root: 基準ルートの絶対パス(スラッシュ区切り)。
+
+    Returns:
+        target が root 配下なら True。
+    """
+    root_cmp = root.rstrip("/") + "/"
+    target_cmp = target.rstrip("/") + "/"
+    if os.name == "nt":
+        root_cmp = root_cmp.lower()
+        target_cmp = target_cmp.lower()
+    return target_cmp.startswith(root_cmp)
+
+
+def _effective_cwd(data: dict[str, object]) -> str:
     """ペイロードの cwd を検証して採用する。
 
     Args:
@@ -76,10 +98,7 @@ def _worktree_root(cwd: str, allowed_root: str) -> str | None:
             os.path.realpath(allowed_root).replace("\\", "/").rstrip("/")
             + "/.worktrees/"
         )
-        cwd_cmp, base_cmp = cwd_norm, base_norm
-        if os.name == "nt":
-            cwd_cmp, base_cmp = cwd_norm.lower(), base_norm.lower()
-        if not cwd_cmp.startswith(base_cmp):
+        if not _is_path_within(cwd_norm, base_norm):
             return None
         name = cwd_norm[len(base_norm) :].split("/", 1)[0]
         if not name:
@@ -159,14 +178,7 @@ def main():
     else:
         allowed_root = os.path.abspath(os.getcwd())
 
-    # 前方一致の誤許可(scope=/work/proj で /work/proj-evil が通る)を防ぐため
-    # 末尾スラッシュ付きで比較。Windows は大文字小文字を区別しないので揃える。
-    allowed_norm = allowed_root.replace("\\", "/").rstrip("/") + "/"
-    target_norm = norm + "/"
-    if os.name == "nt":
-        allowed_norm = allowed_norm.lower()
-        target_norm = target_norm.lower()
-    if not target_norm.startswith(allowed_norm):
+    if not _is_path_within(norm, allowed_root.replace("\\", "/")):
         print(
             f"[guard_scope] BLOCKED: 作業スコープ({allowed_root})外への書き込みです: {file_path}",
             file=sys.stderr,
@@ -176,16 +188,12 @@ def main():
     # worktree 担当の cwd がスコープ直下の .worktrees/<名前> 配下なら、
     # 書き込み先も同じ worktree 配下に限定する(メインリポジトリ本体への
     # 誤書き込み防止)。symlink 迂回を塞ぐため両辺とも realpath で解決する。
-    wt_root = _worktree_root(effective_cwd, allowed_root)
-    if wt_root:
-        wt_allowed = wt_root.rstrip("/") + "/"
-        wt_target = os.path.realpath(abs_path).replace("\\", "/") + "/"
-        if os.name == "nt":
-            wt_allowed = wt_allowed.lower()
-            wt_target = wt_target.lower()
-        if not wt_target.startswith(wt_allowed):
+    worktree_root = _worktree_root(effective_cwd, allowed_root)
+    if worktree_root:
+        target_realpath = os.path.realpath(abs_path).replace("\\", "/")
+        if not _is_path_within(target_realpath, worktree_root):
             print(
-                f"[guard_scope] BLOCKED: worktree({wt_root})外への書き込みです: {file_path}\n"
+                f"[guard_scope] BLOCKED: worktree({worktree_root})外への書き込みです: {file_path}\n"
                 f"worktree担当はメインリポジトリ本体を直接変更できません。",
                 file=sys.stderr,
             )
