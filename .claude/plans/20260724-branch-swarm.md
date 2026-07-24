@@ -75,11 +75,11 @@
 ## 実装手順
 | # | 内容 | 対象ファイル | 依存 | 並列グループ |
 |---|------|-------------|------|-------------|
-| 1 | 検証スクリプト（セクション7の修正版コマンド一式）を先に用意し、現時点で「未作成のため失敗する」ことを確認（テストファースト） | scratchpad/verify_swarm.sh（scope 内の一時ファイル） | なし | S(先行) |
+| 1 | 検証スクリプト（セクション7の修正版コマンド一式）を先に用意し、現時点で「未作成のため失敗する」ことを確認（テストファースト） | セッションの scratchpad ディレクトリ（リポジトリ外・git 汚染なし）の verify_swarm.sh | なし | S(先行) |
 | 2 | scout 7体を共通テンプレート+各レンズで作成。frontmatter は `tools: Read, Grep, Glob` / `model: haiku`。description は命名対照表の短レンズ名を使い「ml-pipeline の手順6.7（CLAUDE_REFACTOR_SWARM=1）から並列」「@scout-<名前> で見て」を含める。本文の呼ばれ方も「手順6.7」 | .claude/agents/scout-*.md（7新規） | Step1 | A |
 | 3 | branch-naming/SKILL.md 作成（探索手順0-6・生成ルール・キャッシュ保存）。docs/branch-convention.md が docs/ 配下=git 管理外のローカルキャッシュである旨を明記 | .claude/skills/branch-naming/SKILL.md | Step1 | B |
 | 4 | refactor-scout/SKILL.md 作成。並列条件を「エージェントチーム機能が使える場合は並列、無ければ逐次」に、比較表の「手順5.7(自動)」を「手順6.7(自動)」に修正 | .claude/skills/refactor-scout/SKILL.md | Step1 | B |
-| 5 | ml-pipeline 1.5 本文（L31-41）を branch-naming 連携版に置換（見出し「### 1.5.」は保持）。サブブランチは決定した親名の配下に作る注記を含める | .claude/commands/ml-pipeline.md | Step4 | B |
+| 5 | ml-pipeline 1.5 本文（L31-41）を branch-naming 連携版に置換（見出し「### 1.5.」は保持）。サブブランチは決定した親名の配下に作る注記を含める | .claude/commands/ml-pipeline.md | Step3（branch-naming の文言確定後） | B |
 | 6 | ml-pipeline 6.7：**前提（クリーンツリー）段落の直後・「generator に以下を指示して」の直前**に偵察フェーズ block を挿入（条件は tmux でなくチーム機能）。既存「制約:」ブロック末尾に「- スカウトの提案を採用する場合も、動作不変の制約は変わらない」を追記 | .claude/commands/ml-pipeline.md | Step5 | B |
 | 7 | settings.local.json.template の env に `"CLAUDE_REFACTOR_SWARM": "0"` を追加（既存キーは不変、JSON 妥当を維持） | templates/settings.local.json.template | Step1 | C |
 | 8 | README：エージェント表に scout 行、スキル表に branch-naming/refactor-scout 行、環境変数表に CLAUDE_REFACTOR_SWARM 行（(tmux必要)→(エージェントチーム機能が必要)）を追記 | README.md | Step1 | C |
@@ -89,10 +89,16 @@
 | 12 | Step1 の検証スクリプト（修正版）+ verify-hooks.sh + JSON 妥当性を実行し全 PASS を確認 | （実行のみ） | Step2-11 | V(最終) |
 | 13 | 手順8.5 完全レポートを docs/reports/<日時>/ にローカル生成（コミットしない） | docs/reports/（git 管理外） | Step12 | V(最終) |
 
-コミット案（各グループ完了時、feat(step N) 形式）:
-- Step2 完了 → `feat(step 2): Haikuスカウト隊7体（観点別リファクタ偵察・提案のみ）を追加`
-- Step3-6 完了 → `feat(step 6): branch-naming/refactor-scoutスキルとml-pipeline 1.5/6.7改修`
-- Step7-11 完了 → `feat(step 11): README/settingsテンプレ/CHANGELOGにスカウト隊・命名検出を反映`
+実装形態（Codex指摘の採用で明記）: **手順5の規定どおり worktree 分離の並列実装**。
+`git worktree add -b pipeline/20260724-branch-swarm-group-{A,B,C} .worktrees/group-{A,B,C}` で
+3ブランチに分離し、各グループは自分の worktree 内でのみ実装・コミットする
+（同一 index/HEAD の競合や staged 混入は構造的に起きない）。レビュー後、6.5 の
+原子性チェックで統合ブランチへ --no-ff マージする。
+
+コミット案（各グループの worktree 内、feat(step N) 形式）:
+- A: `feat(step 2): Haikuスカウト隊7体（観点別リファクタ偵察・提案のみ）を追加`
+- B: `feat(step 6): branch-naming/refactor-scoutスキルとml-pipeline 1.5/6.7改修`（Step3-6を適宜分割可）
+- C: `feat(step 11): README/settingsテンプレ/CHANGELOGにスカウト隊・命名検出を反映`（Step7-11を適宜分割可）
 （push はしない。設計書削除もしない。）
 
 ## 並列化判定
@@ -127,6 +133,15 @@ test -f .claude/skills/refactor-scout/SKILL.md
 # ml-pipeline 改修
 grep -q 'branch-naming' .claude/commands/ml-pipeline.md
 grep -q 'CLAUDE_REFACTOR_SWARM' .claude/commands/ml-pipeline.md
+# 【Codex採用】6.7 内の挿入位置検証: 6.7節を切り出し、
+#   前提(クリーンでない場合は…6.8へ)→偵察フェーズ→generator指示 の順で現れること
+SEC=$(sed -n '/^### 6\.7/,/^### 6\.8/p' .claude/commands/ml-pipeline.md)
+P1=$(echo "$SEC" | grep -n '磨きを行わず手順6.8へ進む' | head -1 | cut -d: -f1)
+P2=$(echo "$SEC" | grep -n '偵察フェーズ' | head -1 | cut -d: -f1)
+P3=$(echo "$SEC" | grep -n 'generator に以下を指示して' | head -1 | cut -d: -f1)
+test -n "$P1" && test -n "$P2" && test -n "$P3" && test "$P1" -lt "$P2" && test "$P2" -lt "$P3"
+# 制約への追記行の存在
+echo "$SEC" | grep -q 'スカウトの提案を採用する場合も、動作不変'
 # settings テンプレの追加 + JSON 妥当
 grep -q 'CLAUDE_REFACTOR_SWARM' templates/settings.local.json.template
 python -c "import json; json.load(open('templates/settings.local.json.template'))"
@@ -181,4 +196,4 @@ echo "ALL PASS"
 | R-13 | CHANGELOG に1項目追記 | Step11 | grep で追記行を確認（目視） |
 | R-14 | docs/ キャッシュがローカル管理外の旨を明記 | Step3,9 | grep で該当文言確認（目視） |
 | R-15 | push・設計書削除を行わない | 全体（含めない） | git log にレポート/削除コミット無し（目視） |
-| R-16 | 8.5 完全レポートをローカル生成・非コミット | Step13 | docs/reports/<日時>/report.md 生成、git status に未追跡（docs/ は無視される） |
+| R-16 | 8.5 完全レポートをローカル生成・非コミット | Step13 | test -f docs/reports/<日時>/report.md かつ git check-ignore で無視対象であること |
