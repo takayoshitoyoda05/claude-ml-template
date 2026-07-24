@@ -67,7 +67,8 @@
   単独呼び出し用に refactor-scout スキルも追加
 - **worktree 分離違反の再発防止**: guard_scope.py に cwd ベースの封じ込めゲートを追加。
   cwd が作業スコープ直下の .worktrees/<名前> 配下にあるとき、その worktree の外
-  (メインリポジトリ側)への書き込みをブロックする
+  (メインリポジトリ側や他 worktree)への Edit/Write/NotebookEdit 経由の書き込みを
+  ブロックする(Bash 経由のリダイレクト・cp 等は対象外の補助線)
 
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規
