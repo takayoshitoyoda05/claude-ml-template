@@ -40,13 +40,16 @@ worktree 担当エージェントがメインリポジトリのファイル(事�
 | CHANGELOG.md | [Unreleased] の Added(2026-07-24)に1項目追加 |
 
 ## 実装方式(採用案の要点)
-- 追加ヘルパー: 正規化した cwd 絶対パスが `^(.*/\.worktrees/[^/]+)(/.*)?$` にマッチしたら
-  そのグループ1(= `<repo>/.worktrees/<名前>`)を worktree ルートとして返す。マッチしなければ None。
-  スラッシュで区切られたパスセグメント境界にアンカーするため、`my.worktreesfoo` 等の誤検知は起きない。
-- main() 内: 既存スコープ判定を通過した後、`effective_cwd = data.get("cwd") or os.getcwd()` を
-  `os.path.abspath` して worktree ルートを求める。ルートがあれば、書き込み先 `norm`(既存の
-  os.path.abspath(file_path))が同ルート配下かを既存判定と同じ末尾スラッシュ付き前方一致で検査し、
-  外れていれば既存と同形式の `[guard_scope] BLOCKED: ...` を stderr に出して exit 2。
+- 追加ヘルパー(Codex採用で強化): worktree 判定は**スコープルート直下**に限定 —
+  `os.path.realpath(cwd)` が `<realpath(allowed_root)>/.worktrees/<名前>` 配下のときのみ
+  そのルートを返す(任意の場所の .worktrees を worktree と誤認しない)。
+  cwd は `data.get("cwd")` が**非空文字列の場合のみ**採用し、それ以外は os.getcwd() に
+  フォールバック。ヘルパー全体を try/except で包み、例外時は None(=ゲート不活性・
+  誤ブロックしない安全側)。
+- main() 内: 既存スコープ判定を通過した後、worktree ルートを求める。ルートがあれば、
+  書き込み先も **os.path.realpath で解決してから**(symlink 迂回を塞ぐ。Codex採用)
+  同ルート配下かを末尾スラッシュ付き前方一致で検査し、外れていれば既存と同形式の
+  `[guard_scope] BLOCKED: ...` を stderr に出して exit 2。
   cwd が worktree 外(メイン)のときはゲート不活性 → 現状維持。
 - 二段構えの根拠: ペイロード cwd を優先し、無い/空なら os.getcwd() にフォールバックする。
   これによりペイロードに cwd が来るか否かに関わらず誤ブロックしない安全側に倒れる
@@ -63,12 +66,17 @@ worktree 担当エージェントがメインリポジトリのファイル(事�
 | 6 | 手順5 の worktree 注意書きに同1文を追記 | .claude/commands/ml-pipeline.md | なし | B |
 | 7 | Added(2026-07-24)に1項目追加 | CHANGELOG.md | なし | B |
 
-テストケース表(Step 1/2、$RP はリポジトリ絶対パス):
+テストケース表(Step 1/2、$RP はリポジトリ絶対パス。Codex採用で6ケースに拡充):
 | ケース | cwd | file_path | 期待 exit |
 |-------|-----|-----------|----------|
 | 同 worktree 内 | $RP/.worktrees/group-A | $RP/.worktrees/group-A/src/foo.py | 0 |
 | worktree→メイン | $RP/.worktrees/group-A | $RP/src/train.py | 2 |
 | メイン→worktree(現状維持) | $RP | $RP/.worktrees/group-A/src/foo.py | 0 |
+| 前方一致の隣接名 | $RP/.worktrees/group-A | $RP/.worktrees/group-AB/src/foo.py | 2 |
+| worktree 内サブディレクトリ cwd | $RP/.worktrees/group-A/src | $RP/src/train.py | 2 |
+| 不正 cwd 型(数値) | 12345(JSON数値) | $RP/src/train.py | 0(フォールバック・誤ブロックしない) |
+(symlink ケースは環境依存のため verify-hooks には含めず、realpath 解決の実装で対処
+ — 除外理由をここに記録)
 
 注(Step 3 の失敗シナリオ対策):
 - ゲートは必ず既存スコープ判定の「後」に置く。前に置くと worktree ルート算出前に
