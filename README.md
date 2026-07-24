@@ -1049,7 +1049,7 @@ docs/reports/<実行日時>/
 
 report.md は「読むためのレポート」、evidence/ は「省略ゼロの証拠」。
 モデルの要約に漏れがあっても evidence/ を見れば全て残っている。
-docs/reports/ はコミット対象(成果物)。
+docs/reports/ はローカル成果物(git 管理外。リポジトリには含めない)。
 
 #### 公式テレメトリ(オプション)
 
@@ -1155,7 +1155,7 @@ git branch -M main
 ### 完全レポートの evidence/ が巨大になる
 
 巨大な evidence(数十MB超のrunログ等)が問題になる場合は、
-`docs/reports/*/evidence/runs/` を個別に `.gitignore` に足してよい。
+巨大なら evidence/runs/ 配下を手動で削除してよい(docs/ は git 管理外のためコミット肥大の心配はない)。
 
 ### Jupyter Notebook との連携
 
