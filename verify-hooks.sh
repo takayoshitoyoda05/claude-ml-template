@@ -2,6 +2,24 @@
 set -u
 failed=0
 
+# 各テストはスコープ=リポジトリルートを前提に期待値を組むため、外部セッションの
+# CLAUDE_WORK_SCOPE(別プロジェクト等)に影響されないようスクリプト全体で固定する
+if [ "${CLAUDE_WORK_SCOPE+set}" = "set" ]; then
+  _saved_work_scope="$CLAUDE_WORK_SCOPE"
+  _had_work_scope=1
+else
+  _had_work_scope=0
+fi
+export CLAUDE_WORK_SCOPE="$(pwd)"
+restore_work_scope() {
+  if [ "$_had_work_scope" -eq 1 ]; then
+    export CLAUDE_WORK_SCOPE="$_saved_work_scope"
+  else
+    unset CLAUDE_WORK_SCOPE
+  fi
+}
+trap restore_work_scope EXIT
+
 test_hook() {
   local description="$1"
   local json_input="$2"
@@ -58,15 +76,6 @@ test_hook "guard_scope: last_quality_pass.txt write is blocked" '{"tool_input":{
 
 # --- guard_scope: worktree封じ込め(cwdベース。$RP はテスト実行時のリポジトリ絶対パス) ---
 RP="$(pwd)"
-# 封じ込めケースはスコープ=$RP を前提に期待値を組むため、外部セッションの
-# CLAUDE_WORK_SCOPE(別プロジェクト等)に影響されないよう区間内だけ固定する
-if [ "${CLAUDE_WORK_SCOPE+set}" = "set" ]; then
-  _saved_work_scope="$CLAUDE_WORK_SCOPE"
-  _had_work_scope=1
-else
-  _had_work_scope=0
-fi
-export CLAUDE_WORK_SCOPE="$RP"
 test_hook "guard_scope: worktree封じ込め - 同worktree内は許可" \
   "{\"cwd\":\"$RP/.worktrees/group-A\",\"tool_input\":{\"file_path\":\"$RP/.worktrees/group-A/src/foo.py\"}}" \
   ".claude/hooks/guard_scope.py" 0
@@ -91,11 +100,6 @@ test_hook "guard_scope: worktree封じ込め - 相対パスはペイロードcwd
 test_hook "guard_scope: worktree封じ込め - 相対パスでのworktree脱出はブロック" \
   "{\"cwd\":\"$RP/.worktrees/group-A\",\"tool_input\":{\"file_path\":\"../../src/train.py\"}}" \
   ".claude/hooks/guard_scope.py" 2
-if [ "$_had_work_scope" -eq 1 ]; then
-  export CLAUDE_WORK_SCOPE="$_saved_work_scope"
-else
-  unset CLAUDE_WORK_SCOPE
-fi
 
 # --- PowerShellネイティブコマンドの検知(クロスOS対応) ---
 test_hook "guard_bash: Remove-Item hooks dir is blocked" '{"tool_input":{"command":"Remove-Item -Recurse -Force .claude/hooks"}}' ".claude/hooks/guard_bash.py" 2
