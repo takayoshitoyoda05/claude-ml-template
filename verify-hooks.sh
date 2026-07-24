@@ -76,6 +76,12 @@ test_hook "guard_scope: worktree封じ込め - worktree内サブディレクト�
 test_hook "guard_scope: worktree封じ込め - 不正cwd型(数値)はフォールバックで許可" \
   "{\"cwd\":12345,\"tool_input\":{\"file_path\":\"$RP/src/train.py\"}}" \
   ".claude/hooks/guard_scope.py" 0
+test_hook "guard_scope: worktree封じ込め - 相対パスはペイロードcwd基準で解決し許可" \
+  "{\"cwd\":\"$RP/.worktrees/group-A\",\"tool_input\":{\"file_path\":\"src/foo.py\"}}" \
+  ".claude/hooks/guard_scope.py" 0
+test_hook "guard_scope: worktree封じ込め - 相対パスでのworktree脱出はブロック" \
+  "{\"cwd\":\"$RP/.worktrees/group-A\",\"tool_input\":{\"file_path\":\"../../src/train.py\"}}" \
+  ".claude/hooks/guard_scope.py" 2
 
 # --- PowerShellネイティブコマンドの検知(クロスOS対応) ---
 test_hook "guard_bash: Remove-Item hooks dir is blocked" '{"tool_input":{"command":"Remove-Item -Recurse -Force .claude/hooks"}}' ".claude/hooks/guard_bash.py" 2
