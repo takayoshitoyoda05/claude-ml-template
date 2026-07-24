@@ -91,7 +91,7 @@
 
 実装形態（Codex指摘の採用で明記）: **手順5の規定どおり worktree 分離の並列実装**。
 `git worktree add -b pipeline/20260724-branch-swarm-group-{A,B,C} .worktrees/group-{A,B,C}` で
-3ブランチに分離し、各グループは自分の worktree 内でのみ実装・コミットする
+3ブランチに分離し(`.worktrees/` は .gitignore 済み — 確認済み)、各グループは自分の worktree 内でのみ実装・コミットする
 （同一 index/HEAD の競合や staged 混入は構造的に起きない）。レビュー後、6.5 の
 原子性チェックで統合ブランチへ --no-ff マージする。
 
