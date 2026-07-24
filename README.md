@@ -290,6 +290,14 @@ guard_scope は「`CLAUDE_WORK_SCOPE`、未設定ならカレントディレク�
 書き込みを許可しないため、`/tmp` 等に作るとチームメイトの編集が全てブロックされる
 (検証済み 2026-07-22)。`/.worktrees/` は claude-init が `.gitignore` に自動追加する。
 全工程の完了後は `git worktree remove` で後片付けする。
+worktree 担当エージェントが自分の worktree の外(メインリポジトリ側や他 worktree)へ
+Edit/Write/NotebookEdit で書き込もうとした場合、guard_scope が cwd 基準でブロックする
+(worktree 分離違反の再発防止。Bash 経由のリダイレクト・cp 等は guard_scope の対象外 —
+補助線の限界)。cwd はペイロード値が無ければ
+os.getcwd() にフォールバックして解決し、それでも作業スコープ直下の
+.worktrees/<名前> 配下と確定できない場合のみゲートを適用しない
+(誤ブロックしない安全側の補助線)。パスは realpath 解決後に比較する
+(シンボリックリンク迂回対策)。
 
 #### tmux(任意・表示用)
 

@@ -2,6 +2,11 @@ param()
 $ErrorActionPreference = "Stop"
 $script:failed = 0
 
+# 各テストはスコープ=リポジトリルートを前提に期待値を組むため、外部セッションの
+# CLAUDE_WORK_SCOPE(別プロジェクト等)に影響されないようスクリプト全体で固定する
+$SavedWorkScope = $env:CLAUDE_WORK_SCOPE
+$env:CLAUDE_WORK_SCOPE = (Get-Location).Path
+
 function Test-Hook {
     param(
         [string]$Description,
@@ -59,6 +64,18 @@ Test-Hook "guard_bash: redirect to last_eval_pass.txt is blocked" '{"tool_input"
 Test-Hook "guard_scope: last_eval_pass.txt write is blocked" '{"tool_input":{"file_path":".claude/checkpoints/last_eval_pass.txt","content":"deadbeef"}}' ".claude\hooks\guard_scope.py" 2
 Test-Hook "guard_bash: redirect to last_quality_pass.txt is blocked" '{"tool_input":{"command":"echo deadbeef > .claude/checkpoints/last_quality_pass.txt"}}' ".claude\hooks\guard_bash.py" 2
 Test-Hook "guard_scope: last_quality_pass.txt write is blocked" '{"tool_input":{"file_path":".claude/checkpoints/last_quality_pass.txt","content":"deadbeef"}}' ".claude\hooks\guard_scope.py" 2
+
+# --- guard_scope: worktree封じ込め(cwdベース。$RP はテスト実行時のリポジトリ絶対パス) ---
+$RP = (Get-Location).Path
+$RPJson = $RP.Replace('\', '\\')
+Test-Hook "guard_scope: worktree封じ込め - 同worktree内は許可" "{`"cwd`":`"$RPJson/.worktrees/group-A`",`"tool_input`":{`"file_path`":`"$RPJson/.worktrees/group-A/src/foo.py`"}}" ".claude\hooks\guard_scope.py" 0
+Test-Hook "guard_scope: worktree封じ込め - worktree→メインはブロック" "{`"cwd`":`"$RPJson/.worktrees/group-A`",`"tool_input`":{`"file_path`":`"$RPJson/src/train.py`"}}" ".claude\hooks\guard_scope.py" 2
+Test-Hook "guard_scope: worktree封じ込め - メイン→worktreeは現状維持で許可" "{`"cwd`":`"$RPJson`",`"tool_input`":{`"file_path`":`"$RPJson/.worktrees/group-A/src/foo.py`"}}" ".claude\hooks\guard_scope.py" 0
+Test-Hook "guard_scope: worktree封じ込め - 前方一致の隣接名(group-AB)はブロック" "{`"cwd`":`"$RPJson/.worktrees/group-A`",`"tool_input`":{`"file_path`":`"$RPJson/.worktrees/group-AB/src/foo.py`"}}" ".claude\hooks\guard_scope.py" 2
+Test-Hook "guard_scope: worktree封じ込め - worktree内サブディレクトリcwdでもブロック" "{`"cwd`":`"$RPJson/.worktrees/group-A/src`",`"tool_input`":{`"file_path`":`"$RPJson/src/train.py`"}}" ".claude\hooks\guard_scope.py" 2
+Test-Hook "guard_scope: worktree封じ込め - 不正cwd型(数値)はフォールバックで許可" "{`"cwd`":12345,`"tool_input`":{`"file_path`":`"$RPJson/src/train.py`"}}" ".claude\hooks\guard_scope.py" 0
+Test-Hook "guard_scope: worktree封じ込め - 相対パスはペイロードcwd基準で解決し許可" "{`"cwd`":`"$RPJson/.worktrees/group-A`",`"tool_input`":{`"file_path`":`"src/foo.py`"}}" ".claude\hooks\guard_scope.py" 0
+Test-Hook "guard_scope: worktree封じ込め - 相対パスでのworktree脱出はブロック" "{`"cwd`":`"$RPJson/.worktrees/group-A`",`"tool_input`":{`"file_path`":`"../../src/train.py`"}}" ".claude\hooks\guard_scope.py" 2
 
 # --- PowerShellネイティブコマンドの検知(クロスOS対応) ---
 Test-Hook "guard_bash: Remove-Item hooks dir is blocked" '{"tool_input":{"command":"Remove-Item -Recurse -Force .claude/hooks"}}' ".claude\hooks\guard_bash.py" 2
@@ -428,6 +445,7 @@ Test-Hook "action_log: exits 0 on empty payload" '{}' ".claude\hooks\action_log.
 Test-Hook "agent_log: exits 0 on empty payload" '{}' ".claude\hooks\agent_log.py" 0
 
 Write-Host ""
+$env:CLAUDE_WORK_SCOPE = $SavedWorkScope
 if ($script:failed -gt 0) {
     Write-Host "$($script:failed) 件のテストが失敗しました"
     exit 1

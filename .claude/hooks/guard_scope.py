@@ -8,7 +8,11 @@
 - .env / credentials.json / 秘密鍵ファイルは常にブロック
 - .claude/hooks/ と settings 系(ガード自身)への書き込みは常にブロック
 - 書き込み内容にAPIキーらしき文字列が含まれる場合もブロック
+- cwd が作業スコープ直下の .worktrees/<名前> 配下なら、書き込み先も同じ
+  worktree 配下に限定する(worktree担当エージェントのメインリポジトリ
+  誤書き込み防止)
 """
+
 import json
 import os
 import re
@@ -32,6 +36,78 @@ def contains_secret(text):
     return False
 
 
+def _is_path_within(target: str, root: str) -> bool:
+    """target が root 配下(root 自身を含む)にあるかを判定する。
+
+    前方一致の誤許可(root=/work/proj で /work/proj-evil が通る)を防ぐため
+    双方に末尾スラッシュを付けて比較する。Windows は大文字小文字を
+    区別しないので nt のときのみ小文字化して揃える。
+
+    Args:
+        target: 判定対象の絶対パス(スラッシュ区切り)。
+        root: 基準ルートの絶対パス(スラッシュ区切り)。
+
+    Returns:
+        target が root 配下なら True。
+    """
+    root_cmp = root.rstrip("/") + "/"
+    target_cmp = target.rstrip("/") + "/"
+    if os.name == "nt":
+        root_cmp = root_cmp.lower()
+        target_cmp = target_cmp.lower()
+    return target_cmp.startswith(root_cmp)
+
+
+def _effective_cwd(data: dict[str, object]) -> str:
+    """ペイロードの cwd を検証して採用する。
+
+    Args:
+        data: フックが stdin から受け取ったペイロード全体。
+
+    Returns:
+        ペイロードの cwd が非空文字列ならその値。それ以外(欠落・空・
+        文字列以外・例外)は os.getcwd()(誤ブロックしない安全側)。
+    """
+    try:
+        cwd = data.get("cwd")
+        if isinstance(cwd, str) and cwd.strip():
+            return cwd
+    except Exception:
+        pass
+    return os.getcwd()
+
+
+def _worktree_root(cwd: str, allowed_root: str) -> str | None:
+    """cwd が作業スコープ直下の .worktrees/<名前> 配下なら worktree ルートを返す。
+
+    任意の場所の .worktrees を worktree と誤認しないよう、判定は
+    realpath(allowed_root)/.worktrees/ 直下に限定する。
+
+    Args:
+        cwd: 判定対象の cwd(_effective_cwd の返り値)。
+        allowed_root: 作業スコープのルート(絶対パス)。
+
+    Returns:
+        worktree ルート(realpath 解決済み・スラッシュ区切り)。cwd が
+        worktree 配下でない・判定不能・例外時は None(ゲート不活性 =
+        誤ブロックしない安全側)。
+    """
+    try:
+        cwd_norm = os.path.realpath(cwd).replace("\\", "/")
+        base_norm = (
+            os.path.realpath(allowed_root).replace("\\", "/").rstrip("/")
+            + "/.worktrees/"
+        )
+        if not _is_path_within(cwd_norm, base_norm):
+            return None
+        name = cwd_norm[len(base_norm) :].split("/", 1)[0]
+        if not name:
+            return None
+        return base_norm + name
+    except Exception:
+        return None
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -43,12 +119,20 @@ def main():
     if not file_path:
         sys.exit(0)
 
-    abs_path = os.path.abspath(file_path)
+    # 相対パスはペイロード cwd(無ければ os.getcwd())基準で解決する。
+    # フックプロセスの cwd とツールが実際に書き込む基準(ペイロード cwd)は
+    # 一致するとは限らないため。絶対パスは os.path.join が cwd を捨てるので
+    # 従来と同じ結果になる。
+    effective_cwd = _effective_cwd(data)
+    abs_path = os.path.abspath(os.path.join(effective_cwd, file_path))
     norm = abs_path.replace("\\", "/")
     basename = os.path.basename(norm)
     _, ext = os.path.splitext(basename)
 
-    if path_for_match(basename) in BLOCKED_FILENAMES or ext.lower() in BLOCKED_EXTENSIONS:
+    if (
+        path_for_match(basename) in BLOCKED_FILENAMES
+        or ext.lower() in BLOCKED_EXTENSIONS
+    ):
         print(
             f"[guard_scope] BLOCKED: 秘密情報ファイルの可能性がある書き込みです: {file_path}",
             file=sys.stderr,
@@ -94,19 +178,26 @@ def main():
     else:
         allowed_root = os.path.abspath(os.getcwd())
 
-    # 前方一致の誤許可(scope=/work/proj で /work/proj-evil が通る)を防ぐため
-    # 末尾スラッシュ付きで比較。Windows は大文字小文字を区別しないので揃える。
-    allowed_norm = allowed_root.replace("\\", "/").rstrip("/") + "/"
-    target_norm = norm + "/"
-    if os.name == "nt":
-        allowed_norm = allowed_norm.lower()
-        target_norm = target_norm.lower()
-    if not target_norm.startswith(allowed_norm):
+    if not _is_path_within(norm, allowed_root.replace("\\", "/")):
         print(
             f"[guard_scope] BLOCKED: 作業スコープ({allowed_root})外への書き込みです: {file_path}",
             file=sys.stderr,
         )
         sys.exit(2)
+
+    # worktree 担当の cwd がスコープ直下の .worktrees/<名前> 配下なら、
+    # 書き込み先も同じ worktree 配下に限定する(メインリポジトリ本体への
+    # 誤書き込み防止)。symlink 迂回を塞ぐため両辺とも realpath で解決する。
+    worktree_root = _worktree_root(effective_cwd, allowed_root)
+    if worktree_root:
+        target_realpath = os.path.realpath(abs_path).replace("\\", "/")
+        if not _is_path_within(target_realpath, worktree_root):
+            print(
+                f"[guard_scope] BLOCKED: worktree({worktree_root})外への書き込みです: {file_path}\n"
+                f"worktree担当はメインリポジトリ本体を直接変更できません。",
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
     sys.exit(0)
 
