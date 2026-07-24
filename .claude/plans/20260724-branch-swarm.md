@@ -197,3 +197,49 @@ echo "ALL PASS"
 | R-14 | docs/ キャッシュがローカル管理外の旨を明記 | Step3,9 | grep で該当文言確認（目視） |
 | R-15 | push・設計書削除を行わない | 全体（含めない） | git log にレポート/削除コミット無し（目視） |
 | R-16 | 8.5 完全レポートをローカル生成・非コミット | Step13 | test -f docs/reports/<日時>/report.md かつ git check-ignore で無視対象であること |
+
+## 作業ログ(グループA・Step2)
+
+実装済み。7ファイルを新規作成:
+- .claude/agents/scout-naming.md
+- .claude/agents/scout-duplication.md
+- .claude/agents/scout-complexity.md
+- .claude/agents/scout-comments.md
+- .claude/agents/scout-symmetry.md
+- .claude/agents/scout-docstring.md
+- .claude/agents/scout-deadcode.md
+
+設計書セクション3の共通テンプレート+各レンズ定義に忠実。frontmatter は
+`tools: Read, Grep, Glob` / `model: haiku`。description・本文の「手順5.7」は
+すべて計画の指示通り「手順6.7」に読み替え済み。命名対照表の短レンズ名
+(命名/重複/複雑度/コメント/対称性/docstring/デッドコード)を使用。
+
+検証結果(全PASS):
+- 7ファイル存在確認: OK
+- `grep -l '^model: haiku$' .claude/agents/scout-*.md | wc -l` = 7
+- `grep -c '^tools: Read, Grep, Glob$' .claude/agents/scout-*.md` 各ファイル1
+- tools 行に Edit/Write なし
+- `grep -n '手順5\.7' .claude/agents/scout-*.md` ヒットなし
+
+逸脱: なし。
+
+コミット: 9308bf1 `feat(step 2): Haikuスカウト隊7体(観点別リファクタ偵察・提案のみ)を追加`
+(ブランチ pipeline/20260724-branch-swarm-group-A。push 未実施)
+
+## 差し戻し対応(Standards軸 HIGH3・設計書由来)
+
+設計書の「修正 2026-07-24」改訂3箇所を7体に反映:
+1. 単独呼び出しの確認質問に「(この確認質問は検査開始前のやり取りであり、
+   下記の出力形式の適用外)」を追記(7体共通)
+2. 出力形式の括弧書きを「見出し行は常に出力し、提案が無い場合は本文を
+   『提案なし』の1行だけにする」に差し替え(7体共通)
+3. scout-symmetry のレンズ第1項から命名パターンを削除し、
+   「個々の命名の妥当性は scout-naming の担当であり、ここでは見ない」を明記
+   (symmetryのみ)
+
+検証: 7体の共通部(name/description/レンズ本体を正規化除外)を diff し完全一致を確認。
+前回の検証コマンド一式を再実行し全PASS(7ファイル存在・model haiku x7・
+tools行x7・Edit/Writeなし・手順5.7残存なし)、加えて改訂1・2が7体全てに
+反映され改訂3が symmetry のみに存在することを grep で確認。
+
+逸脱: なし。
