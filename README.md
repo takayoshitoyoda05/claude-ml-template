@@ -291,8 +291,10 @@ guard_scope は「`CLAUDE_WORK_SCOPE`、未設定ならカレントディレク�
 (検証済み 2026-07-22)。`/.worktrees/` は claude-init が `.gitignore` に自動追加する。
 全工程の完了後は `git worktree remove` で後片付けする。
 worktree 担当エージェントがメインリポジトリ側へ書き込もうとした場合、guard_scope が
-cwd 基準でブロックする(worktree 分離違反の再発防止。有効な cwd を取得・解決できない
-場合はフォールバックして効かない補助線)。パスは realpath 解決後に比較する
+cwd 基準でブロックする(worktree 分離違反の再発防止)。cwd はペイロード値が無ければ
+os.getcwd() にフォールバックして解決し、それでも作業スコープ直下の
+.worktrees/<名前> 配下と確定できない場合のみゲートを適用しない
+(誤ブロックしない安全側の補助線)。パスは realpath 解決後に比較する
 (シンボリックリンク迂回対策)。
 
 #### tmux(任意・表示用)
