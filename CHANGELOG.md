@@ -65,6 +65,9 @@
   スカウト7体(命名/重複/複雑度/コメント/対称性/docstring/デッドコード)による
   並列偵察+実装者1人での適用判断に変更(`CLAUDE_REFACTOR_SWARM=1`)。
   単独呼び出し用に refactor-scout スキルも追加
+- **worktree 分離違反の再発防止**: guard_scope.py に cwd ベースの封じ込めゲートを追加。
+  cwd が作業スコープ直下の .worktrees/<名前> 配下にあるとき、その worktree の外
+  (メインリポジトリ側)への書き込みをブロックする
 
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規
