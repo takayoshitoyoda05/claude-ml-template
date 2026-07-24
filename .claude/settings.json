@@ -49,6 +49,14 @@
             "command": "uv run python .claude/hooks/auto_format.py"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python .claude/hooks/action_log.py"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -95,6 +103,16 @@
           {
             "type": "command",
             "command": "uv run python .claude/hooks/reinject_after_compact.py"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python .claude/hooks/agent_log.py"
           }
         ]
       }

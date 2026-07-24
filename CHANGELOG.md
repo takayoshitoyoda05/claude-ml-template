@@ -54,6 +54,11 @@
 - **env_fingerprint の受け入れテスト恒久化**: `scripts/env_fingerprint.py` の受け入れ検証を
   使い捨てワンライナーから `tests/test_env_fingerprint.py` の pytest 回帰テストへ移行
   (R-002〜004/009〜011 + BrokenPipe 耐性を CLI 起動のまま検証)
+- **no-guess規律と完全トレース**: 設計・計画・実装の全段階で推測による記述を禁止する
+  no-guess規律(planner/generator/design-interview)、全ツール実行・サブエージェント
+  委譲チェーンを機械記録する action_log.py / agent_log.py、パイプライン完了時に
+  evidence/(機械集約・短縮ゼロ)と report.md(モデル執筆)の2層レポートを生成する
+  手順8.5(report_gen.py)を追加
 
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規

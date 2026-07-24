@@ -1,0 +1,1026 @@
+diff --git a/.claude/agents/evaluator.md b/.claude/agents/evaluator.md
+index aa33224..3aa88a0 100644
+--- a/.claude/agents/evaluator.md
++++ b/.claude/agents/evaluator.md
+@@ -28,6 +28,10 @@ evaluator-standards の担当なのでここでは判断しません。
+ 2. `.claude/plans/` から計画ファイルを読み、検証方法を把握する
+ 3. `git diff` で変更全体を確認する
+ 4. 計画に書かれた評価コマンドを実際に実行する
++   評価コマンドの実行時は、出力を必ず logs/runs/ に tee で保存する
++   (generator と同じ形式。`set -o pipefail` を先頭に付け、元コマンドの
++   失敗が tee の成功で隠れないようにする)。レポートに書く数値は、
++   このログファイルから引用できる状態にする。
+ 5. mypy がプロジェクトに導入されている場合(`uv run mypy --version` が通る場合)、
+    変更されたファイルに対して `uv run mypy <対象パス>` を実行し、
+    型エラーが無いことを確認する。型エラーがあれば NEEDS_REVISION の根拠に含める。
+diff --git a/.claude/agents/generator.md b/.claude/agents/generator.md
+index 52ca5ac..0726166 100644
+--- a/.claude/agents/generator.md
++++ b/.claude/agents/generator.md
+@@ -28,6 +28,11 @@ permissionMode: acceptEdits
+    自分の並列グループのサブブランチにコミットする。
+    他グループのファイルには一切触らない。)
+ 7. 完了したら作業ログを計画ファイル末尾に追記し、完了報告に変更したファイルの一覧を含める(後続のレビューが diff の範囲を絞るために使う)
++8. 学習・評価・実験スクリプトを実行するときは、必ず出力をログファイルに保存する。
++   実行形式: `set -o pipefail && <コマンド> 2>&1 | tee logs/runs/$(date +%Y%m%d-%H%M%S)-<内容の短い名前>.log`
++   (pipefail が無いと元コマンドの失敗が tee の成功で隠れる。修正 2026-07-24)
++   (PowerShell の場合: `<コマンド> 2>&1 | Tee-Object logs\runs\<日時>-<名前>.log`)
++   logs/runs/ が無ければ作成する。短時間のテスト実行(pytest)はこの限りではない
+ 
+ ## コーディングルール
+ - 既存コードのスタイル・命名規則に合わせる
+@@ -36,6 +41,14 @@ permissionMode: acceptEdits
+   一回きりの操作にヘルパー関数を作らない。変更が必要な最小の行だけ変える
+ - コメントには「なぜ(why)」を書く。「何をしているか(what)」はコードに書かない
+ - 既存のロジック説明コメントを勝手に削除しない
++- 実装中に、**仕様・外部から見える挙動・不可逆な選択**(データの削除、
++  公開インターフェースの変更、依存の追加など)に関わる、計画・設計書に
++  書かれていない判断が必要になったら、自分で解釈して進めない。作業を
++  一時停止し、「何が不明か」「各選択肢の影響」を提示してユーザーの回答を
++  待つ。勝手に選んで後から報告するのは禁止。
++  (変数名・内部構造などの実装詳細は planner が Generator に残した判断余地
++  であり、この停止対象に含めない。修正 2026-07-24)
++  聞くことは失敗ではない。勝手に決めることが失敗である
+ 
+ ## 自己チェック項目
+ - [ ] importが通るか
+diff --git a/.claude/agents/planner.md b/.claude/agents/planner.md
+index dcfb95c..600a57c 100644
+--- a/.claude/agents/planner.md
++++ b/.claude/agents/planner.md
+@@ -76,6 +76,16 @@ model: opus
+   期待結果が機械照合できない要件が大半を占める場合は、計画を作らず
+   「設計書の受け入れ条件が不足しています。design-interview で詰めてから
+   再依頼してください(spec-checklist での品質検査も推奨)」と差し戻す
++- 調査で確定できなかった事項を推測・仮定で埋めない。「〜と仮定する」
++  「おそらく〜」「〜と思われる」を計画に書くことを禁止する。
++  不明点がある場合、計画を提示する前に「## 未確定事項」として質問リストに
++  まとめ、ユーザーの回答を得てから計画を完成させる。
++  設計上の選択を伴う質問は選択肢つきで聞く(選択肢 A/B/C + それぞれを
++  選んだ場合の影響)。単純な事実確認(ファイルの有無・値の確認など)は
++  通常の質問でよい(修正 2026-07-24)。
++  design-interview の1問ずつの対話方式とは異なり、計画前の未確定事項は
++  1回の質問リストとしてまとめて提示する(様式の使い分け)。
++  聞くことは失敗ではない。勝手に決めることが失敗である
+ 
+ ## 計画の実装手順の出力例
+ 
+diff --git a/.claude/commands/ml-pipeline.md b/.claude/commands/ml-pipeline.md
+index e5777d9..7bbe885 100644
+--- a/.claude/commands/ml-pipeline.md
++++ b/.claude/commands/ml-pipeline.md
+@@ -350,6 +350,53 @@ spec-auditor が NG を出した要件があれば generator に差し戻す。
+ ### 8. イテレーション制限
+ 最大3イテレーションで収束しなければユーザーに判断を仰ぐ。
+ 
++### 8.5. 完全レポートの生成(必須)
++全工程が完了したら(マージ確認の前に)、必ず以下を実行する。
++
++**(a) transcript パスの特定**: `logs/actions/` の JSONL ファイル名末尾の
++session 8桁を取り、`~/.claude/projects/` 配下の作業ディレクトリに対応する
++プロジェクトディレクトリ内で `<session-id>.jsonl` に前方一致するファイルを
++選ぶ。一致が無い、または複数ある場合は mtime 最新の1件を採用する。
++どちらも不可能な場合は transcript なしで進める。
++**特定の経緯(曖昧一致・特定不能)の記録は、(b) の report_gen 実行後に
++evidence/README.txt へ書く**(report_gen は生成前に evidence/ を作り直す
++ため、先に書くと消える。黙って省略しない)。
++
++**(b) evidence/ の機械集約**:
++```
++uv run python .claude/hooks/report_gen.py <実行日時: YYYYMMDD-HHMMSS> --transcript <特定したtranscriptパス>
++```
++transcript が特定できた場合は `--transcript` を付けて実行する
++(report_gen 内でマスキングを通した上で `evidence/transcript.jsonl` に
++コピーされる)。特定できなかった場合は `--transcript` を省略して実行する。
++diff・コミット一覧・actions.jsonl・agents.jsonl・runs/・
++テスト全出力・stats.json が docs/reports/<実行日時>/evidence/ に生成される。
++
++**(c) report.md の執筆**: docs/reports/<実行日時>/report.md を書く。
++必須セクション:
++
++1. **概要**: 何を依頼され、何が完了したか(3文以内)
++2. **時系列**: 計画→(承認)→実装→レビュー→(差し戻しがあれば各回)→
++   リファクタ→最終判定 の各段階で、どのエージェントが何をしたか
++3. **各エージェントの判断理由**: planner / plan-reviewer / evaluator /
++   evaluator-standards /(実行された場合)spec-checklist / final-gate の
++   判定とその根拠の要約
++4. **人間の承認コンテキスト**: ユーザーが承認・判断した箇所すべて
++   (計画承認の有無と方法(手動 / plan-reviewer 自動)、差し戻し時の指示、
++   マージ確認の結果)を時刻つきで記録する
++5. **発生した問題と対処**: 差し戻し・失敗・スキップされた工程とその理由
++6. **証拠**: evidence/ 内の各ファイルへの相対リンクと stats.json の統計
++   (ツール実行数、エージェント実行数、変更ファイル数)、および
++   evidence/test-output.txt から引用したテスト数
++
++執筆ルール:
++- 各主張は evidence/ 内のファイルを参照する形で書く(証拠の無い主張を書かない)
++- 「概ね」「おそらく」で結果をぼかさない。数値はログから引用する
++- 失敗・スキップも省略せず書く(完全性が目的。良く見せることが目的ではない)
++
++**(d)** 手順9(マージ確認)でユーザーに提示する情報に、レポートのパス
++(docs/reports/<実行日時>/report.md)を必ず含める。
++
+ ### 9. マージ確認
+ 全工程が完了したら、ユーザーに以下を提示する。
+ 
+@@ -358,6 +405,7 @@ spec-auditor が NG を出した要件があれば generator に差し戻す。
+ - 変更ファイル数: `git diff --stat main...<ブランチ>` の結果
+ - 並列化した場合: 各グループのマージ状態
+ - 全変更の要約: 1〜3文
++- レポートパス: docs/reports/<実行日時>/report.md
+ 
+ そして「mainにマージしますか?」と確認する。
+ 
+diff --git a/.claude/hooks/_logutil.py b/.claude/hooks/_logutil.py
+new file mode 100644
+index 0000000..e2c4b9f
+--- /dev/null
++++ b/.claude/hooks/_logutil.py
+@@ -0,0 +1,17 @@
++#!/usr/bin/env python3
++"""action_log.py / agent_log.py が共有するログ保持(prune)ユーティリティ。
++
++ログが平文で無限に溜まるのを防ぐ(checkpoint_before_compact.pyと同方針)。
++"""
++
++from pathlib import Path
++
++
++def prune_old_logs(log_dir: Path, keep: int = 30) -> None:
++    """ファイル数が keep を超えたら、名前順(=日付昇順)で古いものから削除する。"""
++    files = sorted(log_dir.glob("*.jsonl"))
++    for f in files[:-keep]:
++        try:
++            f.unlink()
++        except OSError:
++            pass
+diff --git a/.claude/hooks/_mask.py b/.claude/hooks/_mask.py
+new file mode 100644
+index 0000000..e1ecc62
+--- /dev/null
++++ b/.claude/hooks/_mask.py
+@@ -0,0 +1,37 @@
++#!/usr/bin/env python3
++"""ログ書き込み前の秘密情報マスキング。
++
++エージェントのトレースにはプロンプト・ツール引数・コマンド出力が含まれ、
++秘密情報が混入しうる。ログに書く前に既知パターンを伏せ字にする。
++"""
++
++import re
++
++from _common import SECRET_CONTENT_PATTERNS
++
++# 設計書からの逸脱(レビュー指摘採用): 検知パターンの二重管理によるドリフトを
++# 避けるため、guard系と共有の _common.SECRET_CONTENT_PATTERNS を土台にする。
++# マスキング専用の追加分(guard側に無いghp_/gho_)と、値だけを伏せるkey=value
++# 形式(キャプチャ置換が必要なため _common のパターンとは別立て)のみここで持つ。
++_SIMPLE_PATTERNS = [re.compile(p) for p in SECRET_CONTENT_PATTERNS] + [
++    re.compile(r"ghp_[A-Za-z0-9]{20,}"),  # GitHub PAT
++    re.compile(r"gho_[A-Za-z0-9]{20,}"),  # GitHub OAuth
++]
++
++_KEYVALUE_PATTERN = re.compile(
++    r"((?:api[_-]?key|token|secret|password|passwd)\s*[=:]\s*)"
++    r"(['\"]?)([^\s'\"]{8,})(\2)",
++    re.IGNORECASE,
++)
++
++
++def mask(text: str) -> str:
++    """既知の秘密情報パターンを [MASKED] に置換して返す。"""
++    if not text:
++        return text
++    masked = text
++    for pat in _SIMPLE_PATTERNS:
++        masked = pat.sub("[MASKED]", masked)
++    # key=value 形式は値だけマスクする
++    masked = _KEYVALUE_PATTERN.sub(r"\1\2[MASKED]\4", masked)
++    return masked
+diff --git a/.claude/hooks/action_log.py b/.claude/hooks/action_log.py
+new file mode 100644
+index 0000000..99b4b3d
+--- /dev/null
++++ b/.claude/hooks/action_log.py
+@@ -0,0 +1,67 @@
++#!/usr/bin/env python3
++"""PostToolUse フック: 全ツール実行を logs/actions/ に JSONL で自動記録する。
++
++モデルの記憶に依存しない機械記録。エージェントが「何をしたか」の完全な証跡。
++記録前に秘密情報をマスキングする。
++"""
++
++import json
++import os
++import sys
++from datetime import datetime, timezone
++from pathlib import Path
++
++sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
++from _mask import mask  # noqa: E402
++from _logutil import prune_old_logs  # noqa: E402
++
++MAX_FIELD = 50_000  # 1フィールドの上限文字数(巨大出力によるログ肥大の防止)
++
++
++def _clip(text: str) -> str:
++    if text and len(text) > MAX_FIELD:
++        return text[:MAX_FIELD] + f"\n...[clipped {len(text) - MAX_FIELD} chars]"
++    return text or ""
++
++
++def main():
++    if os.environ.get("CLAUDE_ACTION_LOG", "1") == "0":
++        sys.exit(0)
++
++    try:
++        payload = json.load(sys.stdin)
++    except (json.JSONDecodeError, ValueError):
++        sys.exit(0)
++
++    log_dir = Path("logs/actions")
++    log_dir.mkdir(parents=True, exist_ok=True)
++
++    session = payload.get("session_id", "unknown")[:8]
++    entry = {
++        "ts": datetime.now(timezone.utc).isoformat(),
++        "session": session,
++        "tool": payload.get("tool_name", ""),
++        "input": mask(
++            _clip(json.dumps(payload.get("tool_input", {}), ensure_ascii=False))
++        ),
++        "output": mask(_clip(str(payload.get("tool_response", "")))),
++        "duration_ms": payload.get("duration_ms"),
++    }
++
++    log_file = (
++        log_dir / f"{datetime.now(timezone.utc).strftime('%Y%m%d')}-{session}.jsonl"
++    )
++    try:
++        with open(log_file, "a", encoding="utf-8") as f:
++            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
++    except OSError as e:
++        # ログ失敗で作業は止めないが、欠落を可視化する(Codex指摘の採用)
++        print(f"[action_log] failed to write log: {e}", file=sys.stderr)
++
++    prune_old_logs(log_dir)
++
++    sys.exit(0)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/.claude/hooks/agent_log.py b/.claude/hooks/agent_log.py
+new file mode 100644
+index 0000000..e2e77a8
+--- /dev/null
++++ b/.claude/hooks/agent_log.py
+@@ -0,0 +1,60 @@
++#!/usr/bin/env python3
++"""SubagentStop フック: サブエージェントの実行完了を logs/agents/ に JSONL 記録する。
++
++マルチエージェント監査の標準フィールド「委譲チェーン」に相当する記録。
++"""
++
++import json
++import os
++import sys
++from datetime import datetime, timezone
++from pathlib import Path
++
++sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
++from _mask import mask  # noqa: E402
++from _logutil import prune_old_logs  # noqa: E402
++
++
++def main():
++    if os.environ.get("CLAUDE_ACTION_LOG", "1") == "0":
++        sys.exit(0)
++
++    try:
++        payload = json.load(sys.stdin)
++    except (json.JSONDecodeError, ValueError):
++        sys.exit(0)
++
++    log_dir = Path("logs/agents")
++    log_dir.mkdir(parents=True, exist_ok=True)
++
++    session = payload.get("session_id", "unknown")[:8]
++    entry = {
++        "ts": datetime.now(timezone.utc).isoformat(),
++        "session": session,
++        "agent": payload.get("agent_name", payload.get("subagent_type", "")),
++        "model": payload.get("resolvedModel", payload.get("model", "")),
++        "transcript_path": payload.get("agent_transcript_path", ""),
++        "summary": mask(str(payload.get("last_message", ""))[:2000]),
++    }
++    # ペイロードに usage 系フィールドがあれば含める(バージョンにより有無が異なる)
++    for key in ("usage", "total_tokens", "cost_usd", "duration_ms"):
++        if key in payload:
++            entry[key] = payload[key]
++
++    log_file = (
++        log_dir / f"{datetime.now(timezone.utc).strftime('%Y%m%d')}-{session}.jsonl"
++    )
++    try:
++        with open(log_file, "a", encoding="utf-8") as f:
++            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
++    except OSError as e:
++        # ログ失敗で作業は止めないが、欠落を可視化する(Codex指摘の採用)
++        print(f"[agent_log] failed to write log: {e}", file=sys.stderr)
++
++    prune_old_logs(log_dir)
++
++    sys.exit(0)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/.claude/hooks/report_gen.py b/.claude/hooks/report_gen.py
+new file mode 100644
+index 0000000..da844f6
+--- /dev/null
++++ b/.claude/hooks/report_gen.py
+@@ -0,0 +1,209 @@
++#!/usr/bin/env python3
++"""完全レポートの evidence/ を機械集約する。
++
++モデルに「全部レポートに書いて」と頼むと必ず要約・省略が起きる。
++「短縮ゼロ」を保証するため、証拠の収集はこのスクリプトが機械的に行う。
++
++Usage: uv run python .claude/hooks/report_gen.py <report_dir_name> [--transcript <path>]
++  例: uv run python .claude/hooks/report_gen.py 20260723-143022
++  --transcript: セッション transcript ファイルのパス。指定時は
++    evidence/transcript.jsonl にマスキング済みでコピーし、ファイル名から
++    導出したセッションID(先頭8桁)で actions/agents ログも絞り込む。
++生成先: docs/reports/<report_dir_name>/evidence/
++"""
++
++import json
++import os
++import shutil
++import subprocess
++import sys
++from collections.abc import Callable
++from datetime import datetime, timezone
++from pathlib import Path
++
++sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
++from _mask import mask  # noqa: E402
++
++MAX_COPY_BYTES = (
++    10 * 1024 * 1024
++)  # 1ファイルの上限(action_logのMAX_FIELDクリップ方針と整合)
++
++
++def run(cmd: list[str]) -> str:
++    try:
++        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
++        return proc.stdout + proc.stderr
++    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
++        return f"[report_gen] command failed: {cmd}: {e}"
++
++
++def _copy_masked(src: str, dst: str) -> None:
++    """runs/ 配下のファイルをマスキングしてからコピーする(evidence/はコミット対象のため)。"""
++    raw = Path(src).read_bytes()
++    if len(raw) > MAX_COPY_BYTES:
++        text = raw[:MAX_COPY_BYTES].decode("utf-8", errors="replace")
++        text += f"\n...[clipped {len(raw) - MAX_COPY_BYTES} bytes]"
++    else:
++        text = raw.decode("utf-8", errors="replace")
++    Path(dst).write_text(mask(text), encoding="utf-8")
++
++
++def _make_symlink_ignorer(skipped: list[str]) -> Callable[[str, list[str]], set[str]]:
++    """symlink をコピー対象から除外する copytree の ignore コールバックを返す。
++
++    symlink はリポジトリ外(作業スコープ外)を指しうるため、そのまま
++    追うと evidence/ にスコープ外の内容が混入する。名前は skipped に集める。
++    """
++
++    def _ignore(directory: str, names: list[str]) -> set[str]:
++        found = {n for n in names if os.path.islink(os.path.join(directory, n))}
++        skipped.extend(os.path.join(directory, n) for n in found)
++        return found
++
++    return _ignore
++
++
++def _parse_args(argv: list[str]) -> tuple[str, str | None]:
++    """コマンドライン引数から (report_dir_name, transcript_path) を取り出す。"""
++    args = list(argv)
++    transcript_arg = None
++    if "--transcript" in args:
++        idx = args.index("--transcript")
++        try:
++            transcript_arg = args[idx + 1]
++        except IndexError:
++            print(
++                "Usage: report_gen.py <report_dir_name> [--transcript <path>]",
++                file=sys.stderr,
++            )
++            sys.exit(1)
++        del args[idx : idx + 2]
++
++    if len(args) < 1:
++        print(
++            "Usage: report_gen.py <report_dir_name> [--transcript <path>]",
++            file=sys.stderr,
++        )
++        sys.exit(1)
++
++    return args[0], transcript_arg
++
++
++def _write_git_evidence(evidence: Path, stats: dict[str, object]) -> None:
++    """git 差分とコミット一覧(全文、省略なし。コミット済みリポジトリ内容の写しの
++    ためマスク対象外 — パッチ形式の保全を優先)。"""
++    (evidence / "diff.patch").write_text(
++        run(["git", "diff", "main...HEAD"]), encoding="utf-8"
++    )
++    (evidence / "commits.txt").write_text(
++        run(["git", "log", "main..HEAD", "--stat"]), encoding="utf-8"
++    )
++    diff_names = run(["git", "diff", "--name-only", "main...HEAD"]).strip()
++    stats["changed_files"] = len(diff_names.splitlines()) if diff_names else 0
++
++
++def _write_tool_logs(
++    evidence: Path, stats: dict[str, object], transcript_arg: str | None
++) -> None:
++    """このセッション分のツール実行ログとエージェントログを集約する。
++
++    --transcript のファイル名(<session-id>.jsonl)からセッションを絞り込む。
++    無指定の場合は全件結合し、絞り込んでいないことを stats に明記する。
++    """
++    session8 = Path(transcript_arg).stem[:8] if transcript_arg else None
++    stats["session_filter"] = session8 if session8 else "none(all files)"
++    pattern = f"*-{session8}.jsonl" if session8 else "*.jsonl"
++    for src_dir, name in [("logs/actions", "actions"), ("logs/agents", "agents")]:
++        src = Path(src_dir)
++        if not src.exists():
++            continue
++        merged = [f.read_text(encoding="utf-8") for f in sorted(src.glob(pattern))]
++        if merged:
++            (evidence / f"{name}.jsonl").write_text("".join(merged), encoding="utf-8")
++            stats[f"{name}_entries"] = sum(m.count("\n") for m in merged)
++
++
++def _write_runs_evidence(evidence: Path, stats: dict[str, object]) -> None:
++    """tee で保存された runs/ をマスキングしてコピーする(symlink は除外)。"""
++    runs_src = Path("logs/runs")
++    if not (runs_src.exists() and any(runs_src.iterdir())):
++        return
++    skipped_symlinks: list[str] = []
++    shutil.copytree(
++        runs_src,
++        evidence / "runs",
++        dirs_exist_ok=True,
++        copy_function=_copy_masked,
++        ignore=_make_symlink_ignorer(skipped_symlinks),
++    )
++    stats["run_logs"] = len(list((evidence / "runs").glob("*")))
++    if skipped_symlinks:
++        stats["skipped_symlinks"] = skipped_symlinks
++
++
++def _write_test_output(evidence: Path) -> None:
++    """最終テスト出力(全文。素の `uv run` は pytest 未導入のため --with pytest で実行)。"""
++    (evidence / "test-output.txt").write_text(
++        mask(
++            run(
++                [
++                    "uv",
++                    "run",
++                    "--with",
++                    "pytest",
++                    "python",
++                    "-m",
++                    "pytest",
++                    "tests/",
++                    "-v",
++                ]
++            )
++        ),
++        encoding="utf-8",
++    )
++
++
++def _write_transcript_evidence(
++    evidence: Path, stats: dict[str, object], transcript_arg: str | None
++) -> None:
++    """公式セッション記録(transcript)をマスキングしてコピーする。"""
++    if not transcript_arg:
++        return
++    transcript_path = Path(transcript_arg)
++    if transcript_path.exists():
++        text = transcript_path.read_text(encoding="utf-8", errors="replace")
++        (evidence / "transcript.jsonl").write_text(mask(text), encoding="utf-8")
++        stats["transcript_lines"] = len(text.splitlines())
++    else:
++        stats["transcript"] = f"not found: {transcript_arg}"
++
++
++def main():
++    report_dir_name, transcript_arg = _parse_args(sys.argv[1:])
++
++    report_dir = Path("docs/reports") / report_dir_name
++    evidence = report_dir / "evidence"
++    # 機械生成物なので、前回実行の残留を防ぐため毎回作り直す
++    if evidence.exists():
++        shutil.rmtree(evidence)
++    evidence.mkdir(parents=True, exist_ok=True)
++
++    stats: dict[str, object] = {"generated_at": datetime.now(timezone.utc).isoformat()}
++
++    _write_git_evidence(evidence, stats)
++    _write_tool_logs(evidence, stats, transcript_arg)
++    _write_runs_evidence(evidence, stats)
++    _write_test_output(evidence)
++    _write_transcript_evidence(evidence, stats, transcript_arg)
++
++    (evidence / "stats.json").write_text(
++        json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8"
++    )
++
++    print(f"[report_gen] evidence generated: {evidence}")
++    print(json.dumps(stats, ensure_ascii=False, indent=2))
++    sys.exit(0)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/.claude/plans/20260724-full-trace.md b/.claude/plans/20260724-full-trace.md
+new file mode 100644
+index 0000000..eedf413
+--- /dev/null
++++ b/.claude/plans/20260724-full-trace.md
+@@ -0,0 +1,218 @@
++# 実装計画: no-guess 規律と完全トレース(全ログ記録・完全レポート)
++
++参照設計書: `/home/toyod/claude-ml-template/docs/drafts/full-trace-spec.md`
++作業ブランチ: `pipeline/20260724-full-trace`(チェックアウト済み)
++
++## 目的
++3原則(no-guess=推測禁止 / 完全ログ=記録漏れゼロ / 完全レポート=短縮ゼロ)を、
++モデルの善意でなくフック・スクリプト・プロンプト規律として実装する。
++既存テンプレートに新規4ファイル+改修12ファイルを追加する。
++
++## 現状分析(確認済みの事実)
++- 確認済み: ml-pipeline.md の実手順は **7 結果の集約 / 7.5 spec-auditor(既存・衝突) / 8 イテレーション制限 / 9 マージ確認**。
++  → 設計書の「7. 直後 / 8. マージ確認の直前」という記述は実態とズレる。完全レポートは **8.5** として
++  `### 8. イテレーション制限`(L350-351)と `### 9. マージ確認`(L353-)の間に挿入する。
++  設計書文中の「手順8(マージ確認)」参照は **9** に読み替える。
++- 確認済み: `.claude/settings.json` は `_common.PROTECTED_PATH_PATTERNS` の `/.claude/settings.json` に一致し、
++  エージェントの Edit/Write/Bash 変更系がブロックされる。→ セクション6は **gitignore 済みの `_staging_*.py`**
++  を作成しユーザーに `!` 実行してもらう既存パターンで行う。この変更はローカル設定でありブランチのコミットに入らない。
++- 確認済み: 現 settings.json の `PostToolUse`(L43-53)は matcher `Edit|Write|NotebookEdit` の auto_format のみ。
++  action_log は matcher が異なるため **matcher 無し(全ツール対象)の新エントリ**として PostToolUse 配列に追加する。
++  `SubagentStop` セクションは存在しない → `Stop` と同階層に新規追加する。
++- 確認済み: `.gitignore` L6 は `docs/`(ディレクトリ丸ごと無視)。`!docs/reports/` を足しても親除外のため再包含が効かない。
++  隔離リポジトリで検証済み: `docs/*` + `!docs/reports/` + `logs/` の形なら docs/reports/ が追跡可能・docs/drafts 等は無視継続。
++- 確認済み: リポジトリに pyproject.toml が無く、`uv run python -m pytest` は "No module named pytest" で失敗。
++  `uv run --with pytest python -m pytest` は pytest 9.1.1 で成功。→ report_gen.py の pytest 実行行は
++  `["uv","run","--with","pytest","python","-m","pytest","tests/","-v"]` に修正する(設計書コードのままでは失敗)。
++- 確認済み: 既存フックは stdlib のみ・`json.load(sys.stdin)`・`main()`/`if __name__`・Google風docstring。
++  秘密情報パターンは `_common.SECRET_CONTENT_PATTERNS`(guard 用、キャプチャ無し)に一元化。
++  → `_mask.py` はマスキング用にキャプチャ群+key=value 置換が必要で構造が異なるため、設計書コード通り独立定義する
++  (重複ではなく用途差。DRY より spec 忠実・最小diffを優先)。
++- 確認済み: 改修対象のうちガード保護は settings.json のみ。`.claude/rules/`・`agents/`・`skills/`・`commands/`・
++  `templates/`・`verify-hooks.*`・README・CHANGELOG・.gitignore は非保護でEdit可能。
++- 確認済み: python-style.md の実在パスは `.claude/rules/python-style.md`。
++- 確認済み: README のフック表は 3.4 節(L682付近、auto_format 行 L692)、環境変数表は L194-207(末尾 CLAUDE_FINAL_GATE)、
++  spec-compliance 節が L211-。新2節はフック表(3.4)の直後に挿入する。
++- 確認済み: verify-hooks.sh は `test_hook "名前" 'JSON' "パス" 期待exit`(L5定義)、末尾に集計。
++  verify-hooks.ps1 は `Test-Hook` 形式・末尾に集計。両者とも集計ブロックの直前に追加する。
++
++## 変更対象
++
++| ファイル | 種別 | 変更内容 |
++|---------|------|---------|
++| .claude/hooks/_mask.py | NEW | 秘密情報マスキング共通モジュール(設計書§2コード通り) |
++| .claude/hooks/action_log.py | NEW | PostToolUse フック。全ツール実行をJSONL記録(設計書§3) |
++| .claude/hooks/agent_log.py | NEW | SubagentStop フック。委譲チェーン記録(設計書§4、複数キー名フォールバック) |
++| .claude/hooks/report_gen.py | NEW | evidence機械集約スクリプト(設計書§5、pytest実行行を`--with pytest`に修正) |
++| verify-hooks.sh | MOD | action_log/agent_log の空ペイロードexit0テスト2件追加 |
++| verify-hooks.ps1 | MOD | 同上(Test-Hook形式、既存書式踏襲) |
++| .claude/agents/planner.md | MOD | 「## 制約」末尾に no-guess 規律 |
++| .claude/agents/generator.md | MOD | 「## 作業手順」末尾に tee必須、「## コーディングルール」末尾に no-guess |
++| .claude/agents/evaluator.md | MOD | 「## 作業手順」の評価コマンド実行(step4)に tee必須 |
++| .claude/skills/design-interview/SKILL.md | MOD | 「## 進め方」冒頭(step1直前)に no-guess大原則 |
++| .claude/rules/python-style.md | MOD | 末尾に logging 推奨ルール |
++| .claude/commands/ml-pipeline.md | MOD | 手順8.5(完全レポート生成)を8と9の間に挿入、手順9提示情報にレポートパス追加 |
++| templates/settings.local.json.template | MOD | env に `"CLAUDE_ACTION_LOG": "1"` 追加 |
++| .gitignore | MOD | `docs/`→`docs/*`+`!docs/reports/`、`logs/` 追加 |
++| README.md | MOD | フック表3行・環境変数1行・新2節(no-guess/完全トレース) |
++| CHANGELOG.md | MOD | [Unreleased] Added(2026-07-24)に1項目追加 |
++| _staging_settings_hooks.py | NEW(gitignored) | settings.json に action_log/agent_log を追記するステージング。ユーザーが`!`実行 |
++
++## 実装手順
++
++| # | 内容 | 対象ファイル | 依存 | 並列グループ |
++|---|------|-------------|------|-------------|
++| 1 | `_mask.py` を設計書§2コード通り新規作成(stdlibのみ、`mask()`公開) | .claude/hooks/_mask.py | なし | A |
++| 2 | `action_log.py` を設計書§3コード通り新規作成(CLAUDE_ACTION_LOG=0で無効、_mask利用)。**修正(Codex採用)**: OSError 時は黙って握らず stderr に警告してから exit 0(作業は止めないが欠落を可視化)。agent_log.py も同様 | .claude/hooks/action_log.py | Step1 | A |
++| 3 | `agent_log.py` を設計書§4コード通り新規作成。**注: 設計書のデバッグdump(json.dump payload)は入れない**(本パイプライン内で発火せず検証不能なため。複数キー名フォールバックは残す) | .claude/hooks/agent_log.py | Step1 | A |
++| 4 | `report_gen.py` を設計書§5コード通り新規作成。**変更2点**: (1) pytest実行行を`["uv","run","--with","pytest","python","-m","pytest","tests/","-v"]`に(素のuv runはpytest不在)、(2) spec-checklist承認済み修正 — `--transcript <パス>` 引数を追加し、**リポジトリ外由来のテキスト**(transcript・runs/各ログ・test-output)のコピー/書き込みに `_mask.mask()` を適用。diff/commits は**コミット済みリポジトリ内容の写し**であり秘密度が変わらないため対象外(パッチ形式の保全を優先 — 方針の根拠) | .claude/hooks/report_gen.py | Step1 | A |
++| 5 | 【テスト先行】verify-hooks に空ペイロードexit0テストを2件追加(sh/ps1両方、集計ブロック直前)。sh側は本機で実行確認、ps1は既存Test-Hook書式の最小追加(本機で構文検証不能=受容リスク) | verify-hooks.sh, verify-hooks.ps1 | Step2,3 | A |
++| 6 | 「## 制約」末尾に no-guess 規律(設計書§1-1)を追記 | .claude/agents/planner.md | なし | B |
++| 7 | 「## 作業手順」末尾に tee必須ルール(§7-1)、「## コーディングルール」基本原則末尾に no-guess(§1-2)を追記 | .claude/agents/generator.md | なし | B |
++| 8 | 「## 作業手順」評価コマンド実行step(step4)に tee必須(§7-2)を追記 | .claude/agents/evaluator.md | なし | B |
++| 9 | 「## 進め方」冒頭(step1直前)に no-guess大原則(§1-3)を追記 | .claude/skills/design-interview/SKILL.md | なし | B |
++| 10 | 末尾に logging 推奨ルール(§7-3)を追記 | .claude/rules/python-style.md | なし | B |
++| 11 | 手順**8.5**(完全レポート生成)を`### 8`と`### 9`の間に挿入。設計書§8本文の「手順8(マージ確認)」は「手順9」に読み替え。手順9のユーザー提示リストにレポートパス`docs/reports/<日時>/report.md`を1項目追加(§8(d)) | .claude/commands/ml-pipeline.md | なし | C |
++| 12 | env ブロックに `"CLAUDE_ACTION_LOG": "1"` を追記(既存キー不変) | templates/settings.local.json.template | なし | C |
++| 13 | L6 `docs/` を `docs/*` + `!docs/reports/` に変更し、`logs/` を追加(§9-2)。`git check-ignore`で検証 | .gitignore | なし | C |
++| 14 | フック表に3行、環境変数表に CLAUDE_ACTION_LOG 1行、新2節(no-guess/完全トレース)をフック表3.4直後に追記。§10本文の「手順7.5」は「8.5」に読み替え | README.md | なし | C |
++| 15 | [Unreleased] `### Added(2026-07-24)` を新設し、完全トレース+no-guessの1項目を追加 | CHANGELOG.md | なし | C |
++| 16 | `_staging_settings_hooks.py`(gitignored)を作成: 現settings.jsonを読み、PostToolUse配列にmatcher無しaction_logエントリ追加+SubagentStopセクション追加してWrite。**ユーザーに `! uv run python _staging_settings_hooks.py` 実行を依頼**。実行後 settings.json の内容検証(両フック登録 assert)。**訂正(レビュー発見): .claude/settings.json は git 追跡対象のテンプレート成果物であり、配線変更はブランチにコミットする**(feat(step 16))。過去にも手動反映後コミットの前例あり(7e72602) | _staging_settings_hooks.py, .claude/settings.json | Step2,3 | D |
++
++## 並列化判定
++**並列化可能**(グループ A / B / C / D)。
++- A=Pythonフック4本+verify-hooks(相互import・verifyが4本をテスト。同一の関心事で密結合)
++- B=agents/skills/rules の Markdown 追記(相互に独立した別ファイル)
++- C=ml-pipeline+template+gitignore+README+CHANGELOG(別ファイル同士、相互依存なし)
++- D=settings.json(ガード保護・ユーザー手作業。他グループとファイル非重複)
++4グループはファイル集合が完全に分離する。依存(Codex指摘の採用で明記): **D(Step16)は A の Step2,3 完了後**
++(ステージングが参照するフック名の実在が前提)。A 内部も Step1→2/3/4→5 の直列。真に無依存な並列対は
++A↔B↔C の3グループで、D は A の後続として扱う。
++比較(実装コスト/リスク/検証しやすさ/変更耐性): 逐次でも総量は中規模で破綻しないが、A(Python検証が重い)と
++B/C(Markdown中心で軽い)を並列化すると待ち時間を圧縮できる。整合リスクは低い(README§14がフックを「説明」するが、
++文章記述はフック実体の有無に依存しない)。**唯一の統合点は最終検証(section 11 相当)で全グループ合流後に一括実行**するため、
++並列化しても検証段で漏れは捕捉できる。保守側の判断として D はユーザー手作業を含むので独立ステップに隔離した。
++
++## 検証方法(設計書§11を既知乖離で修正+fail-fast)
++以下を `&&` 連結(fail-fast)で実行し、全て通れば PASS。
++
++```bash
++test -f .claude/hooks/_mask.py && echo "OK: _mask" && \
++test -f .claude/hooks/action_log.py && echo "OK: action_log" && \
++test -f .claude/hooks/agent_log.py && echo "OK: agent_log" && \
++test -f .claude/hooks/report_gen.py && echo "OK: report_gen" && \
++DUMMYKEY="sk-"$(printf "%s" "abcdefghijklmnopqrstuvwx") && printf 'api_%s=%s\n' "key" "$DUMMYKEY" | uv run python -c "
++import sys; sys.path.insert(0, '.claude/hooks')
++from _mask import mask
++out = mask(sys.stdin.read())
++assert ('sk-' + 'abcdefghijklmnop') not in out, 'マスキング失敗'
++print('OK: masking ->', out.strip())" && \
++grep -q "仮定する" .claude/agents/planner.md && echo "OK: planner no-guess" && \
++grep -q "勝手に決めることが失敗" .claude/agents/generator.md && echo "OK: generator no-guess" && \
++grep -q "8\.5" .claude/commands/ml-pipeline.md && echo "OK: pipeline 8.5" && \
++grep -q "report_gen" .claude/commands/ml-pipeline.md && echo "OK: pipeline report_gen" && \
++git check-ignore -q docs/drafts/full-trace-spec.md && echo "OK: docs/drafts ignored" && \
++! git check-ignore -q docs/reports/x/report.md && echo "OK: docs/reports NOT ignored" && \
++git check-ignore -q logs/actions/x.jsonl && echo "OK: logs ignored" && \
++./verify-hooks.sh
++```
++(ダミーキーは `sk-` + 24桁英数字を分割連結で組み立てる。マスキング後に元文字列が消えることを assert する)
++
++期待結果: 各 `OK:` 行が出力され、`./verify-hooks.sh` 末尾が「全テストPASS」(exit 0)。
++
++追加スモーク1(action_log の実ペイロード動作とマスキング。ダミー鍵は分割連結で組み立てる — guard の秘密検知を誤爆させないため):
++```bash
++DUMMYKEY="sk-"$(printf "%s" "abcdefghijklmnopqrstuvwx") && \
++printf '{"session_id":"smoketest","tool_name":"Bash","tool_input":{"command":"echo K=%s"},"tool_response":"ok"}' "$DUMMYKEY" \
++  | uv run python .claude/hooks/action_log.py && \
++tail -1 logs/actions/*smoketes*.jsonl | grep -q "MASKED" && \
++! tail -1 logs/actions/*smoketes*.jsonl | grep -q "$DUMMYKEY" && echo "OK: action_log writes masked JSONL"
++```
++期待結果: logs/actions/ に1行追記され、ダミー鍵がマスクされている。確認後 `rm -f logs/actions/*smoketes*.jsonl` で掃除。
++
++追加スモーク2(report_gen が evidence を生成できること):
++```bash
++SMOKE="smoke-$$" && \
++test ! -e "docs/reports/$SMOKE" && \
++uv run python .claude/hooks/report_gen.py "$SMOKE" && \
++test -f "docs/reports/$SMOKE/evidence/stats.json" && echo "OK: evidence generated" ; RC=$? ; \
++rm -rf "docs/reports/$SMOKE" ; exit $RC
++```
++(サブシェルで実行すること: `( ... )` — exit がシェルを殺さないように)
++期待結果: `OK: evidence generated` かつ exit 0。失敗時は失敗ステータスが保存され、後始末は成否に関わらず実行される。
++
++settings.json(ユーザー手作業後):
++```bash
++python3 -c "
++import json
++s = json.load(open('.claude/settings.json'))
++hooks = s['hooks']
++assert any('action_log' in h['command'] for e in hooks['PostToolUse'] for h in e['hooks']), 'action_log missing'
++assert any('agent_log' in h['command'] for e in hooks['SubagentStop'] for h in e['hooks']), 'agent_log missing'
++print('OK: settings.json valid & hooks registered')"
++```
++期待結果: `OK: settings.json valid & hooks registered`(構文だけでなく両フックの登録を assert)。
++
++コミット案(各ステップ完了ごと。作業ブランチ pipeline/20260724-full-trace 上):
++1-4: `feat(step 1..4): <各フック名>`  / 5: `test(step 5): 新フックの空ペイロードexit0テスト`
++6-11,14,15: `docs(step N): <要約>`  / 12,13: `feat(step 12/13): <要約>`
++16: `feat(step 16): settings.json に action_log/agent_log を配線`(ユーザーのステージング実行後にコミット。`_staging_*.py` 自体は gitignore 済み)
++最終: `git push` と設計書削除は**ユーザー明示指示まで行わない**(タスク指示#7)。
++
++## リスク
++- **SubagentStop/PostToolUse の stdin フィールド名がバージョン依存**: 新フックは settings.json 変更+セッション再読込後
++  にしか発火せず、本パイプライン内で実ペイロードを確認できない。→ 防御的実装(設計書コードの複数キー名フォールバック)
++  で進め、「初回実走時にフィールド名を確認する」を残課題として README トラブルシューティング(または本計画末尾)に明記。
++  デバッグdumpは検証不能かつ副作用があるため入れない。
++- **ps1 の構文を本機で検証不能**: 既存 Test-Hook 行の書式を踏襲した最小追加のみとし、受容リスクとする(設計書§6注記と同旨)。
++- **未確認の仮定**: agent_log.py の `resolvedModel`/`agent_name` 等の実キー名。実走前は不明のためフォールバック順で吸収。
++- **代替案1(settings.json を直接Edit)**: ガードにブロックされ不可 → 不採用。ステージング+ユーザー`!`実行が唯一成立する経路。
++- **代替案2(.gitignore を `!docs/reports/` だけ追記)**: 親 `docs/` 除外のため再包含が効かず docs/reports/ を追跡できない
++  (隔離リポジトリで確認)→ 不採用。`docs/*` 形式に変更する案を採用。
++- **代替案3(_mask.py を _common.SECRET_CONTENT_PATTERNS で共通化)**: guard 用パターンはキャプチャ群を持たず値マスクに使えず、
++  構造改修が必要で minimal-diff に反する → 不採用。設計書コードの独立定義を採用。
++- **report_gen のスモーク生成物**: docs/reports/ が追跡対象になったため、検証で作った `20260724-smoke/` を誤コミットしないよう
++  検証後に削除する(検証方法の注記に反映済み)。
++- 並列実装時の整合: README(C)がフック(A)を説明するが文章はフック実体に非依存。統合点は最終検証のみで漏れは捕捉可能。
++
++- **「完全ログ」の保証範囲(Codex指摘の採用)**: PostToolUse/SubagentStop は「ツールが正常完了した実行」を記録する
++  best-effort 層であり、フック自身の失敗・ツールの異常終了は欠落しうる。最終的な完全記録は公式 transcript
++  (8.5(a) でアーカイブ)が担う — この役割分担を README の完全トレース節に1文明記する(Step 14 に含める)。
++
++## トレーサビリティ(設計書セクション→実装ステップ→検証)
++設計書に「## 受け入れ条件」R-ID テーブルは無いため、セクション番号で対応付ける。
++
++| 設計書セクション | 対応ステップ | 検証方法 |
++|-----------------|------------|---------|
++| §1-1 planner no-guess | Step 6 | `grep -q "仮定する" .claude/agents/planner.md` |
++| §1-2 generator no-guess | Step 7 | `grep -q "勝手に決めることが失敗" .claude/agents/generator.md` |
++| §1-3 design-interview no-guess | Step 9 | `grep -q "no-guess" .claude/skills/design-interview/SKILL.md` |
++| §2 _mask.py | Step 1 | 存在確認 + マスキング単体(sk-...が消える) |
++| §3 action_log.py | Step 2, 5 | 存在確認 + `test_hook '{}' action_log.py 0`(verify-hooks) |
++| §4 agent_log.py | Step 3, 5 | 存在確認 + `test_hook '{}' agent_log.py 0`(verify-hooks) |
++| §5 report_gen.py | Step 4 | 存在確認 + スモーク(evidence/stats.json 生成)+ マスク適用確認(ダミー秘密入りrunログがevidence/でマスクされる) |
++| §6 settings.json フック追記 | Step 16 | `python -c json.load` でJSON妥当・両フック存在(ユーザー手作業後) |
++| §7-1 generator tee | Step 7 | `grep -q "tee logs/runs" .claude/agents/generator.md` |
++| §7-2 evaluator tee | Step 8 | `grep -q "logs/runs" .claude/agents/evaluator.md` |
++| §7-3 python-style logging | Step 10 | `grep -q "logging" .claude/rules/python-style.md` |
++| §8 ml-pipeline 手順8.5 | Step 11 | `grep -q "8\.5"` かつ `grep -q "report_gen"` |
++| §9-1 template CLAUDE_ACTION_LOG | Step 12 | `grep -q "CLAUDE_ACTION_LOG" templates/settings.local.json.template` |
++| §9-2 gitignore | Step 13 | `git check-ignore` で reports=非無視・drafts/logs=無視 |
++| §9-3 verify-hooks | Step 5 | `./verify-hooks.sh` が「全テストPASS」 |
++| §10 README 追記 | Step 14 | `grep -q "action_log" README.md` かつ `grep -q "no-guess 規律" README.md` |
++| §11 検証・後始末 | 検証方法(本計画) | 上記 fail-fast チェーンが全 OK |
++| (慣習) CHANGELOG | Step 15 | `grep -q "2026-07-24" CHANGELOG.md` |
++
++全セクションに対応ステップと検証がある。対応の無いステップは無い。
++
++## 残課題(実装完了後・初回実走時にユーザーへ引き継ぐ)
++- 新フック(action_log/agent_log)は settings.json 反映+セッション再読込後の初回実走で
++  初めて発火する。その初回に `logs/actions/*.jsonl` `logs/agents/*.jsonl` を1件開き、
++  `tool`/`agent`/`model`/`duration_ms` 等が実ペイロードのキー名と合っているか確認する。
++  ズレていればフォールバックのキー名を実キーに合わせて調整する。
++
++## 知識の自動スタック確認結果
++- (a) CONTEXT.md: 作業スコープ直下(リポジトリルート)に CONTEXT.md は存在しない(テンプレートのため)。追記先が無く N/A。
++- (b) ADR: 設計判断はほぼ設計書に固定済み。唯一のローカル選択(gitignore を `docs/*`+negation にする)は
++  制約由来の機械的修正で「後から変更しづらい」性質は弱く、本計画のリスク欄に代替案と不採用理由を記録済み。新規ADRは作成しない。
++- (c) EXPERIMENT_LOG: 数値・シード・データセット・重みパスは無い。N/A。
+diff --git a/.claude/rules/python-style.md b/.claude/rules/python-style.md
+index cb5bc0b..091b2f5 100644
+--- a/.claude/rules/python-style.md
++++ b/.claude/rules/python-style.md
+@@ -14,3 +14,8 @@ paths:
+ - import の順序: 標準ライブラリ → サードパーティ → プロジェクト内(ruff に任せる)
+ - コメントには「なぜ(why)」を書く。「何をしているか(what)」はコードに書かない
+ - 既存のロジック説明コメントを勝手に削除しない
++- 実行スクリプト(train / eval / 実験系)には print でなく logging を使う。
++  logging.basicConfig の出力先は**コンソールのみ**とする(ファイルへの永続化は
++  実行側の tee(logs/runs/)が一元的に担う — 二重ログを避ける責務分離。
++  修正 2026-07-24)。
++  進捗・ハイパーパラメータ・環境情報(seed, デバイス)は必ずログに残す
+diff --git a/.claude/settings.json b/.claude/settings.json
+index fa24809..ef93c90 100644
+--- a/.claude/settings.json
++++ b/.claude/settings.json
+@@ -49,6 +49,14 @@
+             "command": "uv run python .claude/hooks/auto_format.py"
+           }
+         ]
++      },
++      {
++        "hooks": [
++          {
++            "type": "command",
++            "command": "uv run python .claude/hooks/action_log.py"
++          }
++        ]
+       }
+     ],
+     "Stop": [
+@@ -98,6 +106,16 @@
+           }
+         ]
+       }
++    ],
++    "SubagentStop": [
++      {
++        "hooks": [
++          {
++            "type": "command",
++            "command": "uv run python .claude/hooks/agent_log.py"
++          }
++        ]
++      }
+     ]
+   }
+ }
+diff --git a/.claude/skills/design-interview/SKILL.md b/.claude/skills/design-interview/SKILL.md
+index 9f27eeb..b1092f8 100644
+--- a/.claude/skills/design-interview/SKILL.md
++++ b/.claude/skills/design-interview/SKILL.md
+@@ -8,6 +8,11 @@ description: 実装前に設計を固めたいときや設計書に未確定の
+ ユーザーの設計書・計画を、実装に入る前に徹底的に問い詰め、認識のズレをなくす。
+ 
+ ## 進め方
++**大原則(no-guess)**: 設計書の空欄・曖昧箇所を、もっともらしい内容で
++勝手に埋めない。埋める内容は必ずユーザーへの質問から得る。
++ユーザーが「お任せする」と明示した場合のみ、推奨案を提示して確認を取ってから
++記入する(確認なしの記入は禁止)。
++
+ 1. 作業スコープ直下に CONTEXT.md があれば先に読み、用語の解釈をそれに合わせる。
+ 2. 対象の設計書(通常は docs/drafts/ 配下)を読み込む。指定がなければ、直近の
+    会話や docs/drafts/ の中から対象を確認する。
+diff --git a/.gitignore b/.gitignore
+index f29853d..6e16d76 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -3,7 +3,9 @@ __pycache__/
+ 
+ # 運用中に溜まるローカルなログ・作業用ドキュメント(テンプレートの配布物ではない)
+ .claude/improvements/feedback.md
+-docs/
++docs/*
++!docs/reports/
++logs/
+ 
+ # agents/shared/ からの生成物と Codex ローカル設定(claude-update が再生成する)
+ # ルート直下のみ対象(サブディレクトリの階層別 AGENTS.md を誤って無視しないため)
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 114c959..de38144 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -54,6 +54,11 @@
+ - **env_fingerprint の受け入れテスト恒久化**: `scripts/env_fingerprint.py` の受け入れ検証を
+   使い捨てワンライナーから `tests/test_env_fingerprint.py` の pytest 回帰テストへ移行
+   (R-002〜004/009〜011 + BrokenPipe 耐性を CLI 起動のまま検証)
++- **no-guess規律と完全トレース**: 設計・計画・実装の全段階で推測による記述を禁止する
++  no-guess規律(planner/generator/design-interview)、全ツール実行・サブエージェント
++  委譲チェーンを機械記録する action_log.py / agent_log.py、パイプライン完了時に
++  evidence/(機械集約・短縮ゼロ)と report.md(モデル執筆)の2層レポートを生成する
++  手順8.5(report_gen.py)を追加
+ 
+ ### Changed(2026-07-22)
+ - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規
+diff --git a/README.md b/README.md
+index 77ebeff..9fcb962 100644
+--- a/README.md
++++ b/README.md
+@@ -205,6 +205,7 @@ config-set スキルが貼り付け用のJSONを提示するので、それを
+ | CLAUDE_NOTIFY | `1` でセッション停止時にデスクトップ通知を出す | 無効(0) |
+ | CLAUDE_SECURITY_SCAN | `1` でclaude-securityプラグインによる差分スキャンを2軸レビュー後に実行(起動にはユーザー本人のコスト承諾明記が別途必要。3.16節参照) | 無効(0) |
+ | CLAUDE_FINAL_GATE | `1` でFableによる最終ゲート判断をリファクタパス後に実行 | 無効(0) |
++| CLAUDE_ACTION_LOG | `1`(または未設定)で全ツール実行・エージェントの自動記録を有効化、`0` で無効化 | 有効(1) |
+ 
+ 未設定でも動作はする(フックの保護が弱まるだけ)。
+ 
+@@ -690,6 +691,8 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5
+ | guard_scope.py | PreToolUse (Edit/Write/NotebookEdit) | スコープ外・生成物(`.pth` 等)・秘密情報ファイル・APIキーらしき内容・フック/設定自身への書き込みをブロック |
+ | guard_bash.py | PreToolUse (Bash/PowerShell) | 危険コマンド(`rm -rf /` / `Remove-Item -Recurse -Force` 等の表記ゆれ、強制push等)、作業スコープ外への再帰削除(相対パス含む。一時ディレクトリは除外)、一括ステージ(`git add .` / `-A` / `-u`)、秘密情報の `git add`、フック/設定/承認記録を変更するコマンド(`cp`/`mv`/`sed -i`/`rm`/`touch` や `Copy-Item`/`Move-Item`/`Set-Content`/`Remove-Item`/`New-Item` 等のPowerShell変更系コマンド、リダイレクト/tee 等)、`spec_approve.py` のエージェント経由実行(grep/cat 等の読み取り専用コマンドは許可)、コミット規約(フラグON時)をブロック。コマンド名の判定は大文字小文字を区別しない(PowerShellのエイリアス対応) |
+ | auto_format.py | PostToolUse (Edit/Write/NotebookEdit) | `.py` 編集後に `ruff format`(ruff が無ければスルー) |
++| action_log.py | PostToolUse | 全ツール実行を logs/actions/ に JSONL 自動記録(マスキング済み、duration付き) |
++| agent_log.py | SubagentStop | サブエージェントの委譲チェーンを logs/agents/ に記録(モデル・使用量) |
+ | enforce_eval.py | Stop | 評価コマンドを実行し失敗なら続行を促す(フラグON時のみ)。前回PASSから状態が変わっていなければ再実行をスキップ |
+ | spec_gate.py | Stop | `CLAUDE_SPEC_CHECK=1` のとき、設計書の受け入れ条件テーブルを全要件PASS・承認・監査OK・設計書ハッシュ一致(計画承認時点からの改変検知)で検査し、欠けがあればブロック(`--ci` でCIモード: auto再実行+coverageのみ) |
+ | codex_gate.py | Stop | CLAUDE_CROSS_REVIEW=1 のとき Codexレビュー未完了ならブロック。センチネル(`.claude/checkpoints/codex_review_done.txt`)の HEAD ハッシュを現在の HEAD と照合し、レビュー後にコミットが進んだ場合と未コミット変更(未追跡含む)が残っている場合は再レビューを要求する(詳細は 3.10 節) |
+@@ -703,6 +706,10 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5
+ エージェントの Bash/PowerShell ツール経由の実行は guard_bash がブロックする
+ (ユーザーの `!` 実行は PreToolUse フックを通らないため影響しない)。
+ 
++`report_gen.py` も同様にフックとして配線されず、手順8.5から
++`uv run python .claude/hooks/report_gen.py` として手動実行するスクリプト
++(evidence/ の機械集約用)。
++
+ 秘密情報・生成物・保護パスの検知パターンは `_common.py` に一元化されており、guard 系フックで共有される。
+ 
+ `.claude/hooks/` と `settings.json` / `settings.local.json` はガード自身の自己書き換え防止のため、
+@@ -993,6 +1000,65 @@ CLAUDE_SECURITY_SCAN=1 の設定自体はスキャン起動の承諾にはなら
+ 未確認の場合はパイプライン手順4または手順6.6でその場で承諾の明記または
+ 省略の明示を求める。
+ 
++### 3.17 no-guess 規律(推測禁止)
++
++設計・計画・実装のすべての段階で、「分からないことを推測で埋める」ことを
++禁止している。聞くことは失敗ではなく、勝手に決めることが失敗である。
++
++| 段階 | 動作 |
++|------|------|
++| design-interview | 空欄・曖昧箇所を勝手に埋めない。必ず質問から得る |
++| planner | 「〜と仮定する」を計画に書くことを禁止。未確定事項は選択肢つき質問リストとして先に提示 |
++| generator | 計画に無い判断が必要になったら一時停止して質問。勝手に選んで事後報告は禁止 |
++
++### 3.18 完全トレース(全ログ記録と完全レポート)
++
++パイプラインの全行動を(デフォルトで)機械的に記録し、完了時に2層レポートを
++生成する。モデルの記憶や善意に依存せず、フックとスクリプトが記録を保証する。
++
++フック記録は best-effort 層で、最終的な完全記録は公式 transcript(8.5(a))が担う。
++
++#### 記録される情報(自動)
++
++| 記録 | 仕組み | 場所 |
++|------|--------|------|
++| 全ツール実行(コマンド・出力・実行時間) | action_log.py(PostToolUse) | logs/actions/*.jsonl |
++| サブエージェント委譲チェーン(誰が・いつ・どのモデル) | agent_log.py(SubagentStop) | logs/agents/*.jsonl |
++| 学習・評価スクリプトの出力全文 | tee 必須ルール(generator/evaluator) | logs/runs/*.log |
++| セッション全記録(全発話・全ツール) | 公式 transcript のアーカイブ(手順8.5) | evidence/transcript.jsonl |
++
++全ログは書き込み前に秘密情報がマスキングされる(_mask.py)。
++logs/ は .gitignore 対象(ローカル保存)。
++
++#### 完全レポート(手順8.5、必須)
++
++```
++docs/reports/<実行日時>/
++├── report.md          モデル執筆: 経緯・各エージェントの判断理由・
++│                      人間の承認コンテキスト(誰が何を承認したか)・証拠参照
++└── evidence/          機械生成(短縮ゼロ):
++    ├── transcript.jsonl   セッション全記録
++    ├── actions.jsonl      全ツール実行
++    ├── agents.jsonl       エージェント委譲チェーン
++    ├── runs/              実行ログ全文
++    ├── test-output.txt    最終テスト完全出力
++    ├── diff.patch         全差分
++    ├── commits.txt        コミット一覧
++    └── stats.json         統計(実行数・変更ファイル数)
++```
++
++report.md は「読むためのレポート」、evidence/ は「省略ゼロの証拠」。
++モデルの要約に漏れがあっても evidence/ を見れば全て残っている。
++docs/reports/ はコミット対象(成果物)。
++
++#### 公式テレメトリ(オプション)
++
++より本格的な計測が必要な場合、Claude Code は OpenTelemetry クライアントを
++内蔵している。CLAUDE_CODE_ENABLE_TELEMETRY=1 と OTEL_LOG_TOOL_DETAILS=1 で
++全ツール呼び出しの詳細(file_path・完全なコマンド)が標準テレメトリとして
++出力できる。個人研究では上記のフック記録で十分なため、テンプレートとしては
++導入しない(必要になったときのための案内)。
++
+ ---
+ 
+ ## 4. テンプレートの育て方
+@@ -1086,6 +1152,11 @@ Get-Content ファイル名 -Encoding UTF8
+ git branch -M main
+ ```
+ 
++### 完全レポートの evidence/ が巨大になる
++
++巨大な evidence(数十MB超のrunログ等)が問題になる場合は、
++`docs/reports/*/evidence/runs/` を個別に `.gitignore` に足してよい。
++
+ ### Jupyter Notebook との連携
+ 
+ Claude Code は実行中の Jupyter カーネル内でセルを直接実行できない。
+diff --git a/templates/settings.local.json.template b/templates/settings.local.json.template
+index 66ff993..3a8bb2c 100644
+--- a/templates/settings.local.json.template
++++ b/templates/settings.local.json.template
+@@ -13,6 +13,7 @@
+     "CLAUDE_QUALITY_GATE": "0",
+     "CLAUDE_NOTIFY": "0",
+     "CLAUDE_SECURITY_SCAN": "0",
+-    "CLAUDE_FINAL_GATE": "0"
++    "CLAUDE_FINAL_GATE": "0",
++    "CLAUDE_ACTION_LOG": "1"
+   }
+ }
+diff --git a/verify-hooks.ps1 b/verify-hooks.ps1
+index 6b487ce..e283a6b 100644
+--- a/verify-hooks.ps1
++++ b/verify-hooks.ps1
+@@ -423,6 +423,10 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
+         Remove-Item -Path $SpecFixture -Recurse -Force -ErrorAction SilentlyContinue
+     }
+ 
++# --- action_log / agent_log: 空ペイロードでも exit 0(記録失敗で作業を止めない) ---
++Test-Hook "action_log: exits 0 on empty payload" '{}' ".claude\hooks\action_log.py" 0
++Test-Hook "agent_log: exits 0 on empty payload" '{}' ".claude\hooks\agent_log.py" 0
++
+ Write-Host ""
+ if ($script:failed -gt 0) {
+     Write-Host "$($script:failed) 件のテストが失敗しました"
+diff --git a/verify-hooks.sh b/verify-hooks.sh
+index 47db7e6..0965641 100644
+--- a/verify-hooks.sh
++++ b/verify-hooks.sh
+@@ -378,6 +378,10 @@ EOF
+   rm -rf "$SPEC_FIXTURE"
+   trap - EXIT
+ 
++# --- action_log / agent_log: 空ペイロードでも exit 0(記録失敗で作業を止めない) ---
++test_hook "action_log: exits 0 on empty payload" '{}' ".claude/hooks/action_log.py" 0
++test_hook "agent_log: exits 0 on empty payload" '{}' ".claude/hooks/agent_log.py" 0
++
+ echo ""
+ if [ "$failed" -gt 0 ]; then
+   echo "$failed 件のテストが失敗しました"
