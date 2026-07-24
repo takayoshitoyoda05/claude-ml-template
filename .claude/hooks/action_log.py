@@ -13,30 +13,15 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _mask import mask  # noqa: E402
+from _logutil import prune_old_logs  # noqa: E402
 
 MAX_FIELD = 50_000  # 1フィールドの上限文字数(巨大出力によるログ肥大の防止)
-KEEP_LOGS = (
-    30  # ログファイルの保持世代数(checkpoint_before_compact.pyのprune方針と整合)
-)
 
 
 def _clip(text: str) -> str:
     if text and len(text) > MAX_FIELD:
         return text[:MAX_FIELD] + f"\n...[clipped {len(text) - MAX_FIELD} chars]"
     return text or ""
-
-
-def _prune_old_logs(log_dir: Path, pattern: str) -> None:
-    """ファイル数が上限を超えたら、名前順(=日付昇順)で古いものから削除する。
-
-    ログが平文で無限に溜まるのを防ぐ(checkpoint_before_compact.pyと同方針)。
-    """
-    files = sorted(log_dir.glob(pattern))
-    for f in files[:-KEEP_LOGS]:
-        try:
-            f.unlink()
-        except OSError:
-            pass
 
 
 def main():
@@ -73,7 +58,7 @@ def main():
         # ログ失敗で作業は止めないが、欠落を可視化する(Codex指摘の採用)
         print(f"[action_log] failed to write log: {e}", file=sys.stderr)
 
-    _prune_old_logs(log_dir, "*.jsonl")
+    prune_old_logs(log_dir)
 
     sys.exit(0)
 

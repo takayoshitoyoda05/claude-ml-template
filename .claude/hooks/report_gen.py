@@ -17,6 +17,7 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,7 +48,7 @@ def _copy_masked(src: str, dst: str) -> None:
     Path(dst).write_text(mask(text), encoding="utf-8")
 
 
-def _make_symlink_ignorer(skipped: list[str]):
+def _make_symlink_ignorer(skipped: list[str]) -> Callable[[str, list[str]], set[str]]:
     """symlink をコピー対象から除外する copytree の ignore コールバックを返す。
 
     symlink はリポジトリ外(作業スコープ外)を指しうるため、そのまま
@@ -62,8 +63,9 @@ def _make_symlink_ignorer(skipped: list[str]):
     return _ignore
 
 
-def main():
-    args = sys.argv[1:]
+def _parse_args(argv: list[str]) -> tuple[str, str | None]:
+    """コマンドライン引数から (report_dir_name, transcript_path) を取り出す。"""
+    args = list(argv)
     transcript_arg = None
     if "--transcript" in args:
         idx = args.index("--transcript")
@@ -84,17 +86,12 @@ def main():
         )
         sys.exit(1)
 
-    report_dir = Path("docs/reports") / args[0]
-    evidence = report_dir / "evidence"
-    # 機械生成物なので、前回実行の残留を防ぐため毎回作り直す
-    if evidence.exists():
-        shutil.rmtree(evidence)
-    evidence.mkdir(parents=True, exist_ok=True)
+    return args[0], transcript_arg
 
-    stats: dict[str, object] = {"generated_at": datetime.now(timezone.utc).isoformat()}
 
-    # 1. git 差分とコミット一覧(全文、省略なし。コミット済みリポジトリ内容の写しの
-    #    ためマスク対象外 — パッチ形式の保全を優先)
+def _write_git_evidence(evidence: Path, stats: dict[str, object]) -> None:
+    """git 差分とコミット一覧(全文、省略なし。コミット済みリポジトリ内容の写しの
+    ためマスク対象外 — パッチ形式の保全を優先)。"""
     (evidence / "diff.patch").write_text(
         run(["git", "diff", "main...HEAD"]), encoding="utf-8"
     )
@@ -104,41 +101,48 @@ def main():
     diff_names = run(["git", "diff", "--name-only", "main...HEAD"]).strip()
     stats["changed_files"] = len(diff_names.splitlines()) if diff_names else 0
 
-    # 2. このセッション分のツール実行ログとエージェントログ。--transcript の
-    #    ファイル名(<session-id>.jsonl)からセッションを絞り込む。無指定の
-    #    場合は全件結合し、絞り込んでいないことを stats に明記する。
+
+def _write_tool_logs(
+    evidence: Path, stats: dict[str, object], transcript_arg: str | None
+) -> None:
+    """このセッション分のツール実行ログとエージェントログを集約する。
+
+    --transcript のファイル名(<session-id>.jsonl)からセッションを絞り込む。
+    無指定の場合は全件結合し、絞り込んでいないことを stats に明記する。
+    """
     session8 = Path(transcript_arg).stem[:8] if transcript_arg else None
     stats["session_filter"] = session8 if session8 else "none(all files)"
     pattern = f"*-{session8}.jsonl" if session8 else "*.jsonl"
     for src_dir, name in [("logs/actions", "actions"), ("logs/agents", "agents")]:
         src = Path(src_dir)
-        if src.exists():
-            merged: list[str] = []
-            for f in sorted(src.glob(pattern)):
-                merged.append(f.read_text(encoding="utf-8"))
-            if merged:
-                (evidence / f"{name}.jsonl").write_text(
-                    "".join(merged), encoding="utf-8"
-                )
-                stats[f"{name}_entries"] = sum(m.count("\n") for m in merged)
+        if not src.exists():
+            continue
+        merged = [f.read_text(encoding="utf-8") for f in sorted(src.glob(pattern))]
+        if merged:
+            (evidence / f"{name}.jsonl").write_text("".join(merged), encoding="utf-8")
+            stats[f"{name}_entries"] = sum(m.count("\n") for m in merged)
 
-    # 3. プログラム実行ログ(tee で保存された runs/。リポジトリ外由来テキストのため
-    #    マスクを適用してからコピーする。symlink はスコープ外混入を防ぐため除外)
+
+def _write_runs_evidence(evidence: Path, stats: dict[str, object]) -> None:
+    """tee で保存された runs/ をマスキングしてコピーする(symlink は除外)。"""
     runs_src = Path("logs/runs")
-    if runs_src.exists() and any(runs_src.iterdir()):
-        skipped_symlinks: list[str] = []
-        shutil.copytree(
-            runs_src,
-            evidence / "runs",
-            dirs_exist_ok=True,
-            copy_function=_copy_masked,
-            ignore=_make_symlink_ignorer(skipped_symlinks),
-        )
-        stats["run_logs"] = len(list((evidence / "runs").glob("*")))
-        if skipped_symlinks:
-            stats["skipped_symlinks"] = skipped_symlinks
+    if not (runs_src.exists() and any(runs_src.iterdir())):
+        return
+    skipped_symlinks: list[str] = []
+    shutil.copytree(
+        runs_src,
+        evidence / "runs",
+        dirs_exist_ok=True,
+        copy_function=_copy_masked,
+        ignore=_make_symlink_ignorer(skipped_symlinks),
+    )
+    stats["run_logs"] = len(list((evidence / "runs").glob("*")))
+    if skipped_symlinks:
+        stats["skipped_symlinks"] = skipped_symlinks
 
-    # 4. 最終テスト出力(全文。素の `uv run` は pytest 未導入のため --with pytest で実行)
+
+def _write_test_output(evidence: Path) -> None:
+    """最終テスト出力(全文。素の `uv run` は pytest 未導入のため --with pytest で実行)。"""
     (evidence / "test-output.txt").write_text(
         mask(
             run(
@@ -158,17 +162,40 @@ def main():
         encoding="utf-8",
     )
 
-    # 5. transcript(公式セッション記録。リポジトリ外由来テキストのためマスクを適用)
-    if transcript_arg:
-        transcript_path = Path(transcript_arg)
-        if transcript_path.exists():
-            text = transcript_path.read_text(encoding="utf-8", errors="replace")
-            (evidence / "transcript.jsonl").write_text(mask(text), encoding="utf-8")
-            stats["transcript_lines"] = len(text.splitlines())
-        else:
-            stats["transcript"] = f"not found: {transcript_arg}"
 
-    # 6. 統計サマリ(report.md 執筆時の参照用)
+def _write_transcript_evidence(
+    evidence: Path, stats: dict[str, object], transcript_arg: str | None
+) -> None:
+    """公式セッション記録(transcript)をマスキングしてコピーする。"""
+    if not transcript_arg:
+        return
+    transcript_path = Path(transcript_arg)
+    if transcript_path.exists():
+        text = transcript_path.read_text(encoding="utf-8", errors="replace")
+        (evidence / "transcript.jsonl").write_text(mask(text), encoding="utf-8")
+        stats["transcript_lines"] = len(text.splitlines())
+    else:
+        stats["transcript"] = f"not found: {transcript_arg}"
+
+
+def main():
+    report_dir_name, transcript_arg = _parse_args(sys.argv[1:])
+
+    report_dir = Path("docs/reports") / report_dir_name
+    evidence = report_dir / "evidence"
+    # 機械生成物なので、前回実行の残留を防ぐため毎回作り直す
+    if evidence.exists():
+        shutil.rmtree(evidence)
+    evidence.mkdir(parents=True, exist_ok=True)
+
+    stats: dict[str, object] = {"generated_at": datetime.now(timezone.utc).isoformat()}
+
+    _write_git_evidence(evidence, stats)
+    _write_tool_logs(evidence, stats, transcript_arg)
+    _write_runs_evidence(evidence, stats)
+    _write_test_output(evidence)
+    _write_transcript_evidence(evidence, stats, transcript_arg)
+
     (evidence / "stats.json").write_text(
         json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8"
     )
