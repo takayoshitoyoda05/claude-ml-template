@@ -73,9 +73,9 @@ def notify(title: str, message: str) -> None:
 def main():
     # CLAUDE_NOTIFY が空文字列(未設定)のときだけ自律度レベルを見る。
     # 非空の個別変数をレベルより優先する、という ml-pipeline の規約に合わせる
-    notify = os.environ.get("CLAUDE_NOTIFY", "")
-    if notify != "1" and not (
-        notify == "" and os.environ.get("CLAUDE_CONTROL_LEVEL", "") == "L3"
+    notify_flag = os.environ.get("CLAUDE_NOTIFY", "")
+    if notify_flag != "1" and not (
+        notify_flag == "" and os.environ.get("CLAUDE_CONTROL_LEVEL", "") == "L3"
     ):
         sys.exit(0)
 
