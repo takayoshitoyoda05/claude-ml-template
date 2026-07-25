@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Stop フック: CLAUDE_NOTIFY=1 のとき、セッション停止時に
+"""Stop フック: CLAUDE_NOTIFY=1(または CLAUDE_NOTIFY が未設定で
+CLAUDE_CONTROL_LEVEL=L3)のとき、セッション停止時に
 デスクトップ通知を出す。長時間パイプラインの完了・停止を離席中でも把握できる。
 
 Windows: PowerShell のトースト通知
@@ -70,7 +71,12 @@ def notify(title: str, message: str) -> None:
 
 
 def main():
-    if os.environ.get("CLAUDE_NOTIFY", "") != "1":
+    # CLAUDE_NOTIFY が空文字列(未設定)のときだけ自律度レベルを見る。
+    # 非空の個別変数をレベルより優先する、という ml-pipeline の規約に合わせる
+    notify = os.environ.get("CLAUDE_NOTIFY", "")
+    if notify != "1" and not (
+        notify == "" and os.environ.get("CLAUDE_CONTROL_LEVEL", "") == "L3"
+    ):
         sys.exit(0)
 
     try:

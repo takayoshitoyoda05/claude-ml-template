@@ -96,11 +96,11 @@
           },
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/notify.py"
+            "command": "uv run python .claude/hooks/plan_gate.py"
           },
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/plan_gate.py"
+            "command": "uv run python .claude/hooks/notify.py"
           }
         ]
       }

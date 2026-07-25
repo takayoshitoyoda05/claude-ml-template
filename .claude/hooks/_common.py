@@ -56,6 +56,10 @@ PROTECTED_PATH_PATTERNS = [
     "/.claude/hooks/",
     "/.claude/settings.json",
     "/.claude/settings.local.json",
+    # plan_gate.py が資源上限をここから読むため、ゲートに縛られるエージェント
+    # 自身が上限を書き換えられないよう保護する(invariants.md 自体の変更は
+    # HITL 必須という invariants.md の規約を機械化したもの)
+    "/.claude/improvements/invariants.md",
     "/.claude/spec/approvals.txt",
     "/.claude/spec/last_spec_pass.txt",
     "/.claude/spec/design_hashes.txt",
