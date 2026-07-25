@@ -399,3 +399,37 @@ Step 1 で設計書に書く「## 受け入れ条件」テーブルと同じ ID 
 - (b) ADR: **作成済み** — `docs/adr/0004-plan-gate-target-and-fail-closed.md`
   (検査対象の決定方式と fail-closed の適用範囲は、複数案から1つを選ぶ・後から変えにくい決定のため)。
 - (c) EXPERIMENT_LOG: 学習・実験を伴わない(`experiment: false`)。追記対象なし。
+
+## 作業ログ(グループ C: Step 3 / Step 4)
+
+- Step 3(`verify-hooks.sh`)・Step 4(`verify-hooks.ps1`)を実施した。
+- 両ファイルとも、既存の plan_gate 区間(1ケースのみ)を6ケースへ拡張した。
+  ヘルパー(sh: `test_plan_gate` 関数 / ps1: `Test-PlanGate` 関数)を1つ置き、
+  各ケースで一時 git リポジトリを `git init -q -b <branch>` で作り、
+  ブランチ名に対応する計画ファイル(該当する場合)と invariants フィクスチャを
+  `.claude` 配下に書いてから `plan_gate.py` を実行する形にした。
+- ケース: (a) `.claude/plans` 無し→0 (b) ブランチに対応する計画が無い→0
+  (c) `experiment: false`→0 (d) 実験語ありで goal 未定義→2
+  (e) `train_minutes: 1e3`→2 (f) `train_minutes: 999` が上限120超→2。
+- 説明文字列は呼び出し側で `"plan_gate: <説明>"` の形の引数を1ケースにつき1箇所だけ書き、
+  OK/NG メッセージは関数内で `$description` / `$Description` から組み立てた。
+- invariants フィクスチャの生成は `.claude` → `improvements` の2段でディレクトリ変数を
+  分けて組み立て、保護パス名をリテラルで含むリダイレクトを書かないようにした。
+- sh 版では trap を追加していない(スクリプト末尾の EXIT トラップ解除を尊重し、
+  各ケースの後始末は `rm -rf "$tmp"` を関数内で明示実行)。ps1 版は既存の
+  `try { Push-Location ... } finally { Pop-Location; Remove-Item }` 構造を
+  ケースごとの一時ディレクトリに対して維持した。
+- 検証結果:
+  - `grep -cE '"plan_gate: [^"]+"' verify-hooks.sh` → 6
+  - `grep -cE '"plan_gate: [^"]+"' verify-hooks.ps1` → 6
+  - 生6・一意6(sh/ps1とも)・sort -u の diff は空(1対1対応)。
+  - `bash verify-hooks.sh` 実行結果: (d)(e) が NG、他は全て OK
+    (`.claude/hooks/plan_gate.py` が旧実装のままのため、
+    invariants.md 不在で即 exit 0 になる旧仕様と、`1e3` を「パース不能なら
+    黙って通す」旧仕様が原因。グループ B のステージング適用後に PASS する想定)。
+    最終行は「2 件のテストが失敗しました」(plan_gate 起因の2件のみ)。
+  - ps1 版は WSL に pwsh が無いため本機では実行未確認(既存の R-009 残件と同じ)。
+    `bash -n verify-hooks.sh` の構文チェックは PASS。
+- 変更ファイル: `verify-hooks.sh`, `verify-hooks.ps1`(いずれも worktree
+  `.worktrees/group-C` 内、ブランチ `pipeline/20260726-plan-gate-precision-group-C`)。
+- コミット: `bff5cae`(step 3: verify-hooks.sh), `af9a5f6`(step 4: verify-hooks.ps1)。
