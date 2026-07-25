@@ -17,7 +17,9 @@ improvement-reviewer がこのファイルを基準に改善案を審査する�
 - permissions.allow に危険なコマンドを追加する変更は却下する
 
 ### 人間の介入ポイント
-- Planner の計画はユーザー承認なしに実装に進めない
+- Planner の計画はユーザー承認なしに実装に進めない。ただし、ユーザー自身が
+  CLAUDE_AUTO_APPROVE=1 または CLAUDE_CONTROL_LEVEL=L3 を設定し、plan-reviewer が
+  「自動承認OK」と判定した場合は除く(設定行為自体がユーザーの事前承認となる)
 - retrospective / improvement-reviewer 自身の不変条件を変更する改善案は却下する
 
 ### スコープ
@@ -30,3 +32,28 @@ improvement-reviewer がこのファイルを基準に改善案を審査する�
 - スキルの本文への追記・修正
 - python-standards スキルへの規約追加
 - CONTEXT.md.template への用語追加
+
+## リソース上限(resources)
+
+Planner はこの上限内に収まる計画だけを作る。超える場合は計画を分割するか、
+ユーザーに上限の引き上げを相談する(勝手に超えない)。
+plan_gate.py がこの値を読み、超過計画をブロックする。
+
+```yaml
+resources:
+  max_train_minutes: 120     # 1回の学習ジョブの上限(分)
+  max_epochs: 100
+  max_dataset_gb: 10
+  max_parallel_jobs: 1
+```
+
+## 人間の承認が必須の操作(HITL)
+
+以下の操作は、自律度レベル(CLAUDE_CONTROL_LEVEL)に関わらず、
+実行直前に必ずユーザーの承認を得る。承認の提示は3点のみ:
+**実行内容・推定コスト(時間/計算資源)・不可逆かどうか**。
+
+- 30分を超える学習ジョブの開始
+- データセットの削除・上書き(permissions.deny でも機械的に防ぐ)
+- invariants.md 自体の変更
+- 外部への成果物公開(パッケージ公開、外部リポジトリへの push 等)

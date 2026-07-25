@@ -200,13 +200,14 @@ config-set スキルが貼り付け用のJSONを提示するので、それを�
 | CLAUDE_SPEC_RECHECK_N | spec-compliance でauto要件から再実行する件数。`all` で全件 | `3` |
 | CLAUDE_CROSS_REVIEW | `1` でCodexクロスレビューをevaluator前に必須にする | 無効(0) |
 | CODEX_MODEL | Codexのモデルを一時的に上書き(空なら.codex/config.tomlの設定) | 空 |
-| CLAUDE_AUTO_APPROVE | `1` で plan-reviewer による計画の自動承認を有効にする | 無効(0) |
+| CLAUDE_AUTO_APPROVE | `1` で plan-reviewer による計画の自動承認を有効にする。空文字列なら CLAUDE_CONTROL_LEVEL に委ねる | 空(レベルに委ねる) |
 | CLAUDE_QUALITY_GATE | `1` でruff/radon/mypyの機械的品質チェックをStopフックで強制する | 無効(0) |
-| CLAUDE_NOTIFY | `1` でセッション停止時にデスクトップ通知を出す | 無効(0) |
+| CLAUDE_NOTIFY | `1` でセッション停止時にデスクトップ通知を出す。空文字列なら CLAUDE_CONTROL_LEVEL に委ねる(L3 で有効) | 空(レベルに委ねる) |
 | CLAUDE_SECURITY_SCAN | `1` でclaude-securityプラグインによる差分スキャンを2軸レビュー後に実行(起動にはユーザー本人のコスト承諾明記が別途必要。3.17節参照) | 無効(0) |
 | CLAUDE_FINAL_GATE | `1` でFableによる最終ゲート判断をリファクタパス後に実行 | 無効(0) |
 | CLAUDE_ACTION_LOG | `1`(または未設定)で全ツール実行・エージェントの自動記録を有効化、`0` で無効化 | 有効(1) |
 | CLAUDE_REFACTOR_SWARM | `1` でリファクタパスの検出を Haiku 7体の並列スカウトで行う(エージェントチーム機能が必要) | 無効(0) |
+| CLAUDE_CONTROL_LEVEL | 自律度の一括切替。L1(手動運転)/ L2(監督運転・既定)/ L3(自律運転) | L2 |
 
 未設定でも動作はする(フックの保護が弱まるだけ)。
 
@@ -657,6 +658,7 @@ spec-checklist ゲートは設計書の有無に関わらず毎回動く(設計�
 | improvement-reviewer | opus | retrospectiveの改善案を不変条件に基づいて審査・適用(テスト失敗時は自動revert) |
 | final-gate | fable | 最終形を俯瞰しマージ承認の三択判断のみ(第3層。CLAUDE_FINAL_GATE=1で有効、APPROVE/SEND_BACK/NEEDS_HUMAN) |
 | scout-*(7体) | haiku | リファクタ偵察係。命名/重複/複雑度/コメント/対称性/docstring/デッドコードの各観点で提案のみ。CLAUDE_REFACTOR_SWARM=1 で手順6.7から並列起動。コード変更不可 |
+| router | haiku | タスク規模(S/M/L)を判定し経路を振り分ける軽量ルータ。手順0で自動実行。迷ったらL |
 
 ### 3.2 スキル(.claude/skills/)
 
@@ -726,6 +728,7 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5�
 | codex_gate.py | Stop | CLAUDE_CROSS_REVIEW=1 のとき Codexレビュー未完了ならブロック。センチネル(`.claude/checkpoints/codex_review_done.txt`)の HEAD ハッシュを現在の HEAD と照合し、レビュー後にコミットが進んだ場合と未コミット変更(未追跡含む)が残っている場合は再レビューを要求する(詳細は 3.10 節) |
 | quality_gate.py | Stop | CLAUDE_QUALITY_GATE=1 のとき、ruff/radon/mypyの機械チェックで閾値超過ならブロック |
 | notify.py | Stop | CLAUDE_NOTIFY=1 のとき、セッション停止時にデスクトップ通知(Windows/macOS/Linux対応) |
+| plan_gate.py | Stop | 計画のリソース超過(invariants の resources 比)と goal 未定義をブロック |
 | checkpoint_before_compact.py | PreCompact | 圧縮直前に git 状態・トランスクリプトを `.claude/checkpoints/` にバックアップ(直近10世代のみ保持) |
 | reinject_after_compact.py | SessionStart (compact) | 圧縮直後にチェックポイントと注意事項を会話に再注入 |
 
@@ -765,7 +768,8 @@ Claude 経由では編集できない(Edit/Write・リダイレクト・tee・`c
 正規表現ベースの検査で塞ぎきれない(いたちごっこになる)。
 保護パス(`.claude/hooks/` と `settings.json` 系・`.claude/spec/approvals.txt`・
 `.claude/spec/last_spec_pass.txt`・`.claude/spec/design_hashes.txt`・
-`.claude/checkpoints/last_eval_pass.txt`)の
+`.claude/checkpoints/last_eval_pass.txt`・`.claude/checkpoints/last_quality_pass.txt`・
+`.claude/improvements/invariants.md`)の
 本当の防壁は「**変更はユーザーが手動で行う**」という運用であり、フックは
 `cp`/`mv`/`sed`/`rm`/`Remove-Item`/`Copy-Item`/リダイレクト等のよく使う直接的な手段を
 塞いで補助する位置づけと理解しておくこと。
@@ -1128,6 +1132,57 @@ docs/reports/ はローカル成果物(git 管理外。リポジトリには含�
 全ツール呼び出しの詳細(file_path・完全なコマンド)が標準テレメトリとして
 出力できる。個人研究では上記のフック記録で十分なため、テンプレートとしては
 導入しない(必要になったときのための案内)。
+
+### 3.20 自律度レベルと人間のコントロール
+
+「かなりコントロールする」=「全部確認する」ではない。全件承認は
+承認疲れで判断精度を下げ、統制を形骸化させる。代わりに、コントロールの
+手段を強さ順に階層化している。
+
+| 手段 | 強さ | 内容 |
+|------|------|------|
+| permissions.deny | 絶対 | 破壊系(rm -rf, sudo)・外部取得(curl, wget)・秘密ファイル(.env)・データ領域(data/)は AI の判断に関係なく実行されない |
+| permissions.ask | 毎回確認 | 外に出る(git push)・依存が増える(uv add)・main に入る(git merge)は必ず人間を通る |
+| plan_gate(フック) | 計画ブロック | invariants.md で宣言したリソース上限を超える計画、数値目標(goal)の無い実験計画は Planner から先に進めない |
+| HITL 必須操作 | 実行前承認 | 30分超の学習・データ削除・invariants 変更・外部公開は、どのレベルでも実行内容/コスト/不可逆性の3点提示つきで承認を取る |
+| CLAUDE_CONTROL_LEVEL | 一括切替 | L1/L2/L3 で自律度を1つの値で制御 |
+
+注: プロジェクトのデータディレクトリ名が data/ 以外の場合(例: datasets/)、claude-init 時に settings.local.json の permissions.deny に追加できる。
+
+#### 自律度レベル
+
+| レベル | 名前 | 人間がやること |
+|--------|------|--------------|
+| L1 | 手動運転 | 計画承認 + **各ステップの diff 承認** + マージ確認。コード生成を完全掌握 |
+| L2 | 監督運転(既定) | 計画承認 + マージ確認 |
+| L3 | 自律運転 | マージ確認のみ(計画は plan-reviewer が自動承認、完了は通知) |
+
+個別変数(CLAUDE_AUTO_APPROVE 等)を非空にすると、そちらがレベルより優先される
+(上級者向けの上書き)。ただし L1 のときは自動承認を有効化しない — 優先はゲートを
+弱める方向には働かない。レベルを解決するのは ml-pipeline のプロンプトと、
+Stop フックとして単独で走る notify.py だけで、他のフックはレベルを読まない。
+
+どのレベルでも deny / HITL 必須操作 / no-guess(不明点は必ず質問)は有効。
+
+#### 数値目標による判定(goal)
+
+実験を含む計画には goal(metric / target / direction / baseline /
+guard_metrics)が必須で、evaluator の判定は実測値との機械的な突き合わせに
+なる(pass / fail / inconclusive の三値)。target を達成していても
+guard_metrics 違反(例: train_val_gap > 0.05)なら fail。
+「良くなった気がする」という主観判定を排除する。
+
+#### 失敗遷移表
+
+失敗時の再試行回数と遷移先は事前定義されている(構文エラー3回→generator、
+目標未達1回→planner、リソース超過0回→人間、等)。エージェントが勝手に
+リトライし続けたり、勝手に計画を変えたりしない。
+
+#### ルーティング(手順0)
+
+router(Haiku)がタスク規模を判定し、S(typo 等)は generator 直行、
+M(単一モジュール)は planner 省略の短縮経路、L はフルパイプラインに
+振り分ける。軽微な修正に重いパイプラインを強制しない。迷ったら L。
 
 ---
 

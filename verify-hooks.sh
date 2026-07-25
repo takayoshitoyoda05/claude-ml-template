@@ -128,7 +128,8 @@ else
   failed=$((failed+1))
 fi
 # セッションが CLAUDE_NOTIFY=1 を注入していても素の状態をテストできるよう明示的に外す
-echo '{}' | env -u CLAUDE_NOTIFY uv run python ".claude/hooks/notify.py" >/dev/null 2>&1
+# (CLAUDE_CONTROL_LEVEL=L3 も通知ONと解釈されるため同様に外す)
+echo '{}' | env -u CLAUDE_NOTIFY -u CLAUDE_CONTROL_LEVEL uv run python ".claude/hooks/notify.py" >/dev/null 2>&1
 if [ $? -eq 0 ]; then
   echo "OK: notify: off when flag not set (exit 0)"
 else
@@ -426,6 +427,18 @@ EOF
 # --- action_log / agent_log: 空ペイロードでも exit 0(記録失敗で作業を止めない) ---
 test_hook "action_log: exits 0 on empty payload" '{}' ".claude/hooks/action_log.py" 0
 test_hook "agent_log: exits 0 on empty payload" '{}' ".claude/hooks/agent_log.py" 0
+
+# --- plan_gate: 一時ディレクトリで検証(リポジトリ直下は最新計画の内容に依存するため) ---
+ABS_PLAN_GATE="$(pwd)/.claude/hooks/plan_gate.py"
+PG_TMP=$(mktemp -d)
+actual=$(cd "$PG_TMP" && echo '{}' | uv run python "$ABS_PLAN_GATE" >/dev/null 2>&1; echo $?)
+if [ "$actual" -eq 0 ]; then
+  echo "OK: plan_gate: passes when no plans dir (exit $actual)"
+else
+  echo "NG: plan_gate: passes when no plans dir (expected 0, got $actual)"
+  failed=$((failed+1))
+fi
+rm -rf "$PG_TMP"
 
 echo ""
 if [ "$failed" -gt 0 ]; then

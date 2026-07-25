@@ -13,6 +13,24 @@
       "Bash(uv lock)",
       "Bash(uv sync *)",
       "Bash(ruff *)"
+    ],
+    "ask": [
+      "Bash(git push *)",
+      "Bash(git merge *)",
+      "Bash(uv add *)",
+      "Bash(pip install *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(sudo *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Edit(./data/**)",
+      "Write(./data/**)",
+      "Edit(**/data/**)",
+      "Write(**/data/**)"
     ]
   },
   "env": {
@@ -77,6 +95,10 @@
           {
             "type": "command",
             "command": "uv run python .claude/hooks/quality_gate.py"
+          },
+          {
+            "type": "command",
+            "command": "uv run python .claude/hooks/plan_gate.py"
           },
           {
             "type": "command",

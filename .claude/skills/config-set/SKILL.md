@@ -27,9 +27,9 @@ Claude からの Edit/Write は常にブロックされる。これは事故で�
        "CLAUDE_SPEC_RECHECK_N": "",
        "CLAUDE_CROSS_REVIEW": "0",
        "CODEX_MODEL": "",
-       "CLAUDE_AUTO_APPROVE": "0",
+       "CLAUDE_AUTO_APPROVE": "",
        "CLAUDE_QUALITY_GATE": "0",
-       "CLAUDE_NOTIFY": "0",
+       "CLAUDE_NOTIFY": "",
        "CLAUDE_SECURITY_SCAN": "0",
        "CLAUDE_FINAL_GATE": "0"
      }
@@ -39,6 +39,8 @@ Claude からの Edit/Write は常にブロックされる。これは事故で�
    既存値のまま残す。既存ファイルが無い場合、未指定のキーは上記雛形の
    既定値に合わせる(フラグ系は `"0"`、CLAUDE_WORK_SCOPE / CLAUDE_EVAL_CMD /
    CODEX_MODEL 等の文字列系は空文字)。勝手に推測して埋めない。
+   ただし CLAUDE_AUTO_APPROVE / CLAUDE_NOTIFY は `""` にする — 非空だと
+   CLAUDE_CONTROL_LEVEL より優先され、自律度レベルの切り替えが効かなくなる。
 
    | 変数 | 意味 |
    |---|---|
