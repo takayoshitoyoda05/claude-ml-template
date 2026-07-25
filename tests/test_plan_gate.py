@@ -76,7 +76,9 @@ def _run(
     branch: str | None,
     plan_name: str | None = None,
     plan_text: str | None = None,
+    plan_bytes: bytes | None = None,
     invariants_text: str | None = _INVARIANTS_COMPLETE,
+    invariants_bytes: bytes | None = None,
     extra_plans: dict[str, str] | None = None,
     init_git: bool = True,
     invariants_is_dir: bool = False,
@@ -92,8 +94,12 @@ def _run(
         branch: `git init -b <branch>` するブランチ名。None なら git init しない。
         plan_name: `.claude/plans/` に書く計画ファイル名。None なら書かない。
         plan_text: plan_name の中身。plan_name が None なら無視される。
+        plan_bytes: plan_name に生バイト列で書く中身(不正UTF-8の再現用)。
+            plan_text が指定されていればそちらを優先する。
         invariants_text: `.claude/improvements/invariants.md` の中身。
             None なら invariants.md 自体を作らない。
+        invariants_bytes: invariants.md に生バイト列で書く中身
+            (不正UTF-8の再現用)。invariants_text が None のときのみ使う。
         extra_plans: 追加で `.claude/plans/` に書くファイル名→中身の辞書。
         init_git: False なら git init 自体を行わない(非 git ディレクトリの再現)。
         invariants_is_dir: True なら invariants.md と同名のディレクトリを作り、
@@ -117,6 +123,8 @@ def _run(
         plans_dir.mkdir(parents=True, exist_ok=True)
     if plan_name is not None and plan_text is not None:
         (plans_dir / plan_name).write_text(plan_text, encoding="utf-8")
+    elif plan_name is not None and plan_bytes is not None:
+        (plans_dir / plan_name).write_bytes(plan_bytes)
     for name, text in (extra_plans or {}).items():
         (plans_dir / name).write_text(text, encoding="utf-8")
 
@@ -128,6 +136,9 @@ def _run(
         (improvements_dir / "invariants.md").write_text(
             invariants_text, encoding="utf-8"
         )
+    elif invariants_bytes is not None:
+        improvements_dir.mkdir(parents=True, exist_ok=True)
+        (improvements_dir / "invariants.md").write_bytes(invariants_bytes)
 
     env = os.environ.copy()
     if extra_env is not None:
@@ -353,11 +364,17 @@ def test_t16_resource_over_limit(tmp_path: Path) -> None:
 
 
 def test_t17_goal_keys_outside_block(tmp_path: Path) -> None:
-    """T-17: `goal:` ブロックの外に必須キーがあり配下が空なら exit 2。"""
+    """T-17: `goal:` ブロックの外に5キー全てがあり配下が空なら exit 2。
+
+    guard_metrics を含む5キー全てをブロック外に有効値で置く。4キーだけだと
+    goalキーを計画全文から検索する誤実装でも guard_metrics 欠落を理由に
+    exit 2 になり、この誤実装を検出できない(このテストの目的を果たせない)。
+    """
     plan_text = (
         "学習ジョブを実行する\n"
         + _COST_COMPLETE
         + "metric: rmse\ntarget: 0.15\ndirection: minimize\nbaseline: 0.21\n"
+        + "guard_metrics: []\n"
         + "goal:\n"
     )
     result = _run(
@@ -370,8 +387,14 @@ def test_t17_goal_keys_outside_block(tmp_path: Path) -> None:
 
 
 def test_t18_stray_key_outside_goal_block_ignored(tmp_path: Path) -> None:
-    """T-18: goal ブロックが完備していれば、ブロック外の `target: 999` は無視され exit 0。"""
-    plan_text = _COMPLETE_PLAN + "target: 999\n"
+    """T-18: goal ブロックが完備していれば、ブロック外の不正値は前後とも無視され exit 0。
+
+    goal ブロックの前後両方に不正値を置く。goalキーを計画全文から検索する
+    誤実装は、先頭一致・末尾一致のどちらでもこの不正値を拾ってしまうため、
+    その誤実装を確実に検出できる。
+    """
+    stray = "target: not-a-number\ndirection: down\n"
+    plan_text = stray + _COMPLETE_PLAN + stray
     result = _run(
         tmp_path,
         branch="pipeline/20260726-foo",
@@ -500,5 +523,46 @@ def test_t27_glob_extra_prefix_not_matched(tmp_path: Path) -> None:
         branch="pipeline/20260726-foo",
         plan_name="20260726-extra-foo.md",
         plan_text=_COMPLETE_PLAN,
+    )
+    assert result.returncode == 0
+
+
+def test_t28_direct_match_takes_priority_over_glob(tmp_path: Path) -> None:
+    """T-28: 直接一致があれば、glob候補が完備でもそれを無視して直接一致を検査対象にする。
+
+    `foo.md`(不備)と `20260726-foo.md`(完備)の両方があるとき、直接一致の
+    `foo.md` が優先されて exit 2 になることを確認する。glob 候補を優先したり、
+    どちらか片方だけを見る誤実装ではこの exit 2 にならない。
+    """
+    result = _run(
+        tmp_path,
+        branch="feature/foo",
+        plan_name="foo.md",
+        plan_text=_EXPERIMENTAL_NO_BLOCKS,
+        extra_plans={"20260726-foo.md": _COMPLETE_PLAN},
+    )
+    assert result.returncode == 2
+
+
+def test_t29_invalid_utf8_plan_skips(tmp_path: Path) -> None:
+    """T-29: 計画ファイルが不正なUTF-8バイト列でも例外終了せず exit 0。"""
+    result = _run(
+        tmp_path,
+        branch="pipeline/20260726-foo",
+        plan_name="20260726-foo.md",
+        plan_bytes=b"\xff\xfe invalid utf-8 \xff",
+    )
+    assert result.returncode == 0
+
+
+def test_t30_invalid_utf8_invariants_skips(tmp_path: Path) -> None:
+    """T-30: invariants.md が不正なUTF-8でも例外終了せず、計画完備なら exit 0。"""
+    result = _run(
+        tmp_path,
+        branch="pipeline/20260726-foo",
+        plan_name="20260726-foo.md",
+        plan_text=_COMPLETE_PLAN,
+        invariants_text=None,
+        invariants_bytes=b"resources:\n  max_train_minutes: \xff\xfe\n",
     )
     assert result.returncode == 0
