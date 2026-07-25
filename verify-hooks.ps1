@@ -107,8 +107,11 @@ if ($LASTEXITCODE -eq 0) {
 }
 if ($null -ne $savedQualityGate) { $env:CLAUDE_QUALITY_GATE = $savedQualityGate }
 # セッションが CLAUDE_NOTIFY=1 を注入していても素の状態をテストできるよう明示的に外す
+# (CLAUDE_CONTROL_LEVEL=L3 も通知ONと解釈されるため同様に外す)
 $savedNotify = $env:CLAUDE_NOTIFY
+$savedControlLevel = $env:CLAUDE_CONTROL_LEVEL
 Remove-Item Env:CLAUDE_NOTIFY -ErrorAction SilentlyContinue
+Remove-Item Env:CLAUDE_CONTROL_LEVEL -ErrorAction SilentlyContinue
 '{}' | uv run python ".claude\hooks\notify.py" *> $null
 if ($LASTEXITCODE -eq 0) {
     Write-Host "OK: notify: off when flag not set (exit 0)"
@@ -117,6 +120,7 @@ if ($LASTEXITCODE -eq 0) {
     $script:failed++
 }
 if ($null -ne $savedNotify) { $env:CLAUDE_NOTIFY = $savedNotify }
+if ($null -ne $savedControlLevel) { $env:CLAUDE_CONTROL_LEVEL = $savedControlLevel }
 # セッションが CLAUDE_CROSS_REVIEW=1 を注入していても素の状態をテストできるよう明示的に外す
 $savedCrossReview = $env:CLAUDE_CROSS_REVIEW
 Remove-Item Env:CLAUDE_CROSS_REVIEW -ErrorAction SilentlyContinue

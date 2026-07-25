@@ -128,7 +128,8 @@ else
   failed=$((failed+1))
 fi
 # セッションが CLAUDE_NOTIFY=1 を注入していても素の状態をテストできるよう明示的に外す
-echo '{}' | env -u CLAUDE_NOTIFY uv run python ".claude/hooks/notify.py" >/dev/null 2>&1
+# (CLAUDE_CONTROL_LEVEL=L3 も通知ONと解釈されるため同様に外す)
+echo '{}' | env -u CLAUDE_NOTIFY -u CLAUDE_CONTROL_LEVEL uv run python ".claude/hooks/notify.py" >/dev/null 2>&1
 if [ $? -eq 0 ]; then
   echo "OK: notify: off when flag not set (exit 0)"
 else
