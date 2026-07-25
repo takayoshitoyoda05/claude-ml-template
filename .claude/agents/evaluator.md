@@ -48,6 +48,9 @@ evaluator-standards の担当なのでここでは判断しません。
 計画に goal ブロックがある場合、判定は実測値と goal の機械的な突き合わせで行う。
 主観的な「良くなった気がする」判定を排除する。
 
+「target を達成」の比較は goal の direction に従う
+(`minimize` なら 実測値 <= target、`maximize` なら 実測値 >= target)。
+
 判定は三値:
 - **pass**: 実測値が target を達成し、かつ全 guard_metrics が閾値内
 - **fail**: target 未達、または guard_metrics のいずれかが閾値違反
