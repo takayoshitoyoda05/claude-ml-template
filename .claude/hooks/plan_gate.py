@@ -27,7 +27,9 @@ def _read_yaml_number(text: str, key: str) -> float | None:
     # 末尾の空白と # コメントは許す(invariants.md の上限行はコメント付きのため、
     # 許さないと上限が読めずゲートが無効化される)
     m = re.search(
-        rf"^\s*{key}\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*(?:#.*)?$", text, re.MULTILINE
+        rf"^\s*{key}\s*:\s*([0-9]+(?:\.[0-9]*)?|\.[0-9]+)\s*(?:#.*)?$",
+        text,
+        re.MULTILINE,
     )
     if m is None:
         return None
