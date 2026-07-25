@@ -768,7 +768,8 @@ Claude 経由では編集できない(Edit/Write・リダイレクト・tee・`c
 正規表現ベースの検査で塞ぎきれない(いたちごっこになる)。
 保護パス(`.claude/hooks/` と `settings.json` 系・`.claude/spec/approvals.txt`・
 `.claude/spec/last_spec_pass.txt`・`.claude/spec/design_hashes.txt`・
-`.claude/checkpoints/last_eval_pass.txt`・`.claude/improvements/invariants.md`)の
+`.claude/checkpoints/last_eval_pass.txt`・`.claude/checkpoints/last_quality_pass.txt`・
+`.claude/improvements/invariants.md`)の
 本当の防壁は「**変更はユーザーが手動で行う**」という運用であり、フックは
 `cp`/`mv`/`sed`/`rm`/`Remove-Item`/`Copy-Item`/リダイレクト等のよく使う直接的な手段を
 塞いで補助する位置づけと理解しておくこと。
