@@ -444,6 +444,22 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
 Test-Hook "action_log: exits 0 on empty payload" '{}' ".claude\hooks\action_log.py" 0
 Test-Hook "agent_log: exits 0 on empty payload" '{}' ".claude\hooks\agent_log.py" 0
 
+# --- plan_gate: 一時ディレクトリで検証(リポジトリ直下は最新計画の内容に依存するため) ---
+$AbsPlanGate = Join-Path (Get-Location).Path ".claude\hooks\plan_gate.py"
+$PgTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("plan-gate-test-" + [Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $PgTmp | Out-Null
+Push-Location $PgTmp
+'{}' | uv run python $AbsPlanGate *> $null
+$actual = $LASTEXITCODE
+Pop-Location
+if ($actual -eq 0) {
+    Write-Host "OK: plan_gate: passes when no plans dir (exit $actual)"
+} else {
+    Write-Host "NG: plan_gate: passes when no plans dir (expected 0, got $actual)"
+    $script:failed++
+}
+Remove-Item -Path $PgTmp -Recurse -Force
+
 Write-Host ""
 $env:CLAUDE_WORK_SCOPE = $SavedWorkScope
 if ($script:failed -gt 0) {

@@ -427,6 +427,18 @@ EOF
 test_hook "action_log: exits 0 on empty payload" '{}' ".claude/hooks/action_log.py" 0
 test_hook "agent_log: exits 0 on empty payload" '{}' ".claude/hooks/agent_log.py" 0
 
+# --- plan_gate: 一時ディレクトリで検証(リポジトリ直下は最新計画の内容に依存するため) ---
+ABS_PLAN_GATE="$(pwd)/.claude/hooks/plan_gate.py"
+PG_TMP=$(mktemp -d)
+actual=$(cd "$PG_TMP" && echo '{}' | uv run python "$ABS_PLAN_GATE" >/dev/null 2>&1; echo $?)
+if [ "$actual" -eq 0 ]; then
+  echo "OK: plan_gate: passes when no plans dir (exit $actual)"
+else
+  echo "NG: plan_gate: passes when no plans dir (expected 0, got $actual)"
+  failed=$((failed+1))
+fi
+rm -rf "$PG_TMP"
+
 echo ""
 if [ "$failed" -gt 0 ]; then
   echo "$failed 件のテストが失敗しました"
