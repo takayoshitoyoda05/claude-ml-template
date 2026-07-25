@@ -445,20 +445,26 @@ Test-Hook "action_log: exits 0 on empty payload" '{}' ".claude\hooks\action_log.
 Test-Hook "agent_log: exits 0 on empty payload" '{}' ".claude\hooks\agent_log.py" 0
 
 # --- plan_gate: 一時ディレクトリで検証(リポジトリ直下は最新計画の内容に依存するため) ---
+# sh版(verify-hooks.sh)の対応区間は set -e が無くスクリプトが途中終了しないため
+# try/finally 相当の保護は不要。ps1版は $ErrorActionPreference = "Stop" が有効なため
+# 途中の例外でも Pop-Location / 一時ディレクトリ削除に必ず到達するよう保護する。
 $AbsPlanGate = Join-Path (Get-Location).Path ".claude\hooks\plan_gate.py"
 $PgTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("plan-gate-test-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $PgTmp | Out-Null
-Push-Location $PgTmp
-'{}' | uv run python $AbsPlanGate *> $null
-$actual = $LASTEXITCODE
-Pop-Location
-if ($actual -eq 0) {
-    Write-Host "OK: plan_gate: passes when no plans dir (exit $actual)"
-} else {
-    Write-Host "NG: plan_gate: passes when no plans dir (expected 0, got $actual)"
-    $script:failed++
+try {
+    Push-Location $PgTmp
+    '{}' | uv run python $AbsPlanGate *> $null
+    $actual = $LASTEXITCODE
+    if ($actual -eq 0) {
+        Write-Host "OK: plan_gate: passes when no plans dir (exit $actual)"
+    } else {
+        Write-Host "NG: plan_gate: passes when no plans dir (expected 0, got $actual)"
+        $script:failed++
+    }
+} finally {
+    Pop-Location
+    Remove-Item -Path $PgTmp -Recurse -Force -ErrorAction SilentlyContinue
 }
-Remove-Item -Path $PgTmp -Recurse -Force
 
 Write-Host ""
 $env:CLAUDE_WORK_SCOPE = $SavedWorkScope
