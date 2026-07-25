@@ -428,17 +428,67 @@ EOF
 test_hook "action_log: exits 0 on empty payload" '{}' ".claude/hooks/action_log.py" 0
 test_hook "agent_log: exits 0 on empty payload" '{}' ".claude/hooks/agent_log.py" 0
 
-# --- plan_gate: 一時ディレクトリで検証(リポジトリ直下は最新計画の内容に依存するため) ---
+# --- plan_gate: 一時ディレクトリで検証(検査対象がブランチ名から決まる新仕様に合わせ、
+#     各ケースを git リポジトリ + ブランチ名に対応する計画ファイルで組み立てる) ---
+# 注意: trap は張らない(スクリプト末尾で EXIT トラップは既に解除済みのため、
+# ここで再設定すると既存の後始末規約を壊す)。後始末は各ケースで rm -rf を明示実行する。
 ABS_PLAN_GATE="$(pwd)/.claude/hooks/plan_gate.py"
-PG_TMP=$(mktemp -d)
-actual=$(cd "$PG_TMP" && echo '{}' | uv run python "$ABS_PLAN_GATE" >/dev/null 2>&1; echo $?)
-if [ "$actual" -eq 0 ]; then
-  echo "OK: plan_gate: passes when no plans dir (exit $actual)"
-else
-  echo "NG: plan_gate: passes when no plans dir (expected 0, got $actual)"
-  failed=$((failed+1))
-fi
-rm -rf "$PG_TMP"
+
+test_plan_gate() {
+  local description="$1"
+  local branch="$2"
+  local plan_name="$3"
+  local plan_text="$4"
+  local inv_text="$5"
+  local expected_exit="$6"
+
+  local tmp; tmp=$(mktemp -d)
+  git -C "$tmp" init -q -b "$branch"
+  if [ -n "$plan_name" ]; then
+    local cl="$tmp/.claude"
+    local pl="$cl/plans"
+    mkdir -p "$pl"
+    printf '%s' "$plan_text" > "$pl/$plan_name"
+    if [ -n "$inv_text" ]; then
+      local inv="$cl/improvements"
+      mkdir -p "$inv"
+      printf '%s' "$inv_text" > "$inv/invariants.md"
+    fi
+  fi
+  local actual
+  actual=$(cd "$tmp" && echo '{}' | uv run python "$ABS_PLAN_GATE" >/dev/null 2>&1; echo $?)
+  rm -rf "$tmp"
+  if [ "$actual" -eq "$expected_exit" ]; then
+    echo "OK: $description (exit $actual)"
+  else
+    echo "NG: $description (expected $expected_exit, got $actual)"
+    failed=$((failed+1))
+  fi
+}
+
+test_plan_gate "plan_gate: passes when .claude/plans directory is absent" \
+  "pipeline/20260726-vh-a" "" "" "" 0
+
+PG_B_TEXT=$'別ブランチ向けの計画メモ。\n'
+test_plan_gate "plan_gate: passes when no plan file matches the branch" \
+  "pipeline/20260726-vh-b" "20260726-other.md" "$PG_B_TEXT" "" 0
+
+PG_C_TEXT=$'experiment: false\n'
+test_plan_gate "plan_gate: passes when experiment: false is declared" \
+  "pipeline/20260726-vh-c" "20260726-vh-c.md" "$PG_C_TEXT" "" 0
+
+PG_D_TEXT=$'学習ジョブを新しいデータセットで実行する。\n'
+test_plan_gate "plan_gate: blocks when experimental language is present but goal is undefined" \
+  "pipeline/20260726-vh-d" "20260726-vh-d.md" "$PG_D_TEXT" "" 2
+
+PG_E_TEXT=$'cost_estimate:\n  train_minutes: 1e3\n  epochs: 30\n  dataset_gb: 2.4\n  parallel_jobs: 1\ngoal:\n  metric: rmse\n  target: 0.15\n  direction: minimize\n  baseline: 0.21\n  guard_metrics: []\n'
+test_plan_gate "plan_gate: blocks when train_minutes is unreadable as a decimal (1e3)" \
+  "pipeline/20260726-vh-e" "20260726-vh-e.md" "$PG_E_TEXT" "" 2
+
+PG_F_TEXT=$'cost_estimate:\n  train_minutes: 999\n  epochs: 30\n  dataset_gb: 2.4\n  parallel_jobs: 1\ngoal:\n  metric: rmse\n  target: 0.15\n  direction: minimize\n  baseline: 0.21\n  guard_metrics: []\n'
+PG_F_INV=$'resources:\n  max_train_minutes: 120\n  max_epochs: 100\n  max_dataset_gb: 10\n  max_parallel_jobs: 1\n'
+test_plan_gate "plan_gate: blocks when train_minutes exceeds the resource limit" \
+  "pipeline/20260726-vh-f" "20260726-vh-f.md" "$PG_F_TEXT" "$PG_F_INV" 2
 
 echo ""
 if [ "$failed" -gt 0 ]; then
