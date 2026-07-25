@@ -6,7 +6,6 @@
 - 実験を含む計画(experiment: false が無い)で goal 未定義なら exit 2
 - 計画ファイルが無い・パースできない場合は黙って通す(壊さない)
 """
-import os
 import re
 import sys
 from pathlib import Path
@@ -24,7 +23,14 @@ def _latest_plan() -> Path | None:
 
 def _read_yaml_number(text: str, key: str) -> float | None:
     m = re.search(rf"^\s*{key}\s*:\s*([0-9.]+)", text, re.MULTILINE)
-    return float(m.group(1)) if m else None
+    if m is None:
+        return None
+    try:
+        return float(m.group(1))
+    except ValueError:
+        # 不正な数値表記(例: 1.2.3)はパース不能として扱う。
+        # 「パースできない場合は黙って通す」というこのフックの方針に合わせる。
+        return None
 
 
 def main():
