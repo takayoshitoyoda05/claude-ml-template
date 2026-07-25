@@ -399,3 +399,42 @@ Step 1 で設計書に書く「## 受け入れ条件」テーブルと同じ ID 
 - (b) ADR: **作成済み** — `docs/adr/0004-plan-gate-target-and-fail-closed.md`
   (検査対象の決定方式と fail-closed の適用範囲は、複数案から1つを選ぶ・後から変えにくい決定のため)。
 - (c) EXPERIMENT_LOG: 学習・実験を伴わない(`experiment: false`)。追記対象なし。
+
+## 作業ログ(グループB: Step 2 / Step 5)
+
+- Step 2(`tests/test_plan_gate.py` 新規作成): テストケース一覧 T-01〜T-27 を
+  すべて実装した(T-12 は3値を `pytest.mark.parametrize` で1関数にまとめたため
+  テスト関数数は29)。`tests/test_env_fingerprint.py` に倣い、フックを import
+  せず `subprocess.run([sys.executable, <plan_gate 絶対パス>], ...)` で CLI 起動
+  する方式にした。フィクスチャは `Path` の結合と `write_text` で組み立て、
+  シェルのリダイレクトは使っていない。T-25/T-26 の「invariants.md が読めない」
+  は同名ディレクトリを作って再現した(本機で `IsADirectoryError` を実測)。
+  現行の plan_gate.py(fail-open)に対して実行すると **14 件 FAIL するのが
+  正しい RED 状態**であることを確認した(`uv run --with pytest python -m
+  pytest tests/ -q` → 14 failed, 22 passed。ログ:
+  `logs/runs/20260726-*-plan-gate-precision-red-state.log`)。
+- Step 5(`_staging_plan_gate_precision.py` 新規作成): 仕様 A/B/C を実装した
+  新版ソースを `NEW_SOURCE` に、現行ファイルの全文をそのまま `OLD_SOURCE` に
+  文字列定数として持たせた。適用条件は現行ファイルの sha256 一致(`OLD_SOURCE`
+  との一致のみ適用、`NEW_SOURCE` と一致なら SKIP、どちらとも不一致なら NG)。
+  適用後に `tests/test_plan_gate.py` を subprocess 実行し、1件でも失敗したら
+  `OLD_SOURCE` に自動で書き戻してから NG 終了する。`--revert` は新版一致時のみ
+  旧版へ復旧する。**このスクリプト自体は generator/リーダーは実行していない**
+  (保護パス適用は Step 6 でユーザーが手動実行する規約のため)。
+  検証として、`NEW_SOURCE` を一時的に別名ファイル(`tests/_scratch_candidate_
+  plan_gate.py` 等、作業後に削除済み)へ書き出し、`PLAN_GATE_PATH` をそこに
+  差し替えたテストコピーを実行して **29 件全て PASS** することを確認した
+  (本番の `.claude/hooks/plan_gate.py` には一切書き込んでいない。実行後の
+  `sha256sum .claude/hooks/plan_gate.py` が適用前と同一であることも確認済み)。
+
+変更・作成したファイル:
+- `tests/test_plan_gate.py`(新規。コミット済み)
+- `_staging_plan_gate_precision.py`(新規。`.gitignore` 対象のため意図的に
+  未コミット。仕様どおり)
+
+ユーザーが実行すべきコマンド(Step 6):
+```
+uv run python _staging_plan_gate_precision.py
+```
+適用後に失敗した場合の復旧: `uv run python _staging_plan_gate_precision.py --revert`
+
