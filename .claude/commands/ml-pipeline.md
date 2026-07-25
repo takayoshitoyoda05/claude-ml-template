@@ -147,9 +147,14 @@ NEEDS_WORK が発生した場合、.claude/improvements/feedback.md に
 ```
 
 ### 3.5. 計画の承認判定
-環境変数 CLAUDE_AUTO_APPROVE の値で動作が変わる。
+自動承認の実効値で動作が変わる。実効値は自律度レベルと個別変数から次のように決める。
 
-**CLAUDE_AUTO_APPROVE=1 の場合:**
+- `CLAUDE_CONTROL_LEVEL=L1` → 実効値は常に**無効**(`CLAUDE_AUTO_APPROVE=1` でも人間が承認)
+- `CLAUDE_AUTO_APPROVE` が非空 → その値(`1` なら有効)
+- どちらでもなく `CLAUDE_CONTROL_LEVEL=L3` → **有効**
+- それ以外 → 無効
+
+**実効値が有効(CLAUDE_AUTO_APPROVE=1 相当)の場合:**
 plan-reviewer に計画を審査させる。
 - plan-reviewer が「自動承認OK」と判定 → ユーザー承認をスキップして手順5(実装)へ
 - plan-reviewer が「自動承認NG」と判定 → ユーザーに計画を提示し承認を待つ

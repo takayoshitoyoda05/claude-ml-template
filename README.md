@@ -200,9 +200,9 @@ config-set スキルが貼り付け用のJSONを提示するので、それを�
 | CLAUDE_SPEC_RECHECK_N | spec-compliance でauto要件から再実行する件数。`all` で全件 | `3` |
 | CLAUDE_CROSS_REVIEW | `1` でCodexクロスレビューをevaluator前に必須にする | 無効(0) |
 | CODEX_MODEL | Codexのモデルを一時的に上書き(空なら.codex/config.tomlの設定) | 空 |
-| CLAUDE_AUTO_APPROVE | `1` で plan-reviewer による計画の自動承認を有効にする | 無効(0) |
+| CLAUDE_AUTO_APPROVE | `1` で plan-reviewer による計画の自動承認を有効にする。空文字列なら CLAUDE_CONTROL_LEVEL に委ねる | 空(レベルに委ねる) |
 | CLAUDE_QUALITY_GATE | `1` でruff/radon/mypyの機械的品質チェックをStopフックで強制する | 無効(0) |
-| CLAUDE_NOTIFY | `1` でセッション停止時にデスクトップ通知を出す | 無効(0) |
+| CLAUDE_NOTIFY | `1` でセッション停止時にデスクトップ通知を出す。空文字列なら CLAUDE_CONTROL_LEVEL に委ねる(L3 で有効) | 空(レベルに委ねる) |
 | CLAUDE_SECURITY_SCAN | `1` でclaude-securityプラグインによる差分スキャンを2軸レビュー後に実行(起動にはユーザー本人のコスト承諾明記が別途必要。3.17節参照) | 無効(0) |
 | CLAUDE_FINAL_GATE | `1` でFableによる最終ゲート判断をリファクタパス後に実行 | 無効(0) |
 | CLAUDE_ACTION_LOG | `1`(または未設定)で全ツール実行・エージェントの自動記録を有効化、`0` で無効化 | 有効(1) |
@@ -768,7 +768,7 @@ Claude 経由では編集できない(Edit/Write・リダイレクト・tee・`c
 正規表現ベースの検査で塞ぎきれない(いたちごっこになる)。
 保護パス(`.claude/hooks/` と `settings.json` 系・`.claude/spec/approvals.txt`・
 `.claude/spec/last_spec_pass.txt`・`.claude/spec/design_hashes.txt`・
-`.claude/checkpoints/last_eval_pass.txt`)の
+`.claude/checkpoints/last_eval_pass.txt`・`.claude/improvements/invariants.md`)の
 本当の防壁は「**変更はユーザーが手動で行う**」という運用であり、フックは
 `cp`/`mv`/`sed`/`rm`/`Remove-Item`/`Copy-Item`/リダイレクト等のよく使う直接的な手段を
 塞いで補助する位置づけと理解しておくこと。
