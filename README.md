@@ -728,7 +728,7 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5�
 | codex_gate.py | Stop | CLAUDE_CROSS_REVIEW=1 のとき Codexレビュー未完了ならブロック。センチネル(`.claude/checkpoints/codex_review_done.txt`)の HEAD ハッシュを現在の HEAD と照合し、レビュー後にコミットが進んだ場合と未コミット変更(未追跡含む)が残っている場合は再レビューを要求する(詳細は 3.10 節) |
 | quality_gate.py | Stop | CLAUDE_QUALITY_GATE=1 のとき、ruff/radon/mypyの機械チェックで閾値超過ならブロック |
 | notify.py | Stop | CLAUDE_NOTIFY=1 のとき、セッション停止時にデスクトップ通知(Windows/macOS/Linux対応) |
-| plan_gate.py | Stop | 計画のリソース超過(invariants の resources 比)と goal 未定義をブロック |
+| plan_gate.py | Stop | 現在のブランチ名に対応する計画のリソース超過(invariants の resources 比)・goal 未定義・読めない見積もりをブロック |
 | checkpoint_before_compact.py | PreCompact | 圧縮直前に git 状態・トランスクリプトを `.claude/checkpoints/` にバックアップ(直近10世代のみ保持) |
 | reinject_after_compact.py | SessionStart (compact) | 圧縮直後にチェックポイントと注意事項を会話に再注入 |
 
@@ -1143,7 +1143,7 @@ docs/reports/ はローカル成果物(git 管理外。リポジトリには含�
 |------|------|------|
 | permissions.deny | 絶対 | 破壊系(rm -rf, sudo)・外部取得(curl, wget)・秘密ファイル(.env)・データ領域(data/)は AI の判断に関係なく実行されない |
 | permissions.ask | 毎回確認 | 外に出る(git push)・依存が増える(uv add)・main に入る(git merge)は必ず人間を通る |
-| plan_gate(フック) | 計画ブロック | invariants.md で宣言したリソース上限を超える計画、数値目標(goal)の無い実験計画は Planner から先に進めない |
+| plan_gate(フック) | 計画ブロック | invariants.md で宣言したリソース上限を超える計画、数値目標(goal)の無い実験計画は Planner から先に進めない。見積もりが数値として読めない計画もブロックする(fail-closed) |
 | HITL 必須操作 | 実行前承認 | 30分超の学習・データ削除・invariants 変更・外部公開は、どのレベルでも実行内容/コスト/不可逆性の3点提示つきで承認を取る |
 | CLAUDE_CONTROL_LEVEL | 一括切替 | L1/L2/L3 で自律度を1つの値で制御 |
 
