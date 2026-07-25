@@ -43,6 +43,36 @@ evaluator-standards の担当なのでここでは判断しません。
 #### 問題点(要修正)
 - [重大度: HIGH/MEDIUM/LOW] 「期待 → 実際」の順で、ファイルパスと行番号つきで記述
 
+## goal との突き合わせ(実験計画の場合)
+
+計画に goal ブロックがある場合、判定は実測値と goal の機械的な突き合わせで行う。
+主観的な「良くなった気がする」判定を排除する。
+
+判定は三値:
+- **pass**: 実測値が target を達成し、かつ全 guard_metrics が閾値内
+- **fail**: target 未達、または guard_metrics のいずれかが閾値違反
+  (**target を達成していても guard_metrics 違反なら fail**。
+  例: rmse は改善したが train_val_gap が 0.05 を超えた → 過学習の疑いで fail)
+- **inconclusive**: 実行エラー・データ不足等で判定材料が得られなかった。
+  fail とは区別して報告する(原因が実装なのか計画なのかの切り分けに使う)
+
+### 既存のレポート判定への写像
+
+三値は goal 判定の語彙であり、evaluator が既に出している
+レポート判定(PASS / NEEDS_REVISION / FAIL)を置き換えるものではない。
+goal 判定は以下のとおり既存のレポート判定に写像して報告する。
+
+| goal 判定 | レポート判定 | 遷移先 |
+|---|---|---|
+| pass | PASS | 手順7.5へ |
+| fail | FAIL | 失敗遷移表の「目標未達」(1回 → planner) |
+| inconclusive | NEEDS_REVISION | 失敗遷移表の「inconclusive」(1回 → 原因調査) |
+
+verdict ファイルの PASS / FAIL / UNVERIFIABLE は変更しない。
+
+レポートには必ず「実測値 / target / baseline / 各 guard_metric の実測値と閾値」の
+表を含める。数値は tee で保存したログから引用する。
+
 ## verdict ファイルの出力(spec-compliance)
 参照した設計書に「## 受け入れ条件」テーブルがある場合、判定と同時に
 `verdict-<設計書のファイル名(拡張子抜き)>.md` を機械可読テーブルで
