@@ -71,6 +71,81 @@ def _cost_with_train_minutes(value: str) -> str:
     )
 
 
+def _init_repo(tmp_path: Path, branch: str | None, init_git: bool) -> None:
+    """指定があれば一時ディレクトリで `git init -b <branch>` する。
+
+    Args:
+        tmp_path: pytest が用意する一時ディレクトリ。
+        branch: `git init -b <branch>` するブランチ名。None なら何もしない。
+        init_git: False なら git init 自体を行わない(非 git ディレクトリの再現)。
+    """
+    if init_git and branch is not None:
+        subprocess.run(
+            ["git", "init", "-q", "-b", branch],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            timeout=_SUBPROCESS_TIMEOUT,
+        )
+
+
+def _write_plans(
+    tmp_path: Path,
+    plan_name: str | None,
+    plan_text: str | None,
+    plan_bytes: bytes | None,
+    extra_plans: dict[str, str] | None,
+) -> None:
+    """`.claude/plans/` に本命の計画ファイルと追加分を書き出す。
+
+    Args:
+        tmp_path: pytest が用意する一時ディレクトリ。
+        plan_name: 書く計画ファイル名。None なら本命は書かない。
+        plan_text: plan_name の中身。plan_name が None なら無視される。
+        plan_bytes: plan_name に生バイト列で書く中身(不正UTF-8の再現用)。
+            plan_text が指定されていればそちらを優先する。
+        extra_plans: 追加で書くファイル名→中身の辞書。
+    """
+    plans_dir = tmp_path / ".claude" / "plans"
+    if plan_name is not None or extra_plans:
+        plans_dir.mkdir(parents=True, exist_ok=True)
+    if plan_name is not None and plan_text is not None:
+        (plans_dir / plan_name).write_text(plan_text, encoding="utf-8")
+    elif plan_name is not None and plan_bytes is not None:
+        (plans_dir / plan_name).write_bytes(plan_bytes)
+    for name, text in (extra_plans or {}).items():
+        (plans_dir / name).write_text(text, encoding="utf-8")
+
+
+def _write_invariants(
+    tmp_path: Path,
+    invariants_text: str | None,
+    invariants_bytes: bytes | None,
+    invariants_is_dir: bool,
+) -> None:
+    """`.claude/improvements/invariants.md` を書く(不正UTF-8・ディレクトリ化も再現)。
+
+    Args:
+        tmp_path: pytest が用意する一時ディレクトリ。
+        invariants_text: invariants.md の中身。None なら invariants_bytes を見る。
+        invariants_bytes: invariants.md に生バイト列で書く中身
+            (不正UTF-8の再現用)。invariants_text が None のときのみ使う。
+        invariants_is_dir: True なら invariants.md と同名のディレクトリを作り、
+            読み取り時に OSError(IsADirectoryError)が起きる状態を再現する。
+    """
+    improvements_dir = tmp_path / ".claude" / "improvements"
+    if invariants_is_dir:
+        (improvements_dir / "invariants.md").mkdir(parents=True, exist_ok=True)
+    elif invariants_text is not None:
+        improvements_dir.mkdir(parents=True, exist_ok=True)
+        (improvements_dir / "invariants.md").write_text(
+            invariants_text, encoding="utf-8"
+        )
+    elif invariants_bytes is not None:
+        improvements_dir.mkdir(parents=True, exist_ok=True)
+        (improvements_dir / "invariants.md").write_bytes(invariants_bytes)
+
+
 def _run(
     tmp_path: Path,
     branch: str | None,
@@ -88,6 +163,9 @@ def _run(
 
     パスはすべて `Path` の結合で組み立て、シェルのリダイレクトは使わない
     (保護パス名をリテラルで含むリダイレクトは guard_bash がブロックするため)。
+    フィクスチャの組み立ては `_init_repo` / `_write_plans` / `_write_invariants`
+    に分けている(責務ごとに薄いヘルパーへ分割し、この関数自体の複雑度を
+    抑えるため)。
 
     Args:
         tmp_path: pytest が用意する一時ディレクトリ。
@@ -109,36 +187,9 @@ def _run(
     Returns:
         plan_gate.py を実行した結果(stdout/stderr/returncode を含む)。
     """
-    if init_git and branch is not None:
-        subprocess.run(
-            ["git", "init", "-q", "-b", branch],
-            cwd=tmp_path,
-            check=True,
-            capture_output=True,
-            timeout=_SUBPROCESS_TIMEOUT,
-        )
-
-    plans_dir = tmp_path / ".claude" / "plans"
-    if plan_name is not None or extra_plans:
-        plans_dir.mkdir(parents=True, exist_ok=True)
-    if plan_name is not None and plan_text is not None:
-        (plans_dir / plan_name).write_text(plan_text, encoding="utf-8")
-    elif plan_name is not None and plan_bytes is not None:
-        (plans_dir / plan_name).write_bytes(plan_bytes)
-    for name, text in (extra_plans or {}).items():
-        (plans_dir / name).write_text(text, encoding="utf-8")
-
-    improvements_dir = tmp_path / ".claude" / "improvements"
-    if invariants_is_dir:
-        (improvements_dir / "invariants.md").mkdir(parents=True, exist_ok=True)
-    elif invariants_text is not None:
-        improvements_dir.mkdir(parents=True, exist_ok=True)
-        (improvements_dir / "invariants.md").write_text(
-            invariants_text, encoding="utf-8"
-        )
-    elif invariants_bytes is not None:
-        improvements_dir.mkdir(parents=True, exist_ok=True)
-        (improvements_dir / "invariants.md").write_bytes(invariants_bytes)
+    _init_repo(tmp_path, branch, init_git)
+    _write_plans(tmp_path, plan_name, plan_text, plan_bytes, extra_plans)
+    _write_invariants(tmp_path, invariants_text, invariants_bytes, invariants_is_dir)
 
     env = os.environ.copy()
     if extra_env is not None:
