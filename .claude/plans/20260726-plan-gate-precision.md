@@ -399,3 +399,15 @@ Step 1 で設計書に書く「## 受け入れ条件」テーブルと同じ ID 
 - (b) ADR: **作成済み** — `docs/adr/0004-plan-gate-target-and-fail-closed.md`
   (検査対象の決定方式と fail-closed の適用範囲は、複数案から1つを選ぶ・後から変えにくい決定のため)。
 - (c) EXPERIMENT_LOG: 学習・実験を伴わない(`experiment: false`)。追記対象なし。
+
+## 作業ログ(グループ E: Step 8)
+
+- worktree `.worktrees/group-E`、ブランチ `pipeline/20260726-plan-gate-precision-group-E` で実施。
+- `README.md` の2箇所を更新: フック表 plan_gate 行(旧 L731)を
+  「現在のブランチ名に対応する計画のリソース超過(invariants の resources 比)・goal 未定義・
+  読めない見積もりをブロック」に、3.20節 plan_gate 行(旧 L1146)に
+  「見積もりが数値として読めない計画もブロックする(fail-closed)」を追記。
+- 検証: `grep -c "ブランチ名に対応する" README.md` = 1、`grep -c "fail-closed" README.md` = 1。
+- コミット: `b1a1b9d94ed95d2829258d2dca170f77a4fe60c4`
+  (`docs(step 8): README の plan_gate 記述をブランチ名対応・fail-closed 仕様に更新`)。
+- 変更ファイル: `README.md` のみ(1 file changed, 2 insertions(+), 2 deletions(-))。
