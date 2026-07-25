@@ -22,7 +22,13 @@ def _latest_plan() -> Path | None:
 
 
 def _read_yaml_number(text: str, key: str) -> float | None:
-    m = re.search(rf"^\s*{key}\s*:\s*([0-9.]+)", text, re.MULTILINE)
+    # 行末まで厳密に見る。ゆるい [0-9.]+ だと `1e3` から `1` だけを拾って 1.0 と
+    # 読み、1000分の見積もりが上限120を素通りしてしまう(桁を落とす誤読)。
+    # 末尾の空白と # コメントは許す(invariants.md の上限行はコメント付きのため、
+    # 許さないと上限が読めずゲートが無効化される)
+    m = re.search(
+        rf"^\s*{key}\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*(?:#.*)?$", text, re.MULTILINE
+    )
     if m is None:
         return None
     try:
