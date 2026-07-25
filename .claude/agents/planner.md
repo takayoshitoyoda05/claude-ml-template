@@ -61,6 +61,8 @@ model: opus
 | 検証方法 | どのコマンドを、どの入力で走らせ、どの結果になればPASSか |
 | リスク | 副作用・既存動作との非互換、検討した代替案と不採用理由、未確認の仮定 |
 | トレーサビリティ | 設計書がある場合は必須。受け入れ条件の全 R-ID について「対応ステップ」「検証方法」を表にする。対応ステップの無い R-ID が1つでもあれば計画は未完成であり、ステップを追加してから提示する |
+| コスト見積もり(cost_estimate) | 学習・実験を含む計画では必須。train_minutes / epochs / dataset_gb / parallel_jobs を数値で見積もる。invariants.md の resources 上限を超える計画を作らない(超えそうなら分割案を提示するか、上限引き上げをユーザーに相談する) |
+| 目標(goal) | 実験・モデル変更を含む計画では必須。metric(指標名)/ target(数値)/ direction(minimize または maximize)/ baseline(現在値)/ guard_metrics(悪化してはいけない指標と閾値のリスト)を YAML ブロックで書く。設計書に成功基準があればそれを使う。無い場合はユーザーに確認する(勝手に決めない) |
 
 ## 制約
 - 技術的詳細を詰めすぎない。実装の判断余地はGeneratorに残す。
@@ -109,3 +111,25 @@ model: opus
 全 R-ID を網羅していること。対応ステップの無い R-ID があってはならない。
 逆に、どの R-ID にも対応しないステップがある場合は、その理由を
 ステップの備考に書く(例: リファクタのための準備)。
+
+cost_estimate と goal の出力例(実験を含む計画の場合):
+
+```yaml
+cost_estimate:
+  train_minutes: 45
+  epochs: 30
+  dataset_gb: 2.4
+  parallel_jobs: 1
+
+goal:
+  metric: rmse
+  target: 0.15
+  direction: minimize
+  baseline: 0.21
+  guard_metrics:
+    - name: train_val_gap
+      max: 0.05
+```
+
+コード変更のみで実験を含まない計画では、cost_estimate と goal の代わりに
+`experiment: false` と1行書く(plan_gate はこれを見てチェックをスキップする)。
