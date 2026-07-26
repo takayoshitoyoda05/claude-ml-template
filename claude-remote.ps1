@@ -31,12 +31,26 @@ try {
 }
 
 # 2. Remote Control の自動有効化についての案内(初回のみ必要)
-Write-Host ""
-Write-Host "初回のみ必要な設定:"
-Write-Host "  claude 起動後に /config を実行し、"
-Write-Host "  「Enable Remote Control for all sessions」を true にしてください。"
-Write-Host "  (この設定はマシン単位。1度設定すれば以降は不要です)"
-Write-Host ""
+$NoticeMarker = $null
+try {
+    $NoticeMarker = Join-Path $env:LOCALAPPDATA "claude-remote\notice-shown"
+} catch {}
+if ($NoticeMarker -and (Test-Path $NoticeMarker -ErrorAction SilentlyContinue)) {
+    Write-Host "ヒント: 初回のみ必要な設定(/config →「Enable Remote Control for all sessions」)がまだなら実施してください。"
+} else {
+    Write-Host ""
+    Write-Host "初回のみ必要な設定:"
+    Write-Host "  claude 起動後に /config を実行し、"
+    Write-Host "  「Enable Remote Control for all sessions」を true にしてください。"
+    Write-Host "  (この設定はマシン単位。1度設定すれば以降は不要です)"
+    Write-Host ""
+    if ($NoticeMarker) {
+        try {
+            New-Item -ItemType Directory -Force -Path (Split-Path $NoticeMarker) | Out-Null
+            New-Item -ItemType File -Force -Path $NoticeMarker | Out-Null
+        } catch {}
+    }
+}
 
 # 3. 起動
 Write-Host "=== Claude Code を起動します(セッション名: $Name) ==="

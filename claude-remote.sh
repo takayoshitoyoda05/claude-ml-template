@@ -10,12 +10,18 @@ fi
 
 echo "=== リモート運用の起動チェック ==="
 
-echo ""
-echo "初回のみ必要な設定:"
-echo "  claude 起動後に /config を実行し、"
-echo "  「Enable Remote Control for all sessions」を true にしてください。"
-echo "  (この設定はマシン単位。1度設定すれば以降は不要です)"
-echo ""
+NOTICE_MARKER="${XDG_STATE_HOME:-$HOME/.local/state}/claude-remote/notice-shown"
+if [ -f "$NOTICE_MARKER" ]; then
+  echo "ヒント: 初回のみ必要な設定(/config →「Enable Remote Control for all sessions」)がまだなら実施してください。"
+else
+  echo ""
+  echo "初回のみ必要な設定:"
+  echo "  claude 起動後に /config を実行し、"
+  echo "  「Enable Remote Control for all sessions」を true にしてください。"
+  echo "  (この設定はマシン単位。1度設定すれば以降は不要です)"
+  echo ""
+  mkdir -p "$(dirname "$NOTICE_MARKER")" 2>/dev/null && touch "$NOTICE_MARKER" 2>/dev/null || true
+fi
 
 if command -v tmux >/dev/null 2>&1; then
   SESSION="claude-${NAME}"
