@@ -73,6 +73,11 @@ PROTECTED_PATH_PATTERNS = [
     "/.claude/spec/design_hashes.txt",
     "/.claude/checkpoints/last_eval_pass.txt",
     "/.claude/checkpoints/last_quality_pass.txt",
+    # データセットは permissions の deny(Edit(**/data/**))でも守られるが、
+    # それは Edit/Write 系ツールにしか効かない。cp/mv/rm/tee/リダイレクトに
+    # よる上書き・削除まで塞ぐためガード側にも入れる(invariants の
+    # 「データセットの削除・上書き禁止」の多層防御)
+    "/data/",
 ]
 
 CASE_INSENSITIVE_FS = os.name == "nt"

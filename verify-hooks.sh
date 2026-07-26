@@ -74,6 +74,14 @@ test_hook "guard_scope: last_eval_pass.txt write is blocked" '{"tool_input":{"fi
 test_hook "guard_bash: redirect to last_quality_pass.txt is blocked" '{"tool_input":{"command":"echo deadbeef > .claude/checkpoints/last_quality_pass.txt"}}' ".claude/hooks/guard_bash.py" 2
 test_hook "guard_scope: last_quality_pass.txt write is blocked" '{"tool_input":{"file_path":".claude/checkpoints/last_quality_pass.txt","content":"deadbeef"}}' ".claude/hooks/guard_scope.py" 2
 
+# --- data/ 保護(データセットの上書き・削除防止) ---
+test_hook "guard_scope: data/ write is blocked" '{"tool_input":{"file_path":"data/train.csv","content":"a,b"}}' ".claude/hooks/guard_scope.py" 2
+test_hook "guard_scope: nested data/ write is blocked" '{"tool_input":{"file_path":"src/data/train.csv","content":"a,b"}}' ".claude/hooks/guard_scope.py" 2
+test_hook "guard_scope: database/ write passes" '{"tool_input":{"file_path":"src/database/models.py","content":"pass"}}' ".claude/hooks/guard_scope.py" 0
+test_hook "guard_bash: rm -rf data is blocked" '{"tool_input":{"command":"rm -rf data"}}' ".claude/hooks/guard_bash.py" 2
+test_hook "guard_bash: cp into data/ is blocked" '{"tool_input":{"command":"cp evil.csv data/train.csv"}}' ".claude/hooks/guard_bash.py" 2
+test_hook "guard_bash: redirect to data/ is blocked" '{"tool_input":{"command":"echo x > data/train.csv"}}' ".claude/hooks/guard_bash.py" 2
+
 # --- guard_scope: worktree封じ込め(cwdベース。$RP はテスト実行時のリポジトリ絶対パス) ---
 RP="$(pwd)"
 test_hook "guard_scope: worktree封じ込め - 同worktree内は許可" \
