@@ -617,3 +617,100 @@ def test_t30_invalid_utf8_invariants_skips(tmp_path: Path) -> None:
         invariants_bytes=b"resources:\n  max_train_minutes: \xff\xfe\n",
     )
     assert result.returncode == 0
+
+
+def test_t31_real_cost_estimate_after_sample_over_limit(tmp_path: Path) -> None:
+    """T-31: 見本(上限内)の後にある本物 cost_estimate が上限超過なら exit 2。
+
+    最初に一致したブロックだけを検査する旧実装は見本の `train_minutes: 30`
+    だけを見て通してしまう(実測 exit 0)。全ブロックを検査する新実装は
+    後続の本物 `train_minutes: 9999` も見て exit 2 にする。
+    """
+    sample = "```yaml\n" + _cost_with_train_minutes("30") + "```\n"
+    real = _cost_with_train_minutes("9999")
+    plan_text = "学習ジョブを実行する\n" + sample + real + _GOAL_COMPLETE
+    result = _run(
+        tmp_path,
+        branch="pipeline/20260726-foo",
+        plan_name="20260726-foo.md",
+        plan_text=plan_text,
+    )
+    assert result.returncode == 2
+    assert "リソース超過" in result.stderr
+
+
+def test_t32_real_goal_after_sample_invalid_direction(tmp_path: Path) -> None:
+    """T-32: 見本(完備)の後にある本物 goal の direction が不正なら exit 2。
+
+    最初に一致したブロックだけを検査する旧実装は見本の完備 goal だけを見て
+    通してしまう(実測 exit 0)。全ブロックを検査する新実装は後続の本物
+    `direction: down` も見て exit 2 にする。
+    """
+    sample = "```yaml\n" + _GOAL_COMPLETE + "```\n"
+    real = _GOAL_COMPLETE.replace("direction: minimize", "direction: down")
+    plan_text = "学習ジョブを実行する\n" + _COST_COMPLETE + sample + real
+    result = _run(
+        tmp_path,
+        branch="pipeline/20260726-foo",
+        plan_name="20260726-foo.md",
+        plan_text=plan_text,
+    )
+    assert result.returncode == 2
+
+
+def test_t33_real_goal_after_sample_is_empty(tmp_path: Path) -> None:
+    """T-33: 見本の goal だけが完備で、本物の goal 見出しが空なら exit 2。
+
+    最初に一致したブロックだけを検査する旧実装は見本の完備 goal だけを見て
+    通してしまう(実測 exit 0)。全ブロックを検査する新実装は後続の本物の
+    空の `goal:` 見出しも見て、必須5キー欠落により exit 2 にする。
+    """
+    sample = "```yaml\n" + _GOAL_COMPLETE + "```\n"
+    plan_text = "学習ジョブを実行する\n" + _COST_COMPLETE + sample + "goal:\n"
+    result = _run(
+        tmp_path,
+        branch="pipeline/20260726-foo",
+        plan_name="20260726-foo.md",
+        plan_text=plan_text,
+    )
+    assert result.returncode == 2
+
+
+def test_t34_real_blocks_only_inside_fence_still_pass(tmp_path: Path) -> None:
+    """T-34: 見本を伴わず本物の cost_estimate/goal が```yamlフェンス内にあるだけの計画は従来どおり exit 0。
+
+    planner.md の出力例は cost_estimate / goal を```yamlフェンス内に書くため、
+    フェンス領域を除外する方式ではこの形式の本物の計画が全部ブロックされて
+    しまう。全ブロック検査方式ならフェンスの有無に関わらず内容だけで判定する
+    ため、この形式でも壊れないことを確認する(この修正の副作用がないことの証明)。
+    """
+    plan_text = "```yaml\n" + _COMPLETE_PLAN + "```\n"
+    result = _run(
+        tmp_path,
+        branch="pipeline/20260726-foo",
+        plan_name="20260726-foo.md",
+        plan_text=plan_text,
+    )
+    assert result.returncode == 0
+
+
+def test_t35_duplicate_error_across_blocks_deduped(tmp_path: Path) -> None:
+    """T-35: 見本と本物の両方に同じ不備があっても、同一メッセージは1回だけ出る。
+
+    全ブロック検査により見本・本物それぞれから同じエラーが生成されうるため、
+    重複除去(出現順維持)が効いていることを確認する。
+    """
+    cost_missing_train_minutes = (
+        "cost_estimate:\n  epochs: 5\n  dataset_gb: 1\n  parallel_jobs: 1\n"
+    )
+    sample = "```yaml\n" + cost_missing_train_minutes + "```\n"
+    real = cost_missing_train_minutes
+    plan_text = "学習ジョブを実行する\n" + sample + real + _GOAL_COMPLETE
+    result = _run(
+        tmp_path,
+        branch="pipeline/20260726-foo",
+        plan_name="20260726-foo.md",
+        plan_text=plan_text,
+    )
+    assert result.returncode == 2
+    assert result.stderr.count("cost_estimate.train_minutes が未定義です") == 1
