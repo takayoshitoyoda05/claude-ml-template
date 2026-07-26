@@ -10,7 +10,7 @@ fi
 
 echo "=== リモート運用の起動チェック ==="
 
-NOTICE_MARKER="${XDG_STATE_HOME:-$HOME/.local/state}/claude-remote/notice-shown"
+NOTICE_MARKER="${XDG_STATE_HOME:-${HOME:-}/.local/state}/claude-remote/notice-shown"
 if [ -f "$NOTICE_MARKER" ]; then
   echo "ヒント: 初回のみ必要な設定(/config →「Enable Remote Control for all sessions」)がまだなら実施してください。"
 else
