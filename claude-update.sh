@@ -124,5 +124,18 @@ else
   echo "OK: .github/workflows/spec-gate.yml を配置しました"
 fi
 
+# リモート運用の起動スクリプト(claude-remote.*)を配布(常に上書き)
+for f in claude-remote.ps1 claude-remote.sh; do
+  if [ -f "$TMP/$f" ]; then
+    cp "$TMP/$f" "$f"
+    echo "OK: $f を更新しました"
+    if [ "$f" = "claude-remote.sh" ]; then
+      chmod +x "$f" 2>/dev/null || true
+    fi
+  else
+    echo "警告: 配布元に $f が見つかりません(コピーされませんでした)"
+  fi
+done
+
 echo ""
 echo "更新完了(.claude/plans/ と CLAUDE.md は変更されていません)"

@@ -389,6 +389,70 @@ Marketplace未登録なら `/plugin marketplace add anthropics/claude-plugins-of
 前提: Claude Code v2.1.154以降、Dynamic Workflows 有効
 (Pro はデフォルトオフのため /config から有効化)、Python 3.9.6以降、Git。
 
+### リモート運用(スマホ・ブラウザから操作)
+
+Remote Control は Claude Code の公式機能で、PC で動いているローカルセッションに
+スマホやブラウザから接続できる。クラウド実行ではないため、ローカルの
+ファイルシステム・MCP サーバー・このテンプレートの設定がすべてそのまま使える。
+
+#### 初回のみ(マシンごとに1回)
+
+```
+claude
+/config
+```
+→ 「Enable Remote Control for all sessions」を **true** にする。
+
+以降、すべてのセッションが自動的にリモート接続可能になる。
+(この設定は settings.json では配布できないため、マシンごとの手動設定が必要)
+
+「Remote Control is not enabled for your account」と出る場合は、
+Claude Code からログアウト→再ログインで解消する。
+
+#### 日々の起動
+
+```powershell
+.\claude-remote.ps1              # Windows
+```
+```bash
+./claude-remote.sh               # WSL2 / Linux / macOS(tmux があれば自動で使う)
+```
+
+起動は1コマンドで行う(Windows 版はスリープ設定の確認も行う)。セッション名は省略するとディレクトリ名になる。
+
+#### スマホから接続
+
+Claude アプリ → Code タブ → 緑のステータスドットが付いたセッションを選ぶ。
+ブラウザなら claude.ai/code のセッション一覧から選ぶ。
+ターミナル・ブラウザ・スマホのどこから送っても会話が同期される
+(書き込みは1デバイスずつ)。
+
+#### 注意点
+
+| 項目 | 内容 |
+|------|------|
+| PC のスリープ | スリープするとセッションが切れる。`powercfg /change standby-timeout-ac 0`(Windows)で無効化 |
+| ターミナルを閉じる | セッション終了。WSL2 なら tmux 経由(claude-remote.sh が自動対応)で継続可能 |
+| 同時接続 | 1セッションにつきリモート接続は1つ |
+| ネットワーク断 | 自動再接続。約10分以上の断でタイムアウト |
+| 許可ダイアログ | リモート操作中は許可ダイアログがスマホ側に出ず止まることがある。外出時は `CLAUDE_CONTROL_LEVEL=L2` または `L3` を推奨(L1 のステップ承認は対面向き) |
+
+`CLAUDE_CONTROL_LEVEL` の定義は「3.20 自律度レベルと人間のコントロール」の
+「自律度レベル」節を参照。
+
+#### このテンプレートとの組み合わせ
+
+```
+出発前: CLAUDE_CONTROL_LEVEL=L3 で /ml-pipeline を投げる
+  ↓
+移動中: スマホで進捗確認。NEEDS_HUMAN のエスカレーションにその場で回答
+  ↓
+帰宅後: PC で完全レポート(docs/reports/<実行日時>/report.md)を確認してマージ
+```
+
+plan-reviewer の自動承認、notify.py の完了通知、Remote Control を
+組み合わせると「投げて出かけて、判断だけスマホで」の運用になる。
+
 ---
 
 ## 2. 使い方
@@ -1388,6 +1452,7 @@ claude-ml-template/
                                     に加え agents/shared/ の配置、AGENTS.md 生成、.codex/ への連携)
   verify-hooks.ps1 / .sh            フックの自動テスト
   doctor.ps1 / .sh                  テンプレートとの差分確認
+  claude-remote.ps1 / .sh           リモート運用(Remote Control)の起動
   CHANGELOG.md                      変更履歴
   LICENSE                           MIT
   .gitattributes                    改行コード固定(*.sh, *.py を LF に)

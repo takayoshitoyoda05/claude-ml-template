@@ -71,3 +71,37 @@ if [ "$diff_count" -eq 0 ]; then
 else
   echo "$diff_count 件の差分があります。claude-update の実行を検討してください。"
 fi
+
+echo ""
+echo "=== リモート運用(Remote Control)==="
+
+if command -v claude >/dev/null 2>&1; then
+  CLAUDE_VER=$(claude --version 2>/dev/null | head -1 | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
+  if [ -n "$CLAUDE_VER" ]; then
+    # sort -V は GNU coreutils 拡張で macOS/BSD の sort には無いため、POSIX awk で比較する
+    if awk -v a="$CLAUDE_VER" -v b="2.1.51" 'BEGIN{split(a,x,".");split(b,y,".");for(i=1;i<=3;i++){if((x[i]+0)>(y[i]+0))exit 0;if((x[i]+0)<(y[i]+0))exit 1}exit 0}'; then
+      echo "OK: claude $CLAUDE_VER (Remote Control 対応、v2.1.51 以降で利用可)"
+    else
+      echo "警告: claude $CLAUDE_VER は古いバージョンです。Remote Control は v2.1.51 以降が必要です"
+    fi
+  else
+    echo "情報: claude のバージョンを取得できませんでした(Remote Control は v2.1.51 以降で利用可)"
+  fi
+else
+  echo "情報: claude コマンドが見つかりません(Remote Control は v2.1.51 以降で利用可)"
+fi
+
+if [ -f "claude-remote.sh" ]; then
+  echo "OK: claude-remote.sh があります(./claude-remote.sh で起動)"
+else
+  echo "情報: claude-remote.sh がありません。claude-update で取得できます。"
+fi
+
+if command -v tmux >/dev/null 2>&1; then
+  echo "OK: tmux があります(ターミナルを閉じてもセッション継続可)"
+else
+  echo "情報: tmux がありません(sudo apt install tmux で導入可)"
+fi
+
+echo "確認: /config の「Enable Remote Control for all sessions」が true か"
+echo "      (マシン単位の設定。未設定なら毎回 /remote-control が必要です)"

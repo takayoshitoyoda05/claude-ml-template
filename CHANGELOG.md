@@ -70,6 +70,12 @@
   (メインリポジトリ側や他 worktree)への Edit/Write/NotebookEdit 経由の書き込みを
   ブロックする(Bash 経由のリダイレクト・cp 等は対象外の補助線)
 
+### Added(2026-07-26)
+- **リモート運用(Remote Control)のテンプレート組み込み**: 起動スクリプト
+  `claude-remote.ps1` / `.sh`(公式 Remote Control を1コマンド起動。Windows 版は
+  スリープ設定確認つき、WSL2/Linux/macOS 版は tmux があれば自動で使う)を追加。
+  doctor に前提チェックを、claude-init/update に配布を追加
+
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規
   generator に指摘全文を渡す・再レビューは失敗軸のみ、のトークン節約規律を明文化

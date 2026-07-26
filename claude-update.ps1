@@ -128,6 +128,17 @@ try {
         Write-Host "OK: .github/workflows/spec-gate.yml を配置しました"
     }
 
+    # リモート運用の起動スクリプト(claude-remote.*)を配布(常に上書き)
+    foreach ($f in @("claude-remote.ps1", "claude-remote.sh")) {
+        $src = Join-Path $Tmp $f
+        if (Test-Path $src) {
+            Copy-Item $src $f -Force
+            Write-Host "OK: $f を更新しました"
+        } else {
+            Write-Host "警告: 配布元に $f が見つかりません(コピーされませんでした)"
+        }
+    }
+
     Write-Host ""
     Write-Host "更新完了(.claude/plans/ と CLAUDE.md は変更されていません)"
 }

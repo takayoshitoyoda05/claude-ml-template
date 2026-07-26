@@ -134,6 +134,19 @@ else
   echo "OK: .github/workflows/spec-gate.yml を配置しました"
 fi
 
+# リモート運用の起動スクリプト(claude-remote.*)を配置(常に上書き)
+for f in claude-remote.ps1 claude-remote.sh; do
+  if [ -f "$TMP/$f" ]; then
+    cp "$TMP/$f" "$f"
+    echo "OK: $f を配置しました"
+    if [ "$f" = "claude-remote.sh" ]; then
+      chmod +x "$f" 2>/dev/null || true
+    fi
+  else
+    echo "警告: 配布元に $f が見つかりません(コピーされませんでした)"
+  fi
+done
+
 if [ -f CLAUDE.md ]; then
   echo "OK: CLAUDE.md は既存のものを保持します"
 else

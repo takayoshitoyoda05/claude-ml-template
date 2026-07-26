@@ -87,3 +87,36 @@ try {
 finally {
     Remove-Item -Path $Tmp -Recurse -Force
 }
+
+Write-Host ""
+Write-Host "=== リモート運用(Remote Control)==="
+
+# claude のバージョン確認(Remote Control は v2.1.51 以降)
+if (Get-Command "claude" -ErrorAction SilentlyContinue) {
+    $verLine = (claude --version 2>$null | Select-Object -First 1)
+    $verMatch = if ($verLine) { [regex]::Match($verLine, '^\d+\.\d+\.\d+') } else { $null }
+    $parsedVer = $null
+    # 正規表現に一致しても各要素が [version](Int32 範囲)を超えるとキャストが例外を投げるため保護する
+    if ($verMatch -and $verMatch.Success -and [version]::TryParse($verMatch.Value, [ref]$parsedVer)) {
+        $claudeVer = $verMatch.Value
+        if ($parsedVer -ge [version]"2.1.51") {
+            Write-Host "OK: claude $claudeVer (Remote Control 対応、v2.1.51 以降で利用可)"
+        } else {
+            Write-Host "警告: claude $claudeVer は古いバージョンです。Remote Control は v2.1.51 以降が必要です"
+        }
+    } else {
+        Write-Host "情報: claude のバージョンを取得できませんでした(Remote Control は v2.1.51 以降で利用可)"
+    }
+} else {
+    Write-Host "情報: claude コマンドが見つかりません(Remote Control は v2.1.51 以降で利用可)"
+}
+
+# 起動スクリプトの有無
+if (Test-Path "claude-remote.ps1") {
+    Write-Host "OK: claude-remote.ps1 があります(.\claude-remote.ps1 で起動)"
+} else {
+    Write-Host "情報: claude-remote.ps1 がありません。claude-update で取得できます。"
+}
+
+Write-Host "確認: /config の「Enable Remote Control for all sessions」が true か"
+Write-Host "      (マシン単位の設定。未設定なら毎回 /remote-control が必要です)"
