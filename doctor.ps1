@@ -87,3 +87,24 @@ try {
 finally {
     Remove-Item -Path $Tmp -Recurse -Force
 }
+
+Write-Host ""
+Write-Host "=== リモート運用(Remote Control)==="
+
+# claude のバージョン確認(Remote Control は v2.1.51 以降)
+if (Get-Command "claude" -ErrorAction SilentlyContinue) {
+    $ver = (claude --version 2>$null | Select-Object -First 1)
+    if ($ver) {
+        Write-Host "情報: claude $ver (Remote Control は v2.1.51 以降で利用可)"
+    }
+}
+
+# 起動スクリプトの有無
+if (Test-Path "claude-remote.ps1") {
+    Write-Host "OK: claude-remote.ps1 があります(.\claude-remote.ps1 で起動)"
+} else {
+    Write-Host "情報: claude-remote.ps1 がありません。claude-update で取得できます。"
+}
+
+Write-Host "確認: /config の「Enable Remote Control for all sessions」が true か"
+Write-Host "      (マシン単位の設定。未設定なら毎回 /remote-control が必要です)"

@@ -71,3 +71,25 @@ if [ "$diff_count" -eq 0 ]; then
 else
   echo "$diff_count 件の差分があります。claude-update の実行を検討してください。"
 fi
+
+echo ""
+echo "=== リモート運用(Remote Control)==="
+
+if command -v claude >/dev/null 2>&1; then
+  echo "情報: claude $(claude --version 2>/dev/null | head -1) (Remote Control は v2.1.51 以降で利用可)"
+fi
+
+if [ -f "claude-remote.sh" ]; then
+  echo "OK: claude-remote.sh があります(./claude-remote.sh で起動)"
+else
+  echo "情報: claude-remote.sh がありません。claude-update で取得できます。"
+fi
+
+if command -v tmux >/dev/null 2>&1; then
+  echo "OK: tmux があります(ターミナルを閉じてもセッション継続可)"
+else
+  echo "情報: tmux がありません(sudo apt install tmux で導入可)"
+fi
+
+echo "確認: /config の「Enable Remote Control for all sessions」が true か"
+echo "      (マシン単位の設定。未設定なら毎回 /remote-control が必要です)"
