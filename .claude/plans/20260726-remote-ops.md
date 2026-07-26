@@ -209,22 +209,28 @@ grep -c $'\r' claude-remote.sh || true
 #    Windows 側のパスは wslpath -w で組み立てる。`\\wsl.localhost\Ubuntu\...` を直書きすると
 #    ディストリ登録名が Ubuntu 以外(Ubuntu-24.04 等)の環境で壊れるため使わない。
 #    WSL 以外(素の Linux / macOS)では検査できないので、黙って失敗させずスキップを表示する。
-if command -v wslpath >/dev/null 2>&1 && command -v powershell.exe >/dev/null 2>&1; then
-  REPO_WIN=$(wslpath -w "$PWD")
+#    パスを PowerShell の単一引用符文字列へ埋めるので、`'` を `''` にエスケープしてから渡す
+#    (未エスケープだと `'` を含むパスで ParserError: TerminatorExpectedAtEndOfString。実測で確認済み)。
+#    wslpath は「コマンドの存在」だけでなく「変換が成功し結果が非空」まで確かめる。
+if command -v wslpath >/dev/null 2>&1 && command -v powershell.exe >/dev/null 2>&1 \
+   && REPO_WIN=$(wslpath -w "$PWD" 2>/dev/null) && [ -n "$REPO_WIN" ]; then
+  REPO_WIN_PS=${REPO_WIN//\'/\'\'}
   for f in claude-remote.ps1 doctor.ps1 claude-init.ps1 claude-update.ps1 verify-hooks.ps1; do
     printf "%s: " "$f"
-    powershell.exe -NoProfile -Command "\$e=\$null; [void][System.Management.Automation.Language.Parser]::ParseFile('$REPO_WIN\\$f', [ref]\$null, [ref]\$e); if(\$e){\$e.Count}else{'0'}"
+    powershell.exe -NoProfile -Command "\$e=\$null; [void][System.Management.Automation.Language.Parser]::ParseFile('$REPO_WIN_PS\\$f', [ref]\$null, [ref]\$e); if(\$e){\$e.Count}else{'0'}"
   done
 else
-  echo "SKIP: wslpath / powershell.exe が無い環境です。.ps1 の構文検査は Windows 側で行うこと"
+  echo "SKIP: wslpath / powershell.exe が無い、または Windows パスへの変換に失敗しました。.ps1 の構文検査は Windows 側で行うこと"
 fi
 
 # 5. BOM(期待: 5行すべて efbbbf)
 for f in claude-remote.ps1 doctor.ps1 claude-init.ps1 claude-update.ps1 verify-hooks.ps1; do printf "%s: " "$f"; head -c 3 "$f" | xxd -p; done
 
 # 6. 起動コマンドが設計書どおりのサブコマンド形であること
-#    (期待: 前半は claude-remote.sh に2件・claude-remote.ps1 に1件、後半は OK 行)
+#    期待: claude-remote.sh=2(tmux 経由と直接起動)、claude-remote.ps1=1。
+#    合計ではなく**ファイルごとの件数**を見る(合計だと片方が 0 でも通ってしまう)。
 grep -nE "claude remote-control --name" claude-remote.sh claude-remote.ps1
+for f in claude-remote.sh claude-remote.ps1; do printf "%s: %s\n" "$f" "$(grep -cE "claude remote-control --name" "$f")"; done
 # フラグ形(claude --remote-control)は別機能なので使っていないこと(期待: OK 行)
 ! grep -nE "claude[[:space:]]+--remote-control" claude-remote.sh claude-remote.ps1 doctor.sh doctor.ps1 README.md && echo "OK: フラグ形は使っていない"
 
@@ -276,10 +282,11 @@ printf 'x\n' > "$SB/proj/claude-remote.sh"; chmod 644 "$SB/proj/claude-remote.sh
 #     WSL 側の grep が件数を返さない(実測で確認済み)。
 SB2=$(mktemp -d); mkdir -p "$SB2/proj" "$SB2/tmpl"
 printf 'x\n' > "$SB2/tmpl/claude-remote.ps1"; printf 'x\n' > "$SB2/tmpl/claude-remote.sh"
-if command -v wslpath >/dev/null 2>&1 && command -v powershell.exe >/dev/null 2>&1; then
-  WIN_SB=$(wslpath -w "$SB2")
+if command -v wslpath >/dev/null 2>&1 && command -v powershell.exe >/dev/null 2>&1 \
+   && WIN_SB=$(wslpath -w "$SB2" 2>/dev/null) && [ -n "$WIN_SB" ]; then
+  WIN_SB_PS=${WIN_SB//\'/\'\'}   # PowerShell の単一引用符文字列用にエスケープ(検証4 と同じ理由)
   PS_BLOCK="foreach (\$f in @('claude-remote.ps1','claude-remote.sh')) { \$src = Join-Path \$Tmp \$f; if (Test-Path \$src) { Copy-Item \$src \$f -Force; Write-Host \"OK: \$f を更新しました\" } }"
-  PS_HEAD="[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Set-Location '$WIN_SB\\proj'; \$Tmp='$WIN_SB\\tmpl'; "
+  PS_HEAD="[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Set-Location '$WIN_SB_PS\\proj'; \$Tmp='$WIN_SB_PS\\tmpl'; "
   # (i) 両方ある場合(期待: 2)
   powershell.exe -NoProfile -Command "$PS_HEAD$PS_BLOCK" 2>&1 | grep -c '^OK:'
   # (ii) 片方だけ存在する場合(期待: 1)
@@ -287,7 +294,7 @@ if command -v wslpath >/dev/null 2>&1 && command -v powershell.exe >/dev/null 2>
   powershell.exe -NoProfile -Command "$PS_HEAD$PS_BLOCK" 2>&1 | grep -c '^OK:'
   ls -1 "$SB2/proj"   # 期待: claude-remote.sh のみ
 else
-  echo "SKIP: wslpath / powershell.exe が無い環境です。ps1 の配布ブロックは Windows 側で検証すること"
+  echo "SKIP: wslpath / powershell.exe が無い、または Windows パスへの変換に失敗しました。ps1 の配布ブロックは Windows 側で検証すること"
 fi
 
 # 10. README / CHANGELOG(期待: すべて1件以上)
