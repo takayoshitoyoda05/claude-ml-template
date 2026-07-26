@@ -94,6 +94,11 @@ def _extract_block(text: str, key: str) -> str | None:
     最初に一致した見出し行を採用し、以降インデントが見出し行以下の非空行に
     達するまでを本文とする(空行は本文として継続。コードフェンス行は
     インデント0なので終端になる)。
+
+    invariants.md の resources ブロック専用(最初の1件のみでよい): invariants.md
+    は保護パスでユーザーしか編集できず、計画のような見本混在は想定されない
+    ため、複数ブロックへの対応は不要と判断した。計画側の cost_estimate /
+    goal ブロックの検査には全件を返す `_extract_blocks` を使う。
     """
     header_re = re.compile(rf"^(\s*){key}\s*:\s*(?:#.*)?$")
     lines = text.splitlines()
@@ -117,6 +122,51 @@ def _extract_block(text: str, key: str) -> str | None:
             break
         body.append(line)
     return "\n".join(body)
+
+
+def _extract_blocks(text: str, key: str) -> list[str]:
+    """`<key>:` ブロックの本文をすべて抽出する(抽出規則は `_extract_block` と同一)。
+
+    計画に書き方の見本(```yaml フェンス内など)が本物より前にあると、
+    最初の1件だけを検査する実装では見本しか見られず本物のブロックが
+    ノーチェックで通ってしまう(fail-closed の趣旨を無効化するバグ)。
+    このため一致した全ブロックを返し、呼び出し側で全件を検査する。
+
+    ブロックを1件確定するたびに本文の終端まで一気に走査位置を進めると、
+    本文の中により深いインデントで同じキーが入れ子になっている場合
+    (例: 上限内の外側ブロックの内側に上限超過の本物を隠す)にそれを
+    見逃してしまうため、確定後は1行だけ進めて全ての見出し行を独立に
+    走査する。これによりブロックが重なって二重に抽出されることがあるが、
+    同一エラーメッセージは呼び出し側(main の重複除去)で1件に集約される
+    ため実害はない。
+    """
+    header_re = re.compile(rf"^(\s*){key}\s*:\s*(?:#.*)?$")
+    lines = text.splitlines()
+    blocks: list[str] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        m = header_re.match(lines[i])
+        if m is None:
+            i += 1
+            continue
+        header_indent = len(m.group(1))
+        body: list[str] = []
+        j = i + 1
+        while j < n:
+            line = lines[j]
+            if line.strip() == "":
+                body.append(line)
+                j += 1
+                continue
+            indent = len(line) - len(line.lstrip())
+            if indent <= header_indent:
+                break
+            body.append(line)
+            j += 1
+        blocks.append("\n".join(body))
+        i += 1
+    return blocks
 
 
 def _read_number(block: str, key: str) -> tuple[bool, float | None]:
@@ -146,6 +196,9 @@ def _read_number(block: str, key: str) -> tuple[bool, float | None]:
 def _validate_cost_estimate(plan: str, escape_hint: str) -> list[str]:
     """cost_estimate ブロックの必須4キー・値を検査する(C1-C3)。
 
+    計画に見本ブロックが混在していても本物が見逃されないよう、一致した
+    全ブロック(`_extract_blocks`)をそれぞれ検査する。
+
     Args:
         plan: 計画ファイルの全文。
         escape_hint: `experiment: false` の案内文言(未定義系エラーに付与)。
@@ -153,20 +206,21 @@ def _validate_cost_estimate(plan: str, escape_hint: str) -> list[str]:
     Returns:
         検出したエラーメッセージのリスト。問題が無ければ空リスト。
     """
-    cost_block = _extract_block(plan, "cost_estimate")
-    if cost_block is None:
+    cost_blocks = _extract_blocks(plan, "cost_estimate")
+    if not cost_blocks:
         return [f"cost_estimate ブロックが未定義です{escape_hint}"]
 
     errors: list[str] = []
-    for key in COST_KEYS:
-        found, value = _read_number(cost_block, key)
-        if not found:
-            errors.append(f"cost_estimate.{key} が未定義です{escape_hint}")
-        elif value is None:
-            errors.append(
-                f"cost_estimate.{key} の値が非負の十進数として読めません"
-                f"{escape_hint}"
-            )
+    for cost_block in cost_blocks:
+        for key in COST_KEYS:
+            found, value = _read_number(cost_block, key)
+            if not found:
+                errors.append(f"cost_estimate.{key} が未定義です{escape_hint}")
+            elif value is None:
+                errors.append(
+                    f"cost_estimate.{key} の値が非負の十進数として読めません"
+                    f"{escape_hint}"
+                )
     return errors
 
 
@@ -177,7 +231,7 @@ def _validate_goal_ranges(goal_block: str) -> list[str]:
     値域チェック(C7-C8)を1関数にまとめると複雑度が閾値を超えるため。
 
     Args:
-        goal_block: `_extract_block(plan, "goal")` で抽出した goal ブロックの本文。
+        goal_block: `_extract_blocks(plan, "goal")` で抽出した goal ブロック1件分の本文。
 
     Returns:
         検出したエラーメッセージのリスト。問題が無ければ空リスト。
@@ -215,6 +269,9 @@ def _validate_goal_ranges(goal_block: str) -> list[str]:
 def _validate_goal(plan: str, escape_hint: str) -> list[str]:
     """goal ブロックの必須5キー・値を検査する(C4-C6)。値域は _validate_goal_ranges に委譲する。
 
+    計画に見本ブロックが混在していても本物が見逃されないよう、一致した
+    全ブロック(`_extract_blocks`)をそれぞれ検査する。
+
     Args:
         plan: 計画ファイルの全文。
         escape_hint: `experiment: false` の案内文言(goal 未定義エラーに付与)。
@@ -222,8 +279,8 @@ def _validate_goal(plan: str, escape_hint: str) -> list[str]:
     Returns:
         検出したエラーメッセージのリスト。問題が無ければ空リスト。
     """
-    goal_block = _extract_block(plan, "goal")
-    if goal_block is None:
+    goal_blocks = _extract_blocks(plan, "goal")
+    if not goal_blocks:
         return [
             (
                 "goal が未定義です。metric / target / direction / baseline / "
@@ -232,16 +289,17 @@ def _validate_goal(plan: str, escape_hint: str) -> list[str]:
         ]
 
     errors: list[str] = []
-    for key in GOAL_KEYS:
-        if not re.search(rf"^\s*{key}\s*:", goal_block, re.MULTILINE):
-            errors.append(f"goal.{key} が未定義です。")
+    for goal_block in goal_blocks:
+        for key in GOAL_KEYS:
+            if not re.search(rf"^\s*{key}\s*:", goal_block, re.MULTILINE):
+                errors.append(f"goal.{key} が未定義です。")
 
-    for key in ("target", "baseline"):
-        found, value = _read_number(goal_block, key)
-        if found and value is None:
-            errors.append(f"goal.{key} の値が非負の十進数として読めません。")
+        for key in ("target", "baseline"):
+            found, value = _read_number(goal_block, key)
+            if found and value is None:
+                errors.append(f"goal.{key} の値が非負の十進数として読めません。")
 
-    errors.extend(_validate_goal_ranges(goal_block))
+        errors.extend(_validate_goal_ranges(goal_block))
     return errors
 
 
@@ -252,6 +310,12 @@ def _validate_resource_limits(plan: str) -> list[str]:
     cost_estimate ブロックが無い場合は比較自体をスキップする(計画側の必須
     キー検査は `_validate_cost_estimate` が別途担うため、ここでは責務を
     分けて独立に読み直す。OSError で例外終了しないようにする)。
+
+    計画側の cost_estimate は一致した全ブロック(`_extract_blocks`)を比較
+    対象にする(見本ブロックの陰で本物の超過が見逃されないようにするため)。
+    invariants.md 側の resources は現行どおり最初の1件のみを見る
+    (invariants.md は保護パスでユーザーしか編集できず、見本が混ざる状況が
+    想定されないため)。
 
     Args:
         plan: 計画ファイルの全文。
@@ -268,7 +332,7 @@ def _validate_resource_limits(plan: str) -> list[str]:
     if resources_block is None:
         return []
 
-    cost_block = _extract_block(plan, "cost_estimate")
+    cost_blocks = _extract_blocks(plan, "cost_estimate")
     errors: list[str] = []
     for limit_key, est_key in LIMIT_KEYS:
         limit_found, limit_value = _read_number(resources_block, limit_key)
@@ -279,15 +343,14 @@ def _validate_resource_limits(plan: str) -> list[str]:
                 f"invariants の {limit_key} が非負の十進数として読めません。"
             )
             continue
-        if cost_block is None:
-            continue
-        est_found, est_value = _read_number(cost_block, est_key)
-        if est_found and est_value is not None and est_value > limit_value:
-            errors.append(
-                f"リソース超過: {est_key}={est_value} が上限 "
-                f"{limit_key}={limit_value} を超えています。計画を分割するか、"
-                "ユーザーに上限引き上げを相談してください。"
-            )
+        for cost_block in cost_blocks:
+            est_found, est_value = _read_number(cost_block, est_key)
+            if est_found and est_value is not None and est_value > limit_value:
+                errors.append(
+                    f"リソース超過: {est_key}={est_value} が上限 "
+                    f"{limit_key}={limit_value} を超えています。計画を分割するか、"
+                    "ユーザーに上限引き上げを相談してください。"
+                )
     return errors
 
 
@@ -327,6 +390,16 @@ def main() -> None:
     errors.extend(_validate_cost_estimate(plan, escape_hint))
     errors.extend(_validate_goal(plan, escape_hint))
     errors.extend(_validate_resource_limits(plan))
+
+    # 見本ブロックと本物ブロックが同じ不備を持つ場合、全ブロック検査により
+    # 同一メッセージが重複しうるため、出現順を保ったまま重複を除く
+    seen: set[str] = set()
+    deduped_errors: list[str] = []
+    for error in errors:
+        if error not in seen:
+            seen.add(error)
+            deduped_errors.append(error)
+    errors = deduped_errors
 
     if errors:
         print(
