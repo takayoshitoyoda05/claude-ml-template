@@ -78,7 +78,8 @@ echo "=== リモート運用(Remote Control)==="
 if command -v claude >/dev/null 2>&1; then
   CLAUDE_VER=$(claude --version 2>/dev/null | head -1 | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
   if [ -n "$CLAUDE_VER" ]; then
-    if [ "$(printf '%s\n%s\n' "$CLAUDE_VER" "2.1.51" | sort -V | tail -n1)" = "$CLAUDE_VER" ]; then
+    # sort -V は GNU coreutils 拡張で macOS/BSD の sort には無いため、POSIX awk で比較する
+    if awk -v a="$CLAUDE_VER" -v b="2.1.51" 'BEGIN{split(a,x,".");split(b,y,".");for(i=1;i<=3;i++){if((x[i]+0)>(y[i]+0))exit 0;if((x[i]+0)<(y[i]+0))exit 1}exit 0}'; then
       echo "OK: claude $CLAUDE_VER (Remote Control 対応、v2.1.51 以降で利用可)"
     else
       echo "警告: claude $CLAUDE_VER は古いバージョンです。Remote Control は v2.1.51 以降が必要です"

@@ -95,9 +95,11 @@ Write-Host "=== リモート運用(Remote Control)==="
 if (Get-Command "claude" -ErrorAction SilentlyContinue) {
     $verLine = (claude --version 2>$null | Select-Object -First 1)
     $verMatch = if ($verLine) { [regex]::Match($verLine, '^\d+\.\d+\.\d+') } else { $null }
-    if ($verMatch -and $verMatch.Success) {
+    $parsedVer = $null
+    # 正規表現に一致しても各要素が [version](Int32 範囲)を超えるとキャストが例外を投げるため保護する
+    if ($verMatch -and $verMatch.Success -and [version]::TryParse($verMatch.Value, [ref]$parsedVer)) {
         $claudeVer = $verMatch.Value
-        if ([version]$claudeVer -ge [version]"2.1.51") {
+        if ($parsedVer -ge [version]"2.1.51") {
             Write-Host "OK: claude $claudeVer (Remote Control 対応、v2.1.51 以降で利用可)"
         } else {
             Write-Host "警告: claude $claudeVer は古いバージョンです。Remote Control は v2.1.51 以降が必要です"
