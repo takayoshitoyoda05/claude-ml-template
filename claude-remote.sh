@@ -10,8 +10,9 @@ fi
 
 echo "=== リモート運用の起動チェック ==="
 
-NOTICE_MARKER="${XDG_STATE_HOME:-${HOME:-}/.local/state}/claude-remote/notice-shown"
-if [ -f "$NOTICE_MARKER" ]; then
+NOTICE_STATE_DIR="${XDG_STATE_HOME:-${HOME:+$HOME/.local/state}}"
+NOTICE_MARKER="${NOTICE_STATE_DIR:+$NOTICE_STATE_DIR/claude-remote/notice-shown}"
+if [ -n "$NOTICE_MARKER" ] && [ -f "$NOTICE_MARKER" ]; then
   echo "ヒント: 初回のみ必要な設定(/config →「Enable Remote Control for all sessions」)がまだなら実施してください。"
 else
   echo ""
@@ -20,7 +21,9 @@ else
   echo "  「Enable Remote Control for all sessions」を true にしてください。"
   echo "  (この設定はマシン単位。1度設定すれば以降は不要です)"
   echo ""
-  mkdir -p "$(dirname "$NOTICE_MARKER")" 2>/dev/null && touch "$NOTICE_MARKER" 2>/dev/null || true
+  if [ -n "$NOTICE_MARKER" ]; then
+    mkdir -p "$(dirname "$NOTICE_MARKER")" 2>/dev/null && touch "$NOTICE_MARKER" 2>/dev/null || true
+  fi
 fi
 
 if command -v tmux >/dev/null 2>&1; then

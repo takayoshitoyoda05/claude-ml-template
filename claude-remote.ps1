@@ -35,7 +35,7 @@ $NoticeMarker = $null
 try {
     $NoticeMarker = Join-Path $env:LOCALAPPDATA "claude-remote\notice-shown"
 } catch {}
-if ($NoticeMarker -and (Test-Path $NoticeMarker -ErrorAction SilentlyContinue)) {
+if ($NoticeMarker -and (Test-Path $NoticeMarker -PathType Leaf -ErrorAction SilentlyContinue)) {
     Write-Host "ヒント: 初回のみ必要な設定(/config →「Enable Remote Control for all sessions」)がまだなら実施してください。"
 } else {
     Write-Host ""
