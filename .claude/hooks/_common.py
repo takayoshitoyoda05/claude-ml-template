@@ -273,8 +273,11 @@ def repo_state_signature(extra):
             ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
         ).stdout
-        diff = subprocess.run(
-            ["git", "diff", "HEAD"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+        # ハッシュ化にデコードは不要。text 指定を外して bytes のまま扱う
+        # (errors="replace" で潰すと、異なる変更が同じ U+FFFD 列になって
+        # 同一ハッシュになり、キャッシュを誤って再利用しうる)
+        diff_bytes = subprocess.run(
+            ["git", "diff", "HEAD"], capture_output=True, timeout=30,
         ).stdout
     except Exception:
         return None
@@ -289,6 +292,6 @@ def repo_state_signature(extra):
                 untracked_meta.append(f"{path}:{st.st_size}:{st.st_mtime_ns}")
             except OSError:
                 untracked_meta.append(f"{path}:gone")
-    diff_hash = hashlib.sha256(diff.encode("utf-8", "replace")).hexdigest()
+    diff_hash = hashlib.sha256(diff_bytes).hexdigest()
     raw = f"{extra}\n{head}\n{status}\n{diff_hash}\n" + "\n".join(untracked_meta)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
