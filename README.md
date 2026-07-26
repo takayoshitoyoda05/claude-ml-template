@@ -253,6 +253,10 @@ Stop フックと CI で「全要件PASS+承認+独立監査」を機械検査�
 `.claude/spec/` はローカル運用のため `.gitignore` に `**/.claude/spec/` として自動追加される
 (`CLAUDE_WORK_SCOPE` 設定時は作業スコープ配下の `.claude/spec/` が使われるため、任意の深さを除外)。
 verdict/audit/approvals/design_hashes はコミット対象外で、CI は auto要件の再実行と coverage 検査のみで判定する。
+ただしこの除外は `claude-init` / `claude-update` が**下流プロジェクトの** `.gitignore` に追加するものであり、
+テンプレート本体のリポジトリには入っていない(自分自身にインストーラを走らせないため)。
+テンプレート本体では verdict をテンプレート自身の開発記録としてコミットする運用にしている
+(`.claude/spec/verdict-*.md` が追跡済み)。
 
 ### 計画の自動承認(plan-reviewer)
 
