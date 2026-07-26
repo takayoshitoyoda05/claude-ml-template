@@ -111,6 +111,7 @@ Remote Control(PC のローカルセッションにスマホ・ブラウザか�
 | D-6 | `docs/reports/<日時>/report.md`(L313) | `docs/reports/<実行日時>/report.md` | README L1114 の既存表記に合わせる |
 | D-7 | 一括ステージ(L354)/ `git rm docs/drafts/remote-ops-spec.md`(L362) | 実装範囲に含めない(「完了後のユーザー操作」参照) | 前者は guard_bash がブロック、後者は docs/ が git 管理外で実行不能 |
 | D-8 | sh 版の `chmod +x claude-remote.sh 2>/dev/null \|\| true` をループ外で無条件に実行(L248) | `claude-remote.sh` をコピーできた分岐の中でだけ実行する | 無条件だと配布元に .sh が無い場合でも配置先の既存同名ファイルの権限を変える。実測: 配置先の 644 が 755 になった(Codex クロスレビューの指摘) |
+| D-9 | `exec tmux new -s "$SESSION" "claude remote-control --name '$NAME'"`(L146。コマンドを1つの文字列で渡す) | `exec tmux new -s "$SESSION" claude remote-control --name "$NAME"`(引数配列で渡す) | 名前は既定でディレクトリ名になるため、`it's-project` のようにシングルクォートを含むと引用符が閉じず壊れる(リーダーが shlex で実測: `No closing quotation`)。tmux は複数語を受け取るとシェルを介さず execvp に渡すため、引数配列形なら特殊文字を含む名前も1つの引数として届く(Standards 軸が tmux 3.6 の隔離ソケットで実機確認)。**この逸脱は実装後に判明したもので、当初は「共通文字列の固定」表に設計書の形が載っていた。表も本行に合わせて更新済み** |
 
 ## 共通文字列の固定(全群が同一文字列を書く。並列実行時のドリフト防止)
 
@@ -119,7 +120,7 @@ Remote Control(PC のローカルセッションにスマホ・ブラウザか�
 | 用途 | 固定文字列 |
 |------|-----------|
 | 起動コマンド(sh 直接) | `exec claude remote-control --name "$NAME"` |
-| 起動コマンド(sh・tmux 経由) | `exec tmux new -s "$SESSION" "claude remote-control --name '$NAME'"` |
+| 起動コマンド(sh・tmux 経由) | `exec tmux new -s "$SESSION" claude remote-control --name "$NAME"`(D-9 で修正。設計書の1引数形は名前にシングルクォートが入ると壊れる) |
 | 起動コマンド(ps1) | `claude remote-control --name "$Name"` |
 | doctor の見出し | `=== リモート運用(Remote Control)===` |
 | doctor の確認行 | `確認: /config の「Enable Remote Control for all sessions」が true か` |
@@ -233,6 +234,11 @@ grep -nE "claude remote-control --name" claude-remote.sh claude-remote.ps1
 for f in claude-remote.sh claude-remote.ps1; do printf "%s: %s\n" "$f" "$(grep -cE "claude remote-control --name" "$f")"; done
 # フラグ形(claude --remote-control)は別機能なので使っていないこと(期待: OK 行)
 ! grep -nE "claude[[:space:]]+--remote-control" claude-remote.sh claude-remote.ps1 doctor.sh doctor.ps1 README.md && echo "OK: フラグ形は使っていない"
+# tmux 経由は引数配列形であること(D-9)。部分一致では1引数形との差を検出できないため、
+# 設計書の1引数形(コマンド全体を引用符で囲む形)が残っていないことを別に確かめる。
+# 期待: 前半が1件、後半が OK 行
+grep -nE '^\s*exec tmux new -s "\$SESSION" claude remote-control --name "\$NAME"$' claude-remote.sh
+! grep -nE 'tmux new .*"claude remote-control' claude-remote.sh && echo "OK: 1引数形は残っていない"
 
 # 7. doctor の追記(期待: 2ファイルとも1件以上、diff は空)
 grep -c "Remote Control" doctor.sh doctor.ps1
