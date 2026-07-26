@@ -714,3 +714,91 @@ def test_t35_duplicate_error_across_blocks_deduped(tmp_path: Path) -> None:
     )
     assert result.returncode == 2
     assert result.stderr.count("cost_estimate.train_minutes が未定義です") == 1
+
+
+def test_t36_nested_cost_estimate_over_limit_detected(tmp_path: Path) -> None:
+    """T-36: 外側 cost_estimate が上限内でも、内側に入れ子の本物が上限超過なら exit 2。
+
+    ブロック確定後に本文の終端まで走査位置を飛ばす実装は、内側により深い
+    インデントで入れ子になった同名ブロックを取りこぼす(実測 exit 0)。
+    1行ずつ走査する修正版は入れ子のブロックも独立に検査して exit 2 にする。
+    """
+    plan_text = (
+        "学習ジョブを実行する\n"
+        "cost_estimate:\n"
+        "  train_minutes: 30\n"
+        "  epochs: 10\n"
+        "  dataset_gb: 1\n"
+        "  parallel_jobs: 1\n"
+        "  詳細:\n"
+        "    cost_estimate:\n"
+        "      train_minutes: 9999\n"
+        "      epochs: 10\n"
+        "      dataset_gb: 1\n"
+        "      parallel_jobs: 1\n"
+    ) + _GOAL_COMPLETE
+    result = _run(
+        tmp_path,
+        branch="pipeline/20260726-foo",
+        plan_name="20260726-foo.md",
+        plan_text=plan_text,
+    )
+    assert result.returncode == 2
+    assert "リソース超過" in result.stderr
+
+
+def test_t37_nested_goal_invalid_direction_detected(tmp_path: Path) -> None:
+    """T-37: 外側 goal が正常でも、内側に入れ子の本物で direction が不正なら exit 2。
+
+    ブロック確定後に本文の終端まで走査位置を飛ばす実装は、内側により深い
+    インデントで入れ子になった同名ブロックを取りこぼす(実測 exit 0)。
+    1行ずつ走査する修正版は入れ子のブロックも独立に検査して exit 2 にする。
+    """
+    plan_text = (
+        "学習ジョブを実行する\n" + _COST_COMPLETE + "goal:\n"
+        "  metric: rmse\n"
+        "  target: 0.15\n"
+        "  direction: minimize\n"
+        "  baseline: 0.21\n"
+        "  guard_metrics: []\n"
+        "  詳細:\n"
+        "    goal:\n"
+        "      metric: rmse\n"
+        "      target: 0.15\n"
+        "      direction: down\n"
+        "      baseline: 0.21\n"
+        "      guard_metrics: []\n"
+    )
+    result = _run(
+        tmp_path,
+        branch="pipeline/20260726-foo",
+        plan_name="20260726-foo.md",
+        plan_text=plan_text,
+    )
+    assert result.returncode == 2
+
+
+def test_t38_consecutive_empty_then_eof_block_both_extracted(tmp_path: Path) -> None:
+    """T-38: 空ブロックの直後に続くブロックと、EOFで終わる複数ブロックが両方とも抽出される。
+
+    先頭の空 `cost_estimate:`(直後に次の見出しが続くため本文0行)と、
+    ファイル末尾でそのまま終わる本物の `cost_estimate:` の両方が独立に
+    検査されることを、両方の由来のエラーメッセージが出ることで確認する。
+    """
+    plan_text = (
+        "学習ジョブを実行する\n" + _GOAL_COMPLETE + "cost_estimate:\n"
+        "cost_estimate:\n"
+        "  train_minutes: 9999\n"
+        "  epochs: 5\n"
+        "  dataset_gb: 1\n"
+        "  parallel_jobs: 1\n"
+    )
+    result = _run(
+        tmp_path,
+        branch="pipeline/20260726-foo",
+        plan_name="20260726-foo.md",
+        plan_text=plan_text,
+    )
+    assert result.returncode == 2
+    assert "cost_estimate.train_minutes が未定義です" in result.stderr
+    assert "リソース超過" in result.stderr
