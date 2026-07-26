@@ -94,8 +94,11 @@ Test-Hook "guard_bash: sed -i on hook is blocked" '{"tool_input":{"command":"sed
 # guard_bash はスコープ判定に tempfile.gettempdir() の例外を持つため、リポジトリが
 # 一時ディレクトリ配下にあると ../other-project も「許可」と判定されてこのケースだけ
 # 必ず落ちる(実測)。テスト側の環境依存なので、その場合はスキップする。
-$TmpRoot = [System.IO.Path]::GetTempPath().TrimEnd('\', '/')
-if ((Get-Location).Path.StartsWith($TmpRoot, [StringComparison]::OrdinalIgnoreCase)) {
+# 末尾に区切り文字を付けて比較する。付けないと Temp が C:\Temp のとき
+# C:\Temporary\repo までスキップ扱いになる(sh 側の "$TMP_ROOT"/* は
+# 区切りを要求するため、付けないと1対1対応が崩れる)
+$TmpRoot = [System.IO.Path]::GetTempPath().TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+if (((Get-Location).Path.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar).StartsWith($TmpRoot, [StringComparison]::OrdinalIgnoreCase)) {
     Write-Host "SKIP: guard_bash: rm -rf relative out-of-scope is blocked(リポジトリが一時ディレクトリ配下のため)"
 } else {
     Test-Hook "guard_bash: rm -rf relative out-of-scope is blocked" '{"tool_input":{"command":"rm -rf ../other-project"}}' ".claude\hooks\guard_bash.py" 2
