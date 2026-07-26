@@ -19,3 +19,8 @@ paths:
   実行側の tee(logs/runs/)が一元的に担う — 二重ログを避ける責務分離。
   修正 2026-07-24)。
   進捗・ハイパーパラメータ・環境情報(seed, デバイス)は必ずログに残す
+- 「例外で終了しない」契約を持つスクリプト(フック・ゲート・CLI)では、捕捉する
+  例外に `OSError` だけでは不足する。ファイル読み取りは `(OSError, UnicodeError)`、
+  `subprocess` は `(OSError, subprocess.TimeoutExpired, UnicodeError)` を捕捉する。
+  `UnicodeDecodeError` は `ValueError` のサブクラスであり `OSError` では捕まらない
+  (通常のライブラリ・実験コードでの例外の握りつぶしは従来どおり避ける)
