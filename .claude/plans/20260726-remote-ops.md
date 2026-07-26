@@ -112,7 +112,7 @@ Remote Control(PC のローカルセッションにスマホ・ブラウザか�
 | D-7 | 一括ステージ(L354)/ `git rm docs/drafts/remote-ops-spec.md`(L362) | 実装範囲に含めない(「完了後のユーザー操作」参照) | 前者は guard_bash がブロック、後者は docs/ が git 管理外で実行不能 |
 | D-8 | sh 版の `chmod +x claude-remote.sh 2>/dev/null \|\| true` をループ外で無条件に実行(L248) | `claude-remote.sh` をコピーできた分岐の中でだけ実行する | 無条件だと配布元に .sh が無い場合でも配置先の既存同名ファイルの権限を変える。実測: 配置先の 644 が 755 になった(Codex クロスレビューの指摘) |
 | D-9 | `exec tmux new -s "$SESSION" "claude remote-control --name '$NAME'"`(L146。コマンドを1つの文字列で渡す) | `exec tmux new -s "$SESSION" claude remote-control --name "$NAME"`(引数配列で渡す) | 名前は既定でディレクトリ名になるため、`it's-project` のようにシングルクォートを含むと引用符が閉じず壊れる(リーダーが shlex で実測: `No closing quotation`)。tmux は複数語を受け取るとシェルを介さず execvp に渡すため、引数配列形なら特殊文字を含む名前も1つの引数として届く(Standards 軸が tmux 3.6 の隔離ソケットで実機確認)。**この逸脱は実装後に判明したもので、当初は「共通文字列の固定」表に設計書の形が載っていた。表も本行に合わせて更新済み** |
-| D-10 | 起動スクリプトは毎回「初回のみ必要な設定」の全文を表示する(設計書 S2/S3) | マシン単位のマーカーファイルが無いときだけ全文を表示し、表示後にマーカーを作る。2回目以降は上表の1行ヒントに縮める | ユーザーの追加要望(実装後)。トグルの状態は検出不能なため「案内を出したか」を自前で記録する。実測: `~/.claude.json` のトップレベル56キーを `enable\|toggle\|setting\|config\|session\|control` で検索しても該当なし、関連キーは `remoteControlUpsellSeenCount`(表示回数)と `tipLifetimeShownCounts.remote-control` のみで、有効/無効を示すキーは無い。マーカーは sh=`${XDG_STATE_HOME:-${HOME:-}/.local/state}/claude-remote/notice-shown`、ps1=`$env:LOCALAPPDATA\claude-remote\notice-shown`(`~/.claude/` は Claude Code 本体の管理領域なので避ける)。**マーカーの作成失敗・パス計算失敗で起動を妨げないこと**(sh は `set -u` 下なので `${HOME:-}` で保護、ps1 は `Join-Path` を try/catch で保護) |
+| D-10 | 起動スクリプトは毎回「初回のみ必要な設定」の全文を表示する(設計書 S2/S3) | マシン単位のマーカーファイルが無いときだけ全文を表示し、表示後にマーカーを作る。2回目以降は上表の1行ヒントに縮める | ユーザーの追加要望(実装後)。トグルの状態は検出不能なため「案内を出したか」を自前で記録する。実測: `~/.claude.json` のトップレベル56キーを `enable\|toggle\|setting\|config\|session\|control` で検索しても該当なし、関連キーは `remoteControlUpsellSeenCount`(表示回数)と `tipLifetimeShownCounts.remote-control` のみで、有効/無効を示すキーは無い。マーカーの置き場所は sh=`$XDG_STATE_HOME`(無ければ `$HOME/.local/state`)配下の `claude-remote/notice-shown`、ps1=`$env:LOCALAPPDATA\claude-remote\notice-shown`(`~/.claude/` は Claude Code 本体の管理領域なので避ける)。**マーカーの作成失敗・パス計算失敗で起動を妨げないこと**。sh は `set -u` 下なので状態ディレクトリを `if [ -n "${XDG_STATE_HOME:-}" ] / elif [ -n "${HOME:-}" ] / else 空` の3分岐で決め、決定できなければマーカーに一切触れない(空文字のまま `[ -n ]` で弾く)。ps1 は `Join-Path` と `New-Item` を try/catch で保護し、`$NoticeMarker` が `$null` なら同様に触れない。**どちらも「決定できないときはルート直下等に書きにいかない」ことが条件**(root 実行で `/.local/` が生えるのを防ぐ) |
 
 ## 共通文字列の固定(全群が同一文字列を書く。並列実行時のドリフト防止)
 
@@ -321,7 +321,9 @@ printf "sh=%s ps1=%s\n" "$(grep -cF 'ヒント: 初回のみ必要な設定' cla
 
 # マーカーの有無で出力が変わること / 作成不能でも起動に到達すること(偽 claude のサンドボックスで実行)。
 # 期待: 1回目=全文・2回目=1行、XDG_STATE_HOME を書込不可にしても exit 0、
-#       HOME と XDG_STATE_HOME の両方を消しても exit 0(sh は set -u 下なので ${HOME:-} で保護)
+#       HOME と XDG_STATE_HOME の両方を消しても exit 0 で、bash -x のトレースに mkdir/touch が
+#       現れないこと(状態ディレクトリを決定できないときはマーカーに触れない)。
+#       XDG_STATE_HOME が空文字のときは $HOME/.local/state にフォールバックすること
 env -u HOME -u XDG_STATE_HOME <偽claudeのPATH> ./claude-remote.sh testname; echo "exit=$?"
 ```
 
