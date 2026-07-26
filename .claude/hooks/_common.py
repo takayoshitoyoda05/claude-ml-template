@@ -269,9 +269,11 @@ def repo_state_signature(extra):
         # -z: NUL区切り・クォート無し。空白や日本語等を含むパスでも
         # 正確に切り出せる(通常のporcelainは非ASCIIをクォートするため
         # os.stat が失敗し、そのファイルの変更を見逃す)
-        status = subprocess.run(
+        # status も bytes のまま扱う(非 UTF-8 のファイル名が U+FFFD に潰れると
+        # 異なる状態が同一署名になり、キャッシュを誤って再利用しうる)
+        status_bytes = subprocess.run(
             ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
+            capture_output=True, timeout=10,
         ).stdout
         # ハッシュ化にデコードは不要。text 指定を外して bytes のまま扱う
         # (errors="replace" で潰すと、異なる変更が同じ U+FFFD 列になって
@@ -284,14 +286,19 @@ def repo_state_signature(extra):
     if not head:
         return None
     untracked_meta = []
-    for line in status.split("\0"):
-        if line.startswith("??"):
-            path = line[3:]
+    for line in status_bytes.split(b"\0"):
+        if line.startswith(b"??"):
+            # fsdecode は POSIX で surrogateescape を使うため、非 UTF-8 の
+            # ファイル名でもバイト列を可逆に保ったまま os.stat に渡せる
+            path = os.fsdecode(line[3:])
             try:
                 st = os.stat(path)
                 untracked_meta.append(f"{path}:{st.st_size}:{st.st_mtime_ns}")
             except OSError:
                 untracked_meta.append(f"{path}:gone")
     diff_hash = hashlib.sha256(diff_bytes).hexdigest()
-    raw = f"{extra}\n{head}\n{status}\n{diff_hash}\n" + "\n".join(untracked_meta)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    status_hash = hashlib.sha256(status_bytes).hexdigest()
+    # surrogateescape: path に surrogate が含まれると "utf-8" 単独では
+    # UnicodeEncodeError になり、署名計算そのものが落ちる
+    raw = f"{extra}\n{head}\n{status_hash}\n{diff_hash}\n" + "\n".join(untracked_meta)
+    return hashlib.sha256(raw.encode("utf-8", "surrogateescape")).hexdigest()
