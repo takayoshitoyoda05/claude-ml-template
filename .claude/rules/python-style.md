@@ -24,3 +24,6 @@ paths:
   `subprocess` は `(OSError, subprocess.TimeoutExpired, UnicodeError)` を捕捉する。
   `UnicodeDecodeError` は `ValueError` のサブクラスであり `OSError` では捕まらない
   (通常のライブラリ・実験コードでの例外の握りつぶしは従来どおり避ける)
+- 正規表現で設定値・数値を読むときは行末を固定する(`$`)。固定しないと `1e3` から
+  `1` だけを拾うような誤読が起きる。「読めない」と「誤読」は別物で、後者の方が
+  危険(読めなければ気づけるが、誤読は検査を素通りする)
