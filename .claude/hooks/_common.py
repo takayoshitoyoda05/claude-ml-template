@@ -264,17 +264,17 @@ def repo_state_signature(extra):
     """
     try:
         head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5,
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
         ).stdout.strip()
         # -z: NUL区切り・クォート無し。空白や日本語等を含むパスでも
         # 正確に切り出せる(通常のporcelainは非ASCIIをクォートするため
         # os.stat が失敗し、そのファイルの変更を見逃す)
         status = subprocess.run(
             ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
         ).stdout
         diff = subprocess.run(
-            ["git", "diff", "HEAD"], capture_output=True, text=True, timeout=30,
+            ["git", "diff", "HEAD"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         ).stdout
     except Exception:
         return None

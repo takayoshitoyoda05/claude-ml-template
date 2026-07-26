@@ -40,11 +40,11 @@ def main():
     try:
         branch = subprocess.run(
             ["git", "branch", "--show-current"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5
         ).stdout.strip()
         status = subprocess.run(
             ["git", "status", "--short"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5
         ).stdout.strip()
         # 再注入時のトークン量を抑えるため、長すぎる status は切り詰める
         status_lines = status.splitlines()

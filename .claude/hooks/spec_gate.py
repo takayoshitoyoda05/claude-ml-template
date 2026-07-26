@@ -227,7 +227,7 @@ def check_auto_recheck(all_rows, recheck_n, ci_mode):
             continue
         try:
             result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, timeout=600,
+                cmd, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600,
             )
         except Exception as e:
             reasons.append(f"{rid}: 検証コマンド実行エラー: {e}")

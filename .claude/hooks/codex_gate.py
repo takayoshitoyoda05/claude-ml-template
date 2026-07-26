@@ -27,7 +27,7 @@ SENTINEL = os.path.join(".claude", "checkpoints", "codex_review_done.txt")
 def current_head():
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5
         )
         return result.stdout.strip() or None
     except Exception:
@@ -46,7 +46,7 @@ def worktree_clean():
         result = subprocess.run(
             ["git", "status", "--porcelain", "--untracked-files=all"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=10,
         )
     except Exception:

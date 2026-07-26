@@ -43,7 +43,7 @@ def _current_branch() -> str | None:
         result = subprocess.run(
             ["git", "symbolic-ref", "--short", "HEAD"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=5,
             check=False,
         )

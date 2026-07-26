@@ -49,7 +49,7 @@ def main():
 
     try:
         result = subprocess.run(
-            eval_cmd, shell=True, capture_output=True, text=True, timeout=600
+            eval_cmd, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600
         )
     except Exception as e:
         print(f"[enforce_eval] 評価コマンド実行エラー: {e}", file=sys.stderr)

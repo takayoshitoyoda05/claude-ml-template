@@ -31,7 +31,7 @@ MAX_COPY_BYTES = (
 
 def run(cmd: list[str]) -> str:
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
         return proc.stdout + proc.stderr
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         return f"[report_gen] command failed: {cmd}: {e}"
