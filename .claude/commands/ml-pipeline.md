@@ -592,8 +592,10 @@ git rev-parse HEAD > .claude/checkpoints/codex_review_done.txt
   時点から**進んでいない**場合のみ(競合を解消した場合や main が並行更新されて
   いた場合、その内容は未レビューなので、更新せず cross-review を再実行してから
   作成する)
-- 「全部捨てて」: 復帰した main がブランチ作成時点から**進んでいない**場合のみ
-  (`git merge-base HEAD <削除前の分岐点>` 等で確認。進んでいた場合、その分は
+- 「全部捨てて」: 復帰した main がブランチ作成時点から**進んでいない**場合のみ。
+  判定は**ブランチを削除する前に** `git rev-parse main` と分岐点
+  (`git merge-base main HEAD`)を比較し、両者が一致することで行う
+  (merge-base 単体では main の前進を検出できない。進んでいた場合、その分は
   このセッションのレビュー対象外なので cross-review を再実行してから作成する)
 - 「いいえ」: ブランチ上に留まり HEAD が動かないため更新不要
 
