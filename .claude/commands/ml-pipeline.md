@@ -413,6 +413,9 @@ generator に以下を指示して、動作を一切変えずにコードを磨�
 
 **制約:**
 - 動作を一切変えない(テストの結果が1つでも変わったら失敗)
+- **generator はコミットしない**(下記「リファクタ後」の検証と Standards 再確認を
+  通過した後に、呼び出し元がコミットする。先にコミットすると FAIL 時の復元手段
+  `git checkout HEAD --` が効かなくなり「復元=磨きの取り消し」の保証が壊れる)
 - 新機能・新抽象化を追加しない(これはリファクタであって拡張ではない)
 - 既存ファイルの編集のみ。**新規ファイルを作らない**(復元を単純に保つため)
 - 変更は磨き対象のファイルのみ。スコープを広げない
@@ -510,11 +513,15 @@ evidence/README.txt へ書く**(report_gen は生成前に evidence/ を作り�
 
 **(b) evidence/ の機械集約**:
 ```
-uv run python .claude/hooks/report_gen.py <実行日時: YYYYMMDD-HHMMSS> --transcript <特定したtranscriptパス>
+uv run python .claude/hooks/report_gen.py <実行日時: YYYYMMDD-HHMMSS> --transcript <特定したtranscriptパス> --test-cmd "<計画の検証コマンド>"
 ```
 transcript が特定できた場合は `--transcript` を付けて実行する
 (report_gen 内でマスキングを通した上で `evidence/transcript.jsonl` に
 コピーされる)。特定できなかった場合は `--transcript` を省略して実行する。
+作業スコープのテストが既定の `tests/` の外にある場合は `--test-cmd` に
+計画の検証コマンド(対象テストを全て含む形)を渡す。省略時は既定の
+`tests/` のみが evidence/test-output.txt に入る(使われたコマンドは
+stats.json の `test_cmd` に記録される)。
 diff・コミット一覧・actions.jsonl・agents.jsonl・runs/・
 テスト全出力・stats.json が docs/reports/<実行日時>/evidence/ に生成される。
 
@@ -566,5 +573,18 @@ diff・コミット一覧・actions.jsonl・agents.jsonl・runs/・
   を実行してください」と案内する。
 - **「全部捨てて」**: 統合ブランチとサブブランチを全削除し、main に戻る。
   main は無傷。
+
+**センチネルの更新(CLAUDE_CROSS_REVIEW=1 のときのみ)**: 「はい」(マージ後)と
+「全部捨てて」(main 復帰後)は HEAD が移動するため、最後に
+
+```
+git rev-parse HEAD > .claude/checkpoints/codex_review_done.txt
+```
+
+を実行してセンチネルを現 HEAD に合わせる。更新しないと codex_gate が旧コミットを
+指したままの センチネルと現 HEAD の不一致を検出し、Stop をブロックし続ける。
+マージ内容はパイプラインのレビュー済み、破棄後は main との差分ゼロのため、
+この更新はレビュー省略によるゲートの形骸化には当たらない
+(「いいえ」はブランチ上に留まり HEAD が動かないため更新不要)。
 
 $ARGUMENTS を「作業スコープ + やりたいこと」として解釈する。
