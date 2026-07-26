@@ -76,7 +76,18 @@ echo ""
 echo "=== リモート運用(Remote Control)==="
 
 if command -v claude >/dev/null 2>&1; then
-  echo "情報: claude $(claude --version 2>/dev/null | head -1) (Remote Control は v2.1.51 以降で利用可)"
+  CLAUDE_VER=$(claude --version 2>/dev/null | head -1 | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
+  if [ -n "$CLAUDE_VER" ]; then
+    if [ "$(printf '%s\n%s\n' "$CLAUDE_VER" "2.1.51" | sort -V | tail -n1)" = "$CLAUDE_VER" ]; then
+      echo "OK: claude $CLAUDE_VER (Remote Control 対応、v2.1.51 以降で利用可)"
+    else
+      echo "警告: claude $CLAUDE_VER は古いバージョンです。Remote Control は v2.1.51 以降が必要です"
+    fi
+  else
+    echo "情報: claude のバージョンを取得できませんでした(Remote Control は v2.1.51 以降で利用可)"
+  fi
+else
+  echo "情報: claude コマンドが見つかりません(Remote Control は v2.1.51 以降で利用可)"
 fi
 
 if [ -f "claude-remote.sh" ]; then

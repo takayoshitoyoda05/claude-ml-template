@@ -93,10 +93,20 @@ Write-Host "=== リモート運用(Remote Control)==="
 
 # claude のバージョン確認(Remote Control は v2.1.51 以降)
 if (Get-Command "claude" -ErrorAction SilentlyContinue) {
-    $ver = (claude --version 2>$null | Select-Object -First 1)
-    if ($ver) {
-        Write-Host "情報: claude $ver (Remote Control は v2.1.51 以降で利用可)"
+    $verLine = (claude --version 2>$null | Select-Object -First 1)
+    $verMatch = if ($verLine) { [regex]::Match($verLine, '^\d+\.\d+\.\d+') } else { $null }
+    if ($verMatch -and $verMatch.Success) {
+        $claudeVer = $verMatch.Value
+        if ([version]$claudeVer -ge [version]"2.1.51") {
+            Write-Host "OK: claude $claudeVer (Remote Control 対応、v2.1.51 以降で利用可)"
+        } else {
+            Write-Host "警告: claude $claudeVer は古いバージョンです。Remote Control は v2.1.51 以降が必要です"
+        }
+    } else {
+        Write-Host "情報: claude のバージョンを取得できませんでした(Remote Control は v2.1.51 以降で利用可)"
     }
+} else {
+    Write-Host "情報: claude コマンドが見つかりません(Remote Control は v2.1.51 以降で利用可)"
 }
 
 # 起動スクリプトの有無
