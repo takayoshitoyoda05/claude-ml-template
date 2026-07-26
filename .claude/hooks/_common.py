@@ -8,6 +8,7 @@ spec_gate.py / spec_approve.py が共有する対象ディレクトリ解決ロ�
 (resolve_docs_dir / resolve_spec_dir)と、enforce_eval.py / spec_gate.py が
 共有するリポジトリ状態ハッシュ(repo_state_signature)もここに一元化する。
 """
+
 import hashlib
 import os
 import re
@@ -29,7 +30,11 @@ SECRET_CONTENT_PATTERNS = [
 
 # 秘密情報ファイル(ファイル名完全一致)
 BLOCKED_FILENAMES = {
-    ".env", "credentials.json", "id_rsa", "id_ed25519", "id_ecdsa",
+    ".env",
+    "credentials.json",
+    "id_rsa",
+    "id_ed25519",
+    "id_ecdsa",
 }
 
 # 秘密情報ファイル(拡張子)
@@ -40,7 +45,10 @@ ARTIFACT_EXTENSIONS = {".pth", ".pt", ".ckpt", ".safetensors"}
 
 # 生成物ディレクトリ(パスに含まれていたらブロック)
 ARTIFACT_DIR_PATTERNS = [
-    "/checkpoints/", "/outputs/", "/runs/", "/.venv/",
+    "/checkpoints/",
+    "/outputs/",
+    "/runs/",
+    "/.venv/",
     "/_trash_candidates/",
 ]
 
@@ -139,7 +147,7 @@ def parse_acceptance_table(design_text):
     if not m:
         raise AcceptanceTableError("「## 受け入れ条件」セクションが見つかりません")
 
-    rest = design_text[m.end():]
+    rest = design_text[m.end() :]
     next_heading = re.search(r"^#{1,6}\s+\S", rest, flags=re.MULTILINE)
     section = rest[: next_heading.start()] if next_heading else rest
 
@@ -174,9 +182,7 @@ def parse_acceptance_table(design_text):
         row = dict(zip(keys, cells))
         rid = row["id"].strip()
         if not re.fullmatch(r"R-\d+", rid):
-            raise AcceptanceTableError(
-                f"IDの形式が不正です(R-連番形式が必要): {rid!r}"
-            )
+            raise AcceptanceTableError(f"IDの形式が不正です(R-連番形式が必要): {rid!r}")
         if rid in seen_ids:
             raise AcceptanceTableError(f"IDが重複しています: {rid}")
         seen_ids.add(rid)
@@ -264,7 +270,12 @@ def repo_state_signature(extra):
     """
     try:
         head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
         ).stdout.strip()
         # -z: NUL区切り・クォート無し。空白や日本語等を含むパスでも
         # 正確に切り出せる(通常のporcelainは非ASCIIをクォートするため
@@ -273,13 +284,16 @@ def repo_state_signature(extra):
         # 異なる状態が同一署名になり、キャッシュを誤って再利用しうる)
         status_bytes = subprocess.run(
             ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
-            capture_output=True, timeout=10,
+            capture_output=True,
+            timeout=10,
         ).stdout
         # ハッシュ化にデコードは不要。text 指定を外して bytes のまま扱う
         # (errors="replace" で潰すと、異なる変更が同じ U+FFFD 列になって
         # 同一ハッシュになり、キャッシュを誤って再利用しうる)
         diff_bytes = subprocess.run(
-            ["git", "diff", "HEAD"], capture_output=True, timeout=30,
+            ["git", "diff", "HEAD"],
+            capture_output=True,
+            timeout=30,
         ).stdout
     except Exception:
         return None
