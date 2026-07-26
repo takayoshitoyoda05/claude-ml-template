@@ -142,6 +142,8 @@ for f in claude-remote.ps1 claude-remote.sh; do
     if [ "$f" = "claude-remote.sh" ]; then
       chmod +x "$f" 2>/dev/null || true
     fi
+  else
+    echo "警告: 配布元に $f が見つかりません(コピーされませんでした)"
   fi
 done
 

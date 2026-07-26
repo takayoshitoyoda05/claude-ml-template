@@ -130,6 +130,8 @@ try {
         if (Test-Path $src) {
             Copy-Item $src $f -Force
             Write-Host "OK: $f を配置しました"
+        } else {
+            Write-Host "警告: 配布元に $f が見つかりません(コピーされませんでした)"
         }
     }
 
