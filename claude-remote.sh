@@ -27,7 +27,7 @@ if command -v tmux >/dev/null 2>&1; then
   echo "離脱: Ctrl-b を押してから d(ターミナルを閉じてもセッションは継続)"
   echo "復帰: tmux attach -t $SESSION"
   echo ""
-  exec tmux new -s "$SESSION" "claude remote-control --name '$NAME'"
+  exec tmux new -s "$SESSION" claude remote-control --name "$NAME"
 else
   echo "情報: tmux が見つかりません。ターミナルを閉じるとセッションが終了します。"
   echo "      継続させたい場合: sudo apt install tmux"
