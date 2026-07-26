@@ -4,16 +4,25 @@
 モデルに「全部レポートに書いて」と頼むと必ず要約・省略が起きる。
 「短縮ゼロ」を保証するため、証拠の収集はこのスクリプトが機械的に行う。
 
-Usage: uv run python .claude/hooks/report_gen.py <report_dir_name> [--transcript <path>]
+Usage: uv run python .claude/hooks/report_gen.py <report_dir_name> [--transcript <path>] [--test-cmd <command>]
   例: uv run python .claude/hooks/report_gen.py 20260723-143022
   --transcript: セッション transcript ファイルのパス。指定時は
     evidence/transcript.jsonl にマスキング済みでコピーし、ファイル名から
     導出したセッションID(先頭8桁)で actions/agents ログも絞り込む。
+  --test-cmd: 最終テストの実行コマンド(1引数の文字列。例:
+    "uv run --with pytest python -m pytest tests/ projects/Deep_MIL/tests/ -v")。
+    無指定時は既定の tests/ のみを実行する。作業スコープのテストが tests/ の
+    外にある場合、既定のままでは evidence/test-output.txt に含まれないため、
+    計画の検証コマンドをここで渡す。**単一コマンドのみ**: shlex.split して
+    シェルを介さず実行するため、&& や | 等のシェル構文は使えない(任意の
+    シェル実行の口を開けないための制約)。終了コードとタイムアウトの有無は
+    stats.json に記録される。
 生成先: docs/reports/<report_dir_name>/evidence/
 """
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -28,10 +37,22 @@ MAX_COPY_BYTES = (
     10 * 1024 * 1024
 )  # 1ファイルの上限(action_logのMAX_FIELDクリップ方針と整合)
 
+USAGE = "Usage: report_gen.py <report_dir_name> [--transcript <path>] [--test-cmd <command>]"
+
+# テストは既定 run() の120秒を超えうる(ML系の検証コマンドを想定)ため専用の上限
+TEST_TIMEOUT_SECONDS = 1800
+
 
 def run(cmd: list[str]) -> str:
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+        )
         return proc.stdout + proc.stderr
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         return f"[report_gen] command failed: {cmd}: {e}"
@@ -63,30 +84,45 @@ def _make_symlink_ignorer(skipped: list[str]) -> Callable[[str, list[str]], set[
     return _ignore
 
 
-def _parse_args(argv: list[str]) -> tuple[str, str | None]:
-    """コマンドライン引数から (report_dir_name, transcript_path) を取り出す。"""
+def _usage_error() -> None:
+    print(USAGE, file=sys.stderr)
+    sys.exit(1)
+
+
+def _pop_option(args: list[str], name: str) -> str | None:
+    """args から `name <value>` の2要素を取り除き、値を返す(無ければ None)。"""
+    if name not in args:
+        return None
+    idx = args.index(name)
+    try:
+        value = args[idx + 1]
+    except IndexError:
+        _usage_error()
+    # 値の欠落で次のオプション名を値として飲み込む誤用を usage エラーにする
+    if value.startswith("--"):
+        _usage_error()
+    del args[idx : idx + 2]
+    return value
+
+
+def _parse_args(argv: list[str]) -> tuple[str, str | None, str | None]:
+    """コマンドライン引数から (report_dir_name, transcript_path, test_cmd) を取り出す。"""
     args = list(argv)
-    transcript_arg = None
-    if "--transcript" in args:
-        idx = args.index("--transcript")
-        try:
-            transcript_arg = args[idx + 1]
-        except IndexError:
-            print(
-                "Usage: report_gen.py <report_dir_name> [--transcript <path>]",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        del args[idx : idx + 2]
+    transcript_arg = _pop_option(args, "--transcript")
+    test_cmd_arg = _pop_option(args, "--test-cmd")
 
-    if len(args) < 1:
-        print(
-            "Usage: report_gen.py <report_dir_name> [--transcript <path>]",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    # 位置引数はちょうど1つ。余分・未知の引数は黙って無視せずエラーにする
+    # (誤記のまま誤ったディレクトリへ証跡を生成するのを防ぐ)
+    if len(args) != 1 or args[0].startswith("--"):
+        _usage_error()
 
-    return args[0], transcript_arg
+    # report_dir_name は単一のディレクトリ名に限る。"../x" や絶対パスを許すと
+    # 生成先が docs/reports/ の外に出て、既存ディレクトリを rmtree で消しうる
+    name = args[0]
+    if Path(name).name != name or name in {".", ".."}:
+        _usage_error()
+
+    return name, transcript_arg, test_cmd_arg
 
 
 def _write_git_evidence(evidence: Path, stats: dict[str, object]) -> None:
@@ -141,26 +177,72 @@ def _write_runs_evidence(evidence: Path, stats: dict[str, object]) -> None:
         stats["skipped_symlinks"] = skipped_symlinks
 
 
-def _write_test_output(evidence: Path) -> None:
-    """最終テスト出力(全文。素の `uv run` は pytest 未導入のため --with pytest で実行)。"""
-    (evidence / "test-output.txt").write_text(
-        mask(
-            run(
-                [
-                    "uv",
-                    "run",
-                    "--with",
-                    "pytest",
-                    "python",
-                    "-m",
-                    "pytest",
-                    "tests/",
-                    "-v",
-                ]
-            )
-        ),
-        encoding="utf-8",
-    )
+def _write_test_output(
+    evidence: Path, stats: dict[str, object], test_cmd_arg: str | None
+) -> None:
+    """最終テスト出力(全文。素の `uv run` は pytest 未導入のため --with pytest で実行)。
+
+    --test-cmd 指定時はそのコマンドを使う(作業スコープのテストが既定の tests/ の
+    外にある場合、既定のままでは evidence から漏れるため)。シェルを介さないため
+    シェル構文(&& 等)は不可。使ったコマンド・終了コード・タイムアウトの有無を
+    stats に記録する(テスト失敗でも evidence 生成は続行する — 失敗の事実を
+    そのまま証跡に残すのが目的で、合否判定は evaluator の責務のため)。
+    """
+    if test_cmd_arg:
+        try:
+            cmd = shlex.split(test_cmd_arg)
+        except ValueError:
+            # 閉じていない引用符など。壊れたコマンドで空の証跡を作らない
+            _usage_error()
+        # シェルを介さないため、シェル演算子は先頭コマンドの引数に化けて
+        # 「検証したつもり」の証跡になる。黙って劣化させず明示的に拒否する
+        if any(
+            tok in {"&&", "||", "|", ";", "&", ">", ">>", "<", "2>&1"} for tok in cmd
+        ):
+            _usage_error()
+    else:
+        cmd = [
+            "uv",
+            "run",
+            "--with",
+            "pytest",
+            "python",
+            "-m",
+            "pytest",
+            "tests/",
+            "-v",
+        ]
+    # 引数境界を監査で再現できるよう配列のまま記録する(" ".join は引用符を失う)
+    stats["test_cmd"] = cmd
+    stats["test_timed_out"] = False
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=TEST_TIMEOUT_SECONDS,
+        )
+        output = proc.stdout + proc.stderr
+        stats["test_exit_code"] = proc.returncode
+    except subprocess.TimeoutExpired as e:
+        # 途中までの出力も証跡として残す(bytes で返ることがあるため復号する)
+        partial = ""
+        for stream in (e.stdout, e.stderr):
+            if isinstance(stream, bytes):
+                partial += stream.decode("utf-8", errors="replace")
+            elif stream:
+                partial += stream
+        output = partial + f"\n[report_gen] test command timed out: {cmd}: {e}"
+        stats["test_exit_code"] = None
+        stats["test_timed_out"] = True
+        stats["test_error"] = str(e)
+    except (OSError, UnicodeError) as e:
+        output = f"[report_gen] test command failed: {cmd}: {e}"
+        stats["test_exit_code"] = None
+        stats["test_error"] = str(e)
+    (evidence / "test-output.txt").write_text(mask(output), encoding="utf-8")
 
 
 def _write_transcript_evidence(
@@ -179,10 +261,20 @@ def _write_transcript_evidence(
 
 
 def main():
-    report_dir_name, transcript_arg = _parse_args(sys.argv[1:])
+    report_dir_name, transcript_arg, test_cmd_arg = _parse_args(sys.argv[1:])
 
     report_dir = Path("docs/reports") / report_dir_name
     evidence = report_dir / "evidence"
+    # report_dir が docs/reports/ 外への symlink だと、下の rmtree が外部の
+    # evidence/ を消しうる。解決後パスが配下に留まることを確認してから消す
+    if report_dir.exists() and not report_dir.resolve().is_relative_to(
+        Path("docs/reports").resolve()
+    ):
+        print(
+            f"[report_gen] refuse: {report_dir} resolves outside docs/reports/",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     # 機械生成物なので、前回実行の残留を防ぐため毎回作り直す
     if evidence.exists():
         shutil.rmtree(evidence)
@@ -193,7 +285,7 @@ def main():
     _write_git_evidence(evidence, stats)
     _write_tool_logs(evidence, stats, transcript_arg)
     _write_runs_evidence(evidence, stats)
-    _write_test_output(evidence)
+    _write_test_output(evidence, stats, test_cmd_arg)
     _write_transcript_evidence(evidence, stats, transcript_arg)
 
     (evidence / "stats.json").write_text(

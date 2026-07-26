@@ -413,6 +413,9 @@ generator に以下を指示して、動作を一切変えずにコードを磨�
 
 **制約:**
 - 動作を一切変えない(テストの結果が1つでも変わったら失敗)
+- **generator はコミットしない**(下記「リファクタ後」の検証と Standards 再確認を
+  通過した後に、呼び出し元がコミットする。先にコミットすると FAIL 時の復元手段
+  `git checkout HEAD --` が効かなくなり「復元=磨きの取り消し」の保証が壊れる)
 - 新機能・新抽象化を追加しない(これはリファクタであって拡張ではない)
 - 既存ファイルの編集のみ。**新規ファイルを作らない**(復元を単純に保つため)
 - 変更は磨き対象のファイルのみ。スコープを広げない
@@ -510,11 +513,17 @@ evidence/README.txt へ書く**(report_gen は生成前に evidence/ を作り�
 
 **(b) evidence/ の機械集約**:
 ```
-uv run python .claude/hooks/report_gen.py <実行日時: YYYYMMDD-HHMMSS> --transcript <特定したtranscriptパス>
+uv run python .claude/hooks/report_gen.py <実行日時: YYYYMMDD-HHMMSS> --transcript <特定したtranscriptパス> --test-cmd "<計画の検証コマンド>"
 ```
 transcript が特定できた場合は `--transcript` を付けて実行する
 (report_gen 内でマスキングを通した上で `evidence/transcript.jsonl` に
 コピーされる)。特定できなかった場合は `--transcript` を省略して実行する。
+作業スコープのテストが既定の `tests/` の外にある場合は `--test-cmd` に
+計画の検証コマンドを渡す。**単一コマンドのみ**(シェルを介さず実行される
+ため `&&` や `|` 等のシェル構文は不可。パイプを含む検証コマンドは、
+pytest 等の中核コマンド1つに読み替えて渡す)。省略時は既定の
+`tests/` のみが evidence/test-output.txt に入る。使われたコマンド・
+終了コード・タイムアウトの有無は stats.json に記録される。
 diff・コミット一覧・actions.jsonl・agents.jsonl・runs/・
 テスト全出力・stats.json が docs/reports/<実行日時>/evidence/ に生成される。
 
@@ -566,5 +575,28 @@ diff・コミット一覧・actions.jsonl・agents.jsonl・runs/・
   を実行してください」と案内する。
 - **「全部捨てて」**: 統合ブランチとサブブランチを全削除し、main に戻る。
   main は無傷。
+
+**センチネルの更新(CLAUDE_CROSS_REVIEW=1 のときのみ)**: 「はい」(マージ後)と
+「全部捨てて」(main 復帰後)は HEAD が移動するため、最後に
+
+```
+git rev-parse HEAD > .claude/checkpoints/codex_review_done.txt
+```
+
+を実行してセンチネルを現 HEAD に合わせる。更新しないと codex_gate が旧コミットを
+指したままの センチネルと現 HEAD の不一致を検出し、Stop をブロックし続ける。
+
+**ただし無条件ではない**。この更新が形骸化に当たらないのは、現 HEAD の内容が
+レビュー済みと同一視できる場合だけ:
+- 「はい」: マージが**競合なしで**完了し、かつマージ先の main が最終レビュー
+  時点から**進んでいない**場合のみ(競合を解消した場合や main が並行更新されて
+  いた場合、その内容は未レビューなので、更新せず cross-review を再実行してから
+  作成する)
+- 「全部捨てて」: 復帰した main がブランチ作成時点から**進んでいない**場合のみ。
+  判定は**ブランチを削除する前に** `git rev-parse main` と分岐点
+  (`git merge-base main HEAD`)を比較し、両者が一致することで行う
+  (merge-base 単体では main の前進を検出できない。進んでいた場合、その分は
+  このセッションのレビュー対象外なので cross-review を再実行してから作成する)
+- 「いいえ」: ブランチ上に留まり HEAD が動かないため更新不要
 
 $ARGUMENTS を「作業スコープ + やりたいこと」として解釈する。
