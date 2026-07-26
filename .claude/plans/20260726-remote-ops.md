@@ -149,8 +149,8 @@ uv run python -c "import pathlib,sys; p=pathlib.Path(sys.argv[1]); p.write_text(
 | 6 | 同じ位置(L129 の `.github/workflows` ブロック直後)に ps1 版を追加(設計書 L229-235 の形。メッセージは `OK: <f> を更新しました`)。**chmod 相当は書かない**(Windows に実行権限の概念が無いため)。編集後に BOM 正規化コマンドを実行 | claude-update.ps1 | なし | C |
 | 7 | `.github/workflows` ブロック(L128-135)の直後に Step 5 と同一構造のブロックを追加。メッセージのみ `OK: <f> を配置しました`(init の既存語彙。L114 の「を配布しました」ではなく L53 の「を配置しました」に合わせる) | claude-init.sh | Step 5 | C |
 | 8 | `.github/workflows` ブロック(L118-125)の直後に Step 6 と同一構造のブロックを追加。メッセージは `OK: <f> を配置しました`。編集後に BOM 正規化コマンドを実行 | claude-init.ps1 | Step 6 | C |
-| 9 | L390 の直後・L392 の `---` の**前**に `### リモート運用(スマホ・ブラウザから操作)` を追加(設計書 S5 の markdown に D-1/D-5/D-6 を適用)。見出し階層は同節の既存 `###`+`####` に倣う。設計書のコードブロックは**外側のフェンスを外して**本文として書く | README.md | なし | D |
-| 10 | 6節ファイル一覧 L1390(`doctor.ps1 / .sh`)の直後に `claude-remote.ps1 / .sh` の1行を追加(説明の桁位置は既存行に揃える)。あわせて CHANGELOG の `### Added(2026-07-24)` ブロックの直後に `### Added(2026-07-26)` を新設し1項目追記 | README.md, CHANGELOG.md | Step 9 | D |
+| 9 | (配置先はユーザー承認済み: 1節末尾)L390 の直後・L392 の `---` の**前**に `### リモート運用(スマホ・ブラウザから操作)` を追加(設計書 S5 の markdown に D-1/D-5/D-6 を適用)。見出し階層は同節の既存 `###`+`####` に倣う。設計書のコードブロックは**外側のフェンスを外して**本文として書く | README.md | なし | D |
+| 10 | (実施はユーザー承認済み)6節ファイル一覧 L1390(`doctor.ps1 / .sh`)の直後に `claude-remote.ps1 / .sh` の1行を追加(説明の桁位置は既存行に揃える)。あわせて CHANGELOG の `### Added(2026-07-24)` ブロックの直後に `### Added(2026-07-26)` を新設し1項目追記 | README.md, CHANGELOG.md | Step 9 | D |
 | 11 | 「検証方法」の全コマンドを実行し、結果を報告に貼る | (なし) | Step 1-10 | 統合(逐次) |
 
 備考: Step 10 はどの設計書セクションにも対応しない。README 6節がルート直下スクリプト4組を
@@ -175,14 +175,19 @@ sh / ps1 の対を別群に割らないことで、対になるファイルの�
 すべてリポジトリ直下で実行する。期待結果と異なれば FAIL。
 
 ```bash
-# 1. 新規ファイルの存在と実行権限(期待: 3行の OK、git のモードが 100755)
+# 1. 新規ファイルの存在と実行権限(期待: 3行の OK と 755)
 test -f claude-remote.ps1 && echo "OK: claude-remote.ps1"
 test -f claude-remote.sh && echo "OK: claude-remote.sh"
 test -x claude-remote.sh && echo "OK: 実行権限あり"
-git ls-files -s claude-remote.sh   # 期待: 先頭が 100755(ステージ後)
+stat -c '%a %n' claude-remote.sh   # 期待: 755(既存 .sh 4本は 644。実測で確認済み)
+# 次の1行は git add した後にのみ意味がある(未ステージだと出力が空)。
+# ステージ済みなら実行する。期待: 先頭が 100755
+git ls-files -s claude-remote.sh
 
-# 2. bash 構文(期待: OK 行)
-bash -n claude-remote.sh && echo "OK: claude-remote.sh syntax"
+# 2. bash 構文 — 変更する .sh 全4本(期待: 4行すべて OK)
+#    ps1 側が検証4で5本すべてを Parser にかけるのと対にする。
+#    (実測: 変更前の doctor.sh / claude-init.sh / claude-update.sh は 3本とも OK)
+for f in claude-remote.sh doctor.sh claude-init.sh claude-update.sh; do printf "%s: " "$f"; bash -n "$f" && echo "OK"; done
 
 # 3. 改行コード(期待: 0)
 grep -c $'\r' claude-remote.sh || true
@@ -211,15 +216,33 @@ for f in claude-init.sh claude-init.ps1 claude-update.sh claude-update.ps1; do p
 diff <(grep -oE 'claude-remote\.(sh|ps1)' claude-init.sh | sort -u) <(grep -oE 'claude-remote\.(sh|ps1)' claude-init.ps1 | sort -u) && echo "OK: init 対一致"
 diff <(grep -oE 'claude-remote\.(sh|ps1)' claude-update.sh | sort -u) <(grep -oE 'claude-remote\.(sh|ps1)' claude-update.ps1 | sort -u) && echo "OK: update 対一致"
 
-# 9. 配布ブロックの実動作(サンドボックス。claude-update.sh に書いた新設ブロックを
-#    そのままコピーして実行する。期待: OK 行が2本、claude-remote.sh が -rwx)
+# 9a. 配布ブロックの実動作 / sh 版
+#     claude-update.sh に実際に書いたブロックを**そのまま貼って**実行する(下記は雛形)。
 SB=$(mktemp -d); mkdir -p "$SB/proj" "$SB/tmpl"
 printf '#!/usr/bin/env bash\n' > "$SB/tmpl/claude-remote.sh"; printf 'x\n' > "$SB/tmpl/claude-remote.ps1"
+# (i) 両方ある場合(期待: OK 行が2本、claude-remote.sh が -rwx)
 ( cd "$SB/proj" && TMP="$SB/tmpl" bash -c 'for f in claude-remote.ps1 claude-remote.sh; do if [ -f "$TMP/$f" ]; then cp "$TMP/$f" "$f"; echo "OK: $f を更新しました"; fi; done; chmod +x claude-remote.sh 2>/dev/null || true'; ls -l )
-# 片方だけ存在する場合も落ちないこと(期待: OK 行が1本、エラー終了しない)
-( cd "$SB/proj" && rm -f claude-remote.ps1 claude-remote.sh && rm -f "$SB/tmpl/claude-remote.ps1" \
-  && TMP="$SB/tmpl" bash -c 'for f in claude-remote.ps1 claude-remote.sh; do if [ -f "$TMP/$f" ]; then cp "$TMP/$f" "$f"; echo "OK: $f を更新しました"; fi; done' )
-rm -rf "$SB"
+# (ii) 片方だけ存在する場合(期待: 1。エラー終了しない)
+rm -f "$SB/proj/claude-remote.ps1" "$SB/proj/claude-remote.sh" "$SB/tmpl/claude-remote.ps1"
+( cd "$SB/proj" && TMP="$SB/tmpl" bash -c 'for f in claude-remote.ps1 claude-remote.sh; do if [ -f "$TMP/$f" ]; then cp "$TMP/$f" "$f"; echo "OK: $f を更新しました"; fi; done' | grep -c '^OK:' )
+# 後始末は不要($(mktemp -d) 配下)。`rm -rf` は guard_bash に止められることがあるので使わない。
+
+# 9b. 配布ブロックの実動作 / ps1 版(9a と対。claude-update.ps1 のブロックを Windows PowerShell で実行する)
+#     サンドボックスは WSL 側に置き、UNC パス \\wsl.localhost\Ubuntu\... で Windows から参照する。
+#     PS_BLOCK は claude-update.ps1 に実際に書いたブロックと同一にすること($Tmp 変数名も合わせる)。
+#     [Console]::OutputEncoding の指定は**必須**。無いと出力が CP932 になり、
+#     WSL 側の grep が件数を返さない(実測で確認済み)。
+SB2=$(mktemp -d); mkdir -p "$SB2/proj" "$SB2/tmpl"
+printf 'x\n' > "$SB2/tmpl/claude-remote.ps1"; printf 'x\n' > "$SB2/tmpl/claude-remote.sh"
+WIN_SB="\\\\wsl.localhost\\Ubuntu${SB2//\//\\}"
+PS_BLOCK="foreach (\$f in @('claude-remote.ps1','claude-remote.sh')) { \$src = Join-Path \$Tmp \$f; if (Test-Path \$src) { Copy-Item \$src \$f -Force; Write-Host \"OK: \$f を更新しました\" } }"
+PS_HEAD="[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Set-Location '$WIN_SB\\proj'; \$Tmp='$WIN_SB\\tmpl'; "
+# (i) 両方ある場合(期待: 2)
+powershell.exe -NoProfile -Command "$PS_HEAD$PS_BLOCK" 2>&1 | grep -c '^OK:'
+# (ii) 片方だけ存在する場合(期待: 1)
+rm -f "$SB2/proj/claude-remote.ps1" "$SB2/proj/claude-remote.sh" "$SB2/tmpl/claude-remote.ps1"
+powershell.exe -NoProfile -Command "$PS_HEAD$PS_BLOCK" 2>&1 | grep -c '^OK:'
+ls -1 "$SB2/proj"   # 期待: claude-remote.sh のみ
 
 # 10. README / CHANGELOG(期待: すべて1件以上)
 grep -n "Enable Remote Control for all sessions" README.md
@@ -234,8 +257,10 @@ grep -n "^### Added(2026-07-26)" CHANGELOG.md
 **複数・入れ子のケース**(取りこぼし検出のため必ず確認する):
 
 - 配布ループは**2ファイル**(.ps1 と .sh)を回す。片方しかコピーされない実装になっていないかを
-  検証9前半(OK 行が2本出るか)で見る。**片方だけ存在する場合**でも `[ -f ]` / `Test-Path` 判定で
-  落ちずに残り1本を処理することを検証9後半で確認する。
+  検証9a(i) / 9b(i)(OK 行が2本出るか)で見る。**片方だけ存在する場合**でも `[ -f ]` /
+  `Test-Path` 判定で落ちずに残り1本を処理することを検証9a(ii) / 9b(ii)(期待: 1)で確認する。
+  **sh 版と ps1 版の両方を実行すること**(片方だけの検証は、この計画が最も重視する
+  sh/ps1 対称性を検証側で崩す)。
 - `claude-remote.sh` の分岐は **tmux あり(既存セッションに attach / 新規作成)/ tmux なし**の3経路。
   `bash -n` は全経路を構文検査する。実起動はリモートセッションが立ち上がるため行わず、
   ユーザー確認事項とする。
@@ -252,7 +277,7 @@ grep -n "^### Added(2026-07-26)" CHANGELOG.md
   Windows の言語設定に依存する。一致しなければ警告側に倒れるだけで起動は妨げない。
 - **配布は push 後に効く**。claude-init / claude-update は GitHub の公開リポジトリを clone するため、
   本ブランチを main にマージ・push するまで各プロジェクトには配布されない。
-- **実行権限(採用: `claude-remote.sh` を 100755 でコミットする)**。既存 .sh 4本は 100644 だが、
+- **実行権限(確定: `claude-remote.sh` を 100755 でコミットする。ユーザー承認済み)**。既存 .sh 4本は 100644 だが、
   それらは README で `chmod +x` 付きの curl 導線が案内されている。claude-remote.sh は README と
   doctor の案内が `./claude-remote.sh` であり、clone 直後に動かないと導線が壊れる。
   あわせてインストーラ側にも `chmod +x` を残し(mode が落ちる取得経路の保険)、二重に担保する。
@@ -283,9 +308,9 @@ grep -n "^### Added(2026-07-26)" CHANGELOG.md
 | ID | 内容 | 対応ステップ | 検証方法 |
 |----|------|------------|---------|
 | S1 | claude-remote.ps1 の新規作成 | Step 2 | 検証1(存在)/ 検証4(構文0件)/ 検証5(BOM)/ 検証6(`--remote-control`) |
-| S2 | claude-remote.sh の新規作成 | Step 1 | 検証1(存在・実行権限)/ 検証2(`bash -n`)/ 検証3(LF)/ 検証6 |
-| S3 | doctor へのリモート運用チェック追加 | Step 3, 4 | 検証7(件数と対の文言一致)/ 検証4・5(ps1) |
-| S4 | claude-init / claude-update への配布追加 | Step 5, 6, 7, 8 | 検証8(4ファイル・対一致・件数)/ 検証9(ブロックの実動作)/ 検証4・5(ps1) |
+| S2 | claude-remote.sh の新規作成 | Step 1 | 検証1(存在・`stat` で 755)/ 検証2(`bash -n` 4本)/ 検証3(LF)/ 検証6 |
+| S3 | doctor へのリモート運用チェック追加 | Step 3, 4 | 検証7(件数と対の文言一致)/ 検証2(doctor.sh の `bash -n`)/ 検証4・5(doctor.ps1) |
+| S4 | claude-init / claude-update への配布追加 | Step 5, 6, 7, 8 | 検証8(4ファイル・対一致・件数)/ 検証9a(sh ブロックの実動作)/ 検証9b(ps1 ブロックの実動作)/ 検証2(sh の `bash -n`)/ 検証4・5(ps1) |
 | S5 | README へのリモート運用セクション追加 | Step 9 | 検証10(見出し・キーフレーズ)/ 検証6(誤コマンド0件) |
 | S6 | 完了後の検証 | Step 11 | 検証1〜11 の全実行。コミット/push/仕様書削除は「完了後のユーザー操作」へ |
 | (慣習) | README ファイル一覧・CHANGELOG | Step 10 | 検証10 |
@@ -305,17 +330,16 @@ grep -n "^### Added(2026-07-26)" CHANGELOG.md
 - **マシンごとに1回の手動設定**: `claude` 起動 → `/config` →
   「Enable Remote Control for all sessions」を true。テンプレートからは配布できない(設計書 L24-30)。
 
-## 未確定事項(回答があれば計画に反映する。無ければ上記の既定で進行可能)
+## 確定事項(ユーザー回答済み。2026-07-26)
 
-1. **README 1節末尾への配置でよいか**。設計書 S5 は「1節の末尾、または適切なセクション」と
-   幅を持たせている。既定は1節末尾(セキュリティプラグイン節の後)。
-   選択肢B: 4.5節「その他のツール」に doctor と並べる(日常ツールとしての位置づけは明確になるが、
-   セットアップ時に見つけにくい)。
-2. **`claude-remote.sh` を 100755 でコミットしてよいか**(既定: よい)。既存 .sh 4本は 100644 のため、
-   ルート直下の慣行を1本だけ変えることになる。選択肢B: 100644 のままにし、README と doctor の
-   案内を `bash claude-remote.sh` に変える。
-3. **CHANGELOG / README ファイル一覧への追記**(既定: 実施)。設計書の変更ファイル一覧には無い
-   慣習追記。不要なら Step 10 を削除する。
+未確定事項3点はユーザーの回答で確定した。いずれも planner の既定どおりで、計画本文は
+この確定内容で書かれている。**Generator は以下を選択肢としてではなく確定仕様として扱う**。
+
+| # | 論点 | 確定内容 | 反映先 |
+|---|------|---------|--------|
+| 1 | README の配置 | **1節(セットアップ)の末尾**(セキュリティプラグイン節の後、L392 の `---` の前) | Step 9 |
+| 2 | `claude-remote.sh` の実行権限 | **100755 でコミットする**(既存 .sh 4本の 644 とは意図的に変える。理由はリスク節と ADR 0005) | Step 1、検証1 |
+| 3 | 慣習的な追記 | **両方行う**(README 6節のファイル一覧 + CHANGELOG の `### Added(2026-07-26)`) | Step 10、検証10 |
 
 ## 知識の自動スタック(確認結果)
 
