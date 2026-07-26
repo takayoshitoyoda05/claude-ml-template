@@ -1,4 +1,4 @@
-param()
+﻿param()
 $ErrorActionPreference = "Stop"
 
 foreach ($tool in @("uv", "git")) {
