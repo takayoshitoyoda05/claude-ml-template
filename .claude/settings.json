@@ -28,9 +28,7 @@
       "Read(./.env)",
       "Read(./.env.*)",
       "Edit(./data/**)",
-      "Write(./data/**)",
-      "Edit(**/data/**)",
-      "Write(**/data/**)"
+      "Edit(**/data/**)"
     ]
   },
   "env": {
