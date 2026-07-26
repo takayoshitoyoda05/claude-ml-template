@@ -448,27 +448,74 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
 Test-Hook "action_log: exits 0 on empty payload" '{}' ".claude\hooks\action_log.py" 0
 Test-Hook "agent_log: exits 0 on empty payload" '{}' ".claude\hooks\agent_log.py" 0
 
-# --- plan_gate: 一時ディレクトリで検証(リポジトリ直下は最新計画の内容に依存するため) ---
-# sh版(verify-hooks.sh)の対応区間は set -e が無くスクリプトが途中終了しないため
-# try/finally 相当の保護は不要。ps1版は $ErrorActionPreference = "Stop" が有効なため
-# 途中の例外でも Pop-Location / 一時ディレクトリ削除に必ず到達するよう保護する。
+# --- plan_gate: 一時ディレクトリで検証(検査対象がブランチ名から決まる新仕様に合わせ、
+#     各ケースを git リポジトリ + ブランチ名に対応する計画ファイルで組み立てる)。
+# $ErrorActionPreference = "Stop" が有効なため、途中の例外でも Pop-Location /
+# 一時ディレクトリ削除に必ず到達するよう try/finally で保護する。
 $AbsPlanGate = Join-Path (Get-Location).Path ".claude\hooks\plan_gate.py"
-$PgTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("plan-gate-test-" + [Guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Path $PgTmp | Out-Null
-try {
-    Push-Location $PgTmp
-    '{}' | uv run python $AbsPlanGate *> $null
-    $actual = $LASTEXITCODE
-    if ($actual -eq 0) {
-        Write-Host "OK: plan_gate: passes when no plans dir (exit $actual)"
+
+function Test-PlanGate {
+    param(
+        [string]$Description,
+        [string]$Branch,
+        [string]$PlanName,
+        [string]$PlanText,
+        [string]$InvText,
+        [int]$ExpectedExit
+    )
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("plan-gate-case-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $tmp | Out-Null
+    try {
+        git -C $tmp init -q -b $Branch
+        if ($PlanName -ne "") {
+            $cl = Join-Path $tmp ".claude"
+            $pl = Join-Path $cl "plans"
+            New-Item -ItemType Directory -Path $pl -Force | Out-Null
+            Set-Content -Path (Join-Path $pl $PlanName) -Value $PlanText -NoNewline
+            if ($InvText -ne "") {
+                $inv = Join-Path $cl "improvements"
+                New-Item -ItemType Directory -Path $inv -Force | Out-Null
+                Set-Content -Path (Join-Path $inv "invariants.md") -Value $InvText -NoNewline
+            }
+        }
+        Push-Location $tmp
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        '{}' | uv run python $AbsPlanGate *> $null
+        $actual = $LASTEXITCODE
+        $ErrorActionPreference = $prevEAP
+        Pop-Location
+    } finally {
+        Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if ($actual -eq $ExpectedExit) {
+        Write-Host "OK: $Description (exit $actual)"
     } else {
-        Write-Host "NG: plan_gate: passes when no plans dir (expected 0, got $actual)"
+        Write-Host "NG: $Description (expected $ExpectedExit, got $actual)"
         $script:failed++
     }
-} finally {
-    Pop-Location
-    Remove-Item -Path $PgTmp -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+Test-PlanGate "plan_gate: passes when .claude/plans directory is absent" `
+    "pipeline/20260726-vh-a" "" "" "" 0
+
+Test-PlanGate "plan_gate: passes when no plan file matches the branch" `
+    "pipeline/20260726-vh-b" "20260726-other.md" "別ブランチ向けの計画メモ。`n" "" 0
+
+Test-PlanGate "plan_gate: passes when experiment: false is declared" `
+    "pipeline/20260726-vh-c" "20260726-vh-c.md" "experiment: false`n" "" 0
+
+Test-PlanGate "plan_gate: blocks when experimental language is present but goal is undefined" `
+    "pipeline/20260726-vh-d" "20260726-vh-d.md" "学習ジョブを新しいデータセットで実行する。`n" "" 2
+
+$PgEText = "cost_estimate:`n  train_minutes: 1e3`n  epochs: 30`n  dataset_gb: 2.4`n  parallel_jobs: 1`ngoal:`n  metric: rmse`n  target: 0.15`n  direction: minimize`n  baseline: 0.21`n  guard_metrics: []`n"
+Test-PlanGate "plan_gate: blocks when train_minutes is unreadable as a decimal (1e3)" `
+    "pipeline/20260726-vh-e" "20260726-vh-e.md" $PgEText "" 2
+
+$PgFText = "cost_estimate:`n  train_minutes: 999`n  epochs: 30`n  dataset_gb: 2.4`n  parallel_jobs: 1`ngoal:`n  metric: rmse`n  target: 0.15`n  direction: minimize`n  baseline: 0.21`n  guard_metrics: []`n"
+$PgFInv = "resources:`n  max_train_minutes: 120`n  max_epochs: 100`n  max_dataset_gb: 10`n  max_parallel_jobs: 1`n"
+Test-PlanGate "plan_gate: blocks when train_minutes exceeds the resource limit" `
+    "pipeline/20260726-vh-f" "20260726-vh-f.md" $PgFText $PgFInv 2
 
 Write-Host ""
 $env:CLAUDE_WORK_SCOPE = $SavedWorkScope
