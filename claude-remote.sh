@@ -10,7 +10,14 @@ fi
 
 echo "=== リモート運用の起動チェック ==="
 
-NOTICE_STATE_DIR="${XDG_STATE_HOME:-${HOME:+$HOME/.local/state}}"
+# 状態ディレクトリの優先順: XDG_STATE_HOME > $HOME/.local/state > 決定不能(空)
+if [ -n "${XDG_STATE_HOME:-}" ]; then
+  NOTICE_STATE_DIR="$XDG_STATE_HOME"
+elif [ -n "${HOME:-}" ]; then
+  NOTICE_STATE_DIR="$HOME/.local/state"
+else
+  NOTICE_STATE_DIR=""
+fi
 NOTICE_MARKER="${NOTICE_STATE_DIR:+$NOTICE_STATE_DIR/claude-remote/notice-shown}"
 if [ -n "$NOTICE_MARKER" ] && [ -f "$NOTICE_MARKER" ]; then
   echo "ヒント: 初回のみ必要な設定(/config →「Enable Remote Control for all sessions」)がまだなら実施してください。"
@@ -22,6 +29,7 @@ else
   echo "  (この設定はマシン単位。1度設定すれば以降は不要です)"
   echo ""
   if [ -n "$NOTICE_MARKER" ]; then
+    # ベストエフォート: 失敗しても起動は継続する
     mkdir -p "$(dirname "$NOTICE_MARKER")" 2>/dev/null && touch "$NOTICE_MARKER" 2>/dev/null || true
   fi
 fi
