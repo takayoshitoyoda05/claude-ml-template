@@ -110,6 +110,7 @@ Remote Control(PC のローカルセッションにスマホ・ブラウザか�
 | D-5 | 注意点表で `CLAUDE_CONTROL_LEVEL=L2`/`L3` を参照(L304) | 表の直後に定義の参照先(`/ml-pipeline` の「自律度レベル」節)を1行添える | README には CLAUDE_CONTROL_LEVEL の定義が無く、読者が意味に辿り着けない |
 | D-6 | `docs/reports/<日時>/report.md`(L313) | `docs/reports/<実行日時>/report.md` | README L1114 の既存表記に合わせる |
 | D-7 | 一括ステージ(L354)/ `git rm docs/drafts/remote-ops-spec.md`(L362) | 実装範囲に含めない(「完了後のユーザー操作」参照) | 前者は guard_bash がブロック、後者は docs/ が git 管理外で実行不能 |
+| D-8 | sh 版の `chmod +x claude-remote.sh 2>/dev/null \|\| true` をループ外で無条件に実行(L248) | `claude-remote.sh` をコピーできた分岐の中でだけ実行する | 無条件だと配布元に .sh が無い場合でも配置先の既存同名ファイルの権限を変える。実測: 配置先の 644 が 755 になった(Codex クロスレビューの指摘) |
 
 ## 共通文字列の固定(全群が同一文字列を書く。並列実行時のドリフト防止)
 
@@ -157,9 +158,9 @@ uv run python -c "import pathlib,sys; p=pathlib.Path(sys.argv[1]); p.write_text(
 | 2 | 設計書 S1 の内容で新規作成(起動コマンドは設計書のまま `claude remote-control --name`)。既存の `doctor.ps1` / `claude-update.ps1` の書式(`param()`、`$ErrorActionPreference = "Stop"`、日本語 `Write-Host`、`Get-Command ... -ErrorAction SilentlyContinue`)に倣う。**作成後に BOM 正規化コマンドを実行**(未実施だと Windows PowerShell 5.1 が Shift-JIS として読み構文エラーで起動不能になる) | claude-remote.ps1 | なし | A |
 | 3 | ファイル末尾(L73 の後)にリモート運用チェックを追記(S3 の sh 版そのまま) | doctor.sh | なし | B |
 | 4 | **`finally { ... }` の閉じ括弧より後・ファイル末尾**にリモート運用チェックを追記(S3 の ps1 版に D-3/D-4 を適用)。try の内側に入れると `$Tmp` 削除より前に走り doctor.sh の追記位置(末尾)とズレる。編集後に BOM 正規化コマンドを実行 | doctor.ps1 | なし | B |
-| 5 | `.github/workflows` ブロック(L119-125)の**直後**にルート直下スクリプト配布ブロックを新設(設計書 L242-248 の形。メッセージは `OK: <f> を更新しました`、末尾に `chmod +x claude-remote.sh 2>/dev/null \|\| true`)。ループ・`[ -f ... ]` 判定・`echo "OK: ..."` の書式は同ファイル既存の `templates/*.template` ループ(L107-116)に倣う | claude-update.sh | なし | C |
+| 5 | `.github/workflows` ブロック(L119-125)の**直後**にルート直下スクリプト配布ブロックを新設(設計書 L242-248 の形。メッセージは `OK: <f> を更新しました`)。ループ・`[ -f ... ]` 判定・`echo "OK: ..."` の書式は同ファイル既存の `templates/*.template` ループ(L107-116)に倣う。**chmod は設計書 L248 の無条件形(ループ外)ではなく、`claude-remote.sh` をコピーできたときだけ**実行する(`if [ "$f" = "claude-remote.sh" ]; then chmod +x "$f" 2>/dev/null \|\| true; fi` をコピー成功の分岐内に置く)。無条件だと配布元にファイルが無い場合でも配置先の同名ファイルを 644→755 に変えてしまう(実測で確認、D-8) | claude-update.sh | なし | C |
 | 6 | 同じ位置(L129 の `.github/workflows` ブロック直後)に ps1 版を追加(設計書 L229-235 の形。メッセージは `OK: <f> を更新しました`)。**chmod 相当は書かない**(Windows に実行権限の概念が無いため)。編集後に BOM 正規化コマンドを実行 | claude-update.ps1 | なし | C |
-| 7 | `.github/workflows` ブロック(L128-135)の直後に Step 5 と同一構造のブロックを追加。メッセージのみ `OK: <f> を配置しました`(init の既存語彙。L114 の「を配布しました」ではなく L53 の「を配置しました」に合わせる) | claude-init.sh | Step 5 | C |
+| 7 | `.github/workflows` ブロック(L128-135)の直後に Step 5 と同一構造のブロックを追加(条件付き chmod も含めて同一)。メッセージのみ `OK: <f> を配置しました`(init の既存語彙。L114 の「を配布しました」ではなく L53 の「を配置しました」に合わせる)。**既存の同名ファイルは無確認で上書きする**(`templates/` のような「あれば保持」にはしない。理由は ADR 0005「(2) 既存ファイルがある場合の扱い」を参照) | claude-init.sh | Step 5 | C |
 | 8 | `.github/workflows` ブロック(L118-125)の直後に Step 6 と同一構造のブロックを追加。メッセージは `OK: <f> を配置しました`。編集後に BOM 正規化コマンドを実行 | claude-init.ps1 | Step 6 | C |
 | 9 | (配置先はユーザー承認済み: 1節末尾)L390 の直後・L392 の `---` の**前**に `### リモート運用(スマホ・ブラウザから操作)` を追加(設計書 S5 の markdown に D-5/D-6 を適用)。見出し階層は同節の既存 `###`+`####` に倣う。設計書のコードブロックは**外側のフェンスを外して**本文として書く | README.md | なし | D |
 | 10 | (実施はユーザー承認済み)6節ファイル一覧 L1390(`doctor.ps1 / .sh`)の直後に `claude-remote.ps1 / .sh` の1行を追加(説明の桁位置は既存行に揃える)。あわせて CHANGELOG の `### Added(2026-07-24)` ブロックの直後に `### Added(2026-07-26)` を新設し1項目追記 | README.md, CHANGELOG.md | Step 9 | D |
@@ -205,9 +206,18 @@ for f in claude-remote.sh doctor.sh claude-init.sh claude-update.sh; do printf "
 grep -c $'\r' claude-remote.sh || true
 
 # 4. PowerShell 5.1 構文チェック(期待: 5ファイルすべて 0)
-( cd /mnt/c && for f in claude-remote.ps1 doctor.ps1 claude-init.ps1 claude-update.ps1 verify-hooks.ps1; do \
-  printf "%s: " "$f"; powershell.exe -NoProfile -Command \
-  "\$e=\$null; [void][System.Management.Automation.Language.Parser]::ParseFile('\\\\wsl.localhost\\Ubuntu\\home\\toyod\\claude-ml-template\\$f', [ref]\$null, [ref]\$e); if(\$e){\$e.Count}else{'0'}"; done )
+#    Windows 側のパスは wslpath -w で組み立てる。`\\wsl.localhost\Ubuntu\...` を直書きすると
+#    ディストリ登録名が Ubuntu 以外(Ubuntu-24.04 等)の環境で壊れるため使わない。
+#    WSL 以外(素の Linux / macOS)では検査できないので、黙って失敗させずスキップを表示する。
+if command -v wslpath >/dev/null 2>&1 && command -v powershell.exe >/dev/null 2>&1; then
+  REPO_WIN=$(wslpath -w "$PWD")
+  for f in claude-remote.ps1 doctor.ps1 claude-init.ps1 claude-update.ps1 verify-hooks.ps1; do
+    printf "%s: " "$f"
+    powershell.exe -NoProfile -Command "\$e=\$null; [void][System.Management.Automation.Language.Parser]::ParseFile('$REPO_WIN\\$f', [ref]\$null, [ref]\$e); if(\$e){\$e.Count}else{'0'}"
+  done
+else
+  echo "SKIP: wslpath / powershell.exe が無い環境です。.ps1 の構文検査は Windows 側で行うこと"
+fi
 
 # 5. BOM(期待: 5行すべて efbbbf)
 for f in claude-remote.ps1 doctor.ps1 claude-init.ps1 claude-update.ps1 verify-hooks.ps1; do printf "%s: " "$f"; head -c 3 "$f" | xxd -p; done
@@ -232,31 +242,53 @@ diff <(grep -oE 'claude-remote\.(sh|ps1)' claude-update.sh | sort -u) <(grep -oE
 
 # 9a. 配布ブロックの実動作 / sh 版
 #     claude-update.sh に実際に書いたブロックを**そのまま貼って**実行する(下記は雛形)。
+#     chmod は「claude-remote.sh をコピーできたときだけ」実行すること(無条件 chmod は
+#     配布元にファイルが無い場合でも配置先の同名ファイルの権限を変えてしまう。実測で確認済み)。
 SB=$(mktemp -d); mkdir -p "$SB/proj" "$SB/tmpl"
-printf '#!/usr/bin/env bash\n' > "$SB/tmpl/claude-remote.sh"; printf 'x\n' > "$SB/tmpl/claude-remote.ps1"
+BLOCK='set -euo pipefail
+for f in claude-remote.ps1 claude-remote.sh; do
+  if [ -f "$TMP/$f" ]; then
+    cp "$TMP/$f" "$f"
+    echo "OK: $f を更新しました"
+    if [ "$f" = "claude-remote.sh" ]; then
+      chmod +x "$f" 2>/dev/null || true
+    fi
+  fi
+done'
 # (i) 両方ある場合(期待: OK 行が2本、claude-remote.sh が -rwx)
-( cd "$SB/proj" && TMP="$SB/tmpl" bash -c 'for f in claude-remote.ps1 claude-remote.sh; do if [ -f "$TMP/$f" ]; then cp "$TMP/$f" "$f"; echo "OK: $f を更新しました"; fi; done; chmod +x claude-remote.sh 2>/dev/null || true'; ls -l )
-# (ii) 片方だけ存在する場合(期待: 1。エラー終了しない)
+printf '#!/usr/bin/env bash\n' > "$SB/tmpl/claude-remote.sh"; printf 'x\n' > "$SB/tmpl/claude-remote.ps1"
+( cd "$SB/proj" && TMP="$SB/tmpl" bash -c "$BLOCK"; ls -l )
+# (ii) 配布元に .ps1 が無い場合(期待: 1。エラー終了しない)
 rm -f "$SB/proj/claude-remote.ps1" "$SB/proj/claude-remote.sh" "$SB/tmpl/claude-remote.ps1"
-( cd "$SB/proj" && TMP="$SB/tmpl" bash -c 'for f in claude-remote.ps1 claude-remote.sh; do if [ -f "$TMP/$f" ]; then cp "$TMP/$f" "$f"; echo "OK: $f を更新しました"; fi; done' | grep -c '^OK:' )
+( cd "$SB/proj" && TMP="$SB/tmpl" bash -c "$BLOCK" | grep -c '^OK:' )
+# (iii) 配布元に .sh が無く、配置先に 644 の同名ファイルがある場合
+#      (期待: 1 と、644 が維持されること。無条件 chmod だとここが 755 に変わる)
+rm -f "$SB/proj/claude-remote.sh" "$SB/tmpl/claude-remote.sh"; printf 'x\n' > "$SB/tmpl/claude-remote.ps1"
+printf 'x\n' > "$SB/proj/claude-remote.sh"; chmod 644 "$SB/proj/claude-remote.sh"
+( cd "$SB/proj" && TMP="$SB/tmpl" bash -c "$BLOCK" | grep -c '^OK:' ); stat -c '%a %n' "$SB/proj/claude-remote.sh"
 # 後始末は不要($(mktemp -d) 配下)。`rm -rf` は guard_bash に止められることがあるので使わない。
 
 # 9b. 配布ブロックの実動作 / ps1 版(9a と対。claude-update.ps1 のブロックを Windows PowerShell で実行する)
-#     サンドボックスは WSL 側に置き、UNC パス \\wsl.localhost\Ubuntu\... で Windows から参照する。
+#     サンドボックスは WSL 側に置き、Windows 側パスは wslpath -w で組み立てる
+#     (`\\wsl.localhost\Ubuntu\...` の直書きはディストリ登録名に依存するので使わない)。
 #     PS_BLOCK は claude-update.ps1 に実際に書いたブロックと同一にすること($Tmp 変数名も合わせる)。
 #     [Console]::OutputEncoding の指定は**必須**。無いと出力が CP932 になり、
 #     WSL 側の grep が件数を返さない(実測で確認済み)。
 SB2=$(mktemp -d); mkdir -p "$SB2/proj" "$SB2/tmpl"
 printf 'x\n' > "$SB2/tmpl/claude-remote.ps1"; printf 'x\n' > "$SB2/tmpl/claude-remote.sh"
-WIN_SB="\\\\wsl.localhost\\Ubuntu${SB2//\//\\}"
-PS_BLOCK="foreach (\$f in @('claude-remote.ps1','claude-remote.sh')) { \$src = Join-Path \$Tmp \$f; if (Test-Path \$src) { Copy-Item \$src \$f -Force; Write-Host \"OK: \$f を更新しました\" } }"
-PS_HEAD="[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Set-Location '$WIN_SB\\proj'; \$Tmp='$WIN_SB\\tmpl'; "
-# (i) 両方ある場合(期待: 2)
-powershell.exe -NoProfile -Command "$PS_HEAD$PS_BLOCK" 2>&1 | grep -c '^OK:'
-# (ii) 片方だけ存在する場合(期待: 1)
-rm -f "$SB2/proj/claude-remote.ps1" "$SB2/proj/claude-remote.sh" "$SB2/tmpl/claude-remote.ps1"
-powershell.exe -NoProfile -Command "$PS_HEAD$PS_BLOCK" 2>&1 | grep -c '^OK:'
-ls -1 "$SB2/proj"   # 期待: claude-remote.sh のみ
+if command -v wslpath >/dev/null 2>&1 && command -v powershell.exe >/dev/null 2>&1; then
+  WIN_SB=$(wslpath -w "$SB2")
+  PS_BLOCK="foreach (\$f in @('claude-remote.ps1','claude-remote.sh')) { \$src = Join-Path \$Tmp \$f; if (Test-Path \$src) { Copy-Item \$src \$f -Force; Write-Host \"OK: \$f を更新しました\" } }"
+  PS_HEAD="[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Set-Location '$WIN_SB\\proj'; \$Tmp='$WIN_SB\\tmpl'; "
+  # (i) 両方ある場合(期待: 2)
+  powershell.exe -NoProfile -Command "$PS_HEAD$PS_BLOCK" 2>&1 | grep -c '^OK:'
+  # (ii) 片方だけ存在する場合(期待: 1)
+  rm -f "$SB2/proj/claude-remote.ps1" "$SB2/proj/claude-remote.sh" "$SB2/tmpl/claude-remote.ps1"
+  powershell.exe -NoProfile -Command "$PS_HEAD$PS_BLOCK" 2>&1 | grep -c '^OK:'
+  ls -1 "$SB2/proj"   # 期待: claude-remote.sh のみ
+else
+  echo "SKIP: wslpath / powershell.exe が無い環境です。ps1 の配布ブロックは Windows 側で検証すること"
+fi
 
 # 10. README / CHANGELOG(期待: すべて1件以上)
 grep -n "Enable Remote Control for all sessions" README.md
@@ -275,6 +307,12 @@ grep -n "^### Added(2026-07-26)" CHANGELOG.md
   `Test-Path` 判定で落ちずに残り1本を処理することを検証9a(ii) / 9b(ii)(期待: 1)で確認する。
   **sh 版と ps1 版の両方を実行すること**(片方だけの検証は、この計画が最も重視する
   sh/ps1 対称性を検証側で崩す)。
+- **配布元にファイルが無い場合の副作用**も見る。検証9a(iii) で「配布元に .sh が無く、
+  配置先に 644 の同名ファイルがある」状態を作り、権限が 644 のまま変わらないことを確認する
+  (D-8。無条件 chmod だとここが 755 に変わる)。
+- **ps1 側の検証が動かない環境**(WSL 以外の Linux / macOS など、`wslpath` か `powershell.exe`
+  が無い場合)は検証4・9b が SKIP を表示する。SKIP が出たら「PASS」と読まず、
+  **Windows 側で .ps1 の構文検査と配布ブロックを実行する**こと。
 - `claude-remote.sh` の分岐は **tmux あり(既存セッションに attach / 新規作成)/ tmux なし**の3経路。
   `bash -n` は全経路を構文検査する。実起動はリモートセッションが立ち上がるため行わず、
   ユーザー確認事項とする。
@@ -315,6 +353,13 @@ grep -n "^### Added(2026-07-26)" CHANGELOG.md
   各 .ps1 編集ステップの直後に正規化コマンドを実行し、検証5で全ファイルを再確認する。
 - **設計書と実装の食い違いを残さない**。逸脱 D-2〜D-7 は設計書本文には反映されないが、
   設計書は git 管理外の drafts であり、実装後は本計画の「設計書からの逸脱」表が正となる。
+- **検証コマンドの移植性**。`\\wsl.localhost\Ubuntu\...` の直書きは WSL のディストリ登録名に
+  依存し、`Ubuntu-24.04` 等の環境で壊れる(本機は `WSL_DISTRO_NAME=Ubuntu` のためたまたま動く)。
+  テンプレートは配布物なので、検証4・9b は `wslpath -w` でパスを組み立て、
+  `wslpath` / `powershell.exe` が無い環境では SKIP を明示する形にした。
+- **init の上書き方針**。claude-init は既存の `claude-remote.*` を無確認で上書きする。
+  プロジェクト固有の内容を持たないファイルであり、`.claude/` 配下と同じ方針
+  (詳細は ADR 0005)。独自改造したい場合は別名のラッパーを作る運用とする。
 - **一覧に無いことを「存在しない」と読まない**(D-1 撤回の教訓)。CLI・API・設定キーの有無を
   判定するときは、一覧の不在ではなく**その対象を直接叩いた結果**を根拠にする。
 
