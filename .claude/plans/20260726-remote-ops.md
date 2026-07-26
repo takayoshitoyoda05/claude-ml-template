@@ -19,18 +19,30 @@ Remote Control(PC のローカルセッションにスマホ・ブラウザか�
 
 ### 事実確認(すべて実測済み)
 
-- **確認済み(重大): 設計書の起動コマンドが実際の CLI と違う。** 設計書 L106 / L146 / L152 は
-  `claude remote-control --name "<名前>"` と書くが、本機の `claude --version` は
-  `2.1.220 (Claude Code)` で、`claude --help` の Commands 一覧に `remote-control` は
-  **無い**(agents / auth / auto-mode / doctor / gateway / install / mcp / plugin /
-  project / setup-token / ultrareview / update のみ)。実際は**フラグ**であり
-  `--remote-control [name]  Start an interactive session with Remote Control enabled
-  (optionally named)`(help L159-160)。さらに `-n, --name <name>`(help L120)は
-  「セッションの表示名」を設定する**別のフラグとして実在する**。
-  → 設計書のまま実装すると `remote-control` が**プロンプト文字列**として解釈され、
-  表示名だけ付いた**通常セッション(リモート無効)**が起動し、エラーも出ずに
-  「動いているのにスマホから見えない」状態になる。**必ず `claude --remote-control "<名前>"`
-  に訂正して実装する**(下記「設計書からの逸脱」D-1)。
+- **確認済み: 設計書の起動コマンド `claude remote-control --name "<名前>"` は正しい。そのまま実装する。**
+  実測(claude 2.1.220):
+  - `claude remote-control --help` → exit 0。`Remote Control - Control local sessions from
+    claude.ai/code or the Claude mobile app` / `USAGE  claude remote-control [options]` /
+    `OPTIONS  --name <name>  Name for the session (shown in claude.ai/code)` を出力する。
+    `--spawn <mode>`(same-dir / worktree / session)・`--capacity <N>` も持つ。
+  - `claude remote-control --name probe-test --help` → exit 0(`Unknown argument` は出ない)。
+  - ヘルプの DESCRIPTION が `Run this command in the directory you want to work in, then
+    connect from your phone or a browser` と書いており、設計書の意図(起動して最小化し
+    スマホから接続する)に一致する。
+- **確認済み(初版の誤判定の記録。再発防止のため残す)**: 本計画の初版は「`remote-control`
+  サブコマンドは存在しない」と判定し、`claude --remote-control "<名前>"` への訂正を
+  逸脱 D-1 として指示していた。根拠は `claude --help` の `Commands:` 一覧に
+  `remote-control` が無いこと(実測: `agents / auth / auto-mode / doctor / gateway /
+  install / mcp / plugin / project / setup-token / ultrareview / update` のみ。
+  `claude --help | grep -c "^  remote-control"` は 0)。しかし **`remote-control` は
+  主ヘルプに載らない隠しサブコマンド**であり、**Commands 一覧の不在は「存在しない」ことの
+  証拠にならない**。→ **サブコマンドの有無は `<コマンド> <サブコマンド> --help` を実行して
+  確かめる。一覧の不在だけで否定しない**(Codex クロスレビューの指摘により撤回)。
+- 確認済み: 2つの形式は**別機能**であり混同してはならない。
+  `claude --remote-control [name]`(メインコマンドのフラグ)は Remote Control 有効の
+  **対話セッションを1つ起動**する。`claude remote-control --name <name>`(サブコマンド)は
+  claude.ai/code・モバイルから**ローカルセッション群を制御するモード**で `--spawn` /
+  `--capacity` を持つ。設計書が使うのは後者。
 - **確認済み(設計書セクション4の前提が事実と異なる): 4つのインストーラは doctor も
   verify-hooks も配布していない。** `grep -rn "verify-hooks\|doctor" claude-init.sh
   claude-update.sh claude-init.ps1 claude-update.ps1` は**0件**。したがって設計書 L225
@@ -91,7 +103,7 @@ Remote Control(PC のローカルセッションにスマホ・ブラウザか�
 
 | ID | 設計書の記述 | 実装する内容 | 理由 |
 |----|------------|------------|------|
-| D-1 | `claude remote-control --name "$Name"`(L106/146/152) | `claude --remote-control "<名前>"` | 実 CLI(v2.1.220)に `remote-control` サブコマンドは無い。設計書の形は無言でリモート無効の通常セッションを起動する |
+| D-1 | ~~`claude remote-control --name "$Name"`(L106/146/152)~~ | **撤回。設計書のまま実装する** | 初版は「`remote-control` サブコマンドは無い」と誤判定した(根拠は主ヘルプ `Commands:` 一覧の不在)。実測で隠しサブコマンドとして実在することを確認したため撤回。番号は詰めず誤判定の記録として残す。経緯は現状分析を参照 |
 | D-2 | 「既存の doctor / verify-hooks を配布している処理と同じ方式で」(L225) | ルート直下ファイルの配布ブロックを**新設**し、4スクリプトの `.github/workflows` ブロックの直後に同じ形で置く | その既存処理は存在しない(grep 0件) |
 | D-3 | doctor.ps1 のバージョン確認を try/catch で行う(L169-176) | `if (Get-Command "claude" -ErrorAction SilentlyContinue) { ... }` に変更 | doctor.sh 側は `command -v claude` で判定しており、対になるファイルの構造を揃える。doctor.ps1 は `$ErrorActionPreference = "Stop"` のため未インストール時に例外が飛ぶのを Get-Command で確実に避ける |
 | D-4 | `Write-Host "=== リモート運用(Remote Control)===";`(L166、行末セミコロン) | 行末のセミコロンを付けない | doctor.ps1 の既存行に行末セミコロンは1つも無い |
@@ -105,9 +117,9 @@ Remote Control(PC のローカルセッションにスマホ・ブラウザか�
 
 | 用途 | 固定文字列 |
 |------|-----------|
-| 起動コマンド(sh 直接) | `exec claude --remote-control "$NAME"` |
-| 起動コマンド(sh・tmux 経由) | `exec tmux new -s "$SESSION" "claude --remote-control '$NAME'"` |
-| 起動コマンド(ps1) | `claude --remote-control "$Name"` |
+| 起動コマンド(sh 直接) | `exec claude remote-control --name "$NAME"` |
+| 起動コマンド(sh・tmux 経由) | `exec tmux new -s "$SESSION" "claude remote-control --name '$NAME'"` |
+| 起動コマンド(ps1) | `claude remote-control --name "$Name"` |
 | doctor の見出し | `=== リモート運用(Remote Control)===` |
 | doctor の確認行 | `確認: /config の「Enable Remote Control for all sessions」が true か` |
 | init のコピー成功メッセージ | `OK: <ファイル名> を配置しました` |
@@ -118,8 +130,8 @@ Remote Control(PC のローカルセッションにスマホ・ブラウザか�
 
 | ファイル | 区分 | 変更内容 |
 |---------|------|---------|
-| claude-remote.sh | NEW | 設計書 S2 のスクリプト(D-1 適用)。実行権限を付ける |
-| claude-remote.ps1 | NEW | 設計書 S1 のスクリプト(D-1 適用)。**UTF-8 BOM 付き** |
+| claude-remote.sh | NEW | 設計書 S2 のスクリプトをそのまま実装。実行権限を付ける |
+| claude-remote.ps1 | NEW | 設計書 S1 のスクリプトをそのまま実装。**UTF-8 BOM 付き** |
 | doctor.sh | MOD | 末尾にリモート運用チェックを追記(S3) |
 | doctor.ps1 | MOD | try/finally の**外側**・ファイル末尾に同(S3、D-3/D-4 適用) |
 | claude-update.sh | MOD | ルート直下スクリプト配布ブロックを新設(S4、D-2) |
@@ -141,15 +153,15 @@ uv run python -c "import pathlib,sys; p=pathlib.Path(sys.argv[1]); p.write_text(
 
 | # | 内容 | 対象ファイル | 依存 | 並列グループ |
 |---|------|-------------|------|-------------|
-| 1 | 設計書 S2 の内容で新規作成(D-1 適用)。既存の `claude-init.sh` / `doctor.sh` の書式(シバン、`set -euo pipefail`、日本語 echo、`command -v` 判定)に倣う。作成後 `chmod +x claude-remote.sh` を実行し LF 改行を保つ | claude-remote.sh | なし | A |
-| 2 | 設計書 S1 の内容で新規作成(D-1 適用)。既存の `doctor.ps1` / `claude-update.ps1` の書式(`param()`、`$ErrorActionPreference = "Stop"`、日本語 `Write-Host`、`Get-Command ... -ErrorAction SilentlyContinue`)に倣う。**作成後に BOM 正規化コマンドを実行**(未実施だと Windows PowerShell 5.1 が Shift-JIS として読み構文エラーで起動不能になる) | claude-remote.ps1 | なし | A |
+| 1 | 設計書 S2 の内容で新規作成(起動コマンドは設計書のまま `claude remote-control --name`)。既存の `claude-init.sh` / `doctor.sh` の書式(シバン、`set -euo pipefail`、日本語 echo、`command -v` 判定)に倣う。作成後 `chmod +x claude-remote.sh` を実行し LF 改行を保つ | claude-remote.sh | なし | A |
+| 2 | 設計書 S1 の内容で新規作成(起動コマンドは設計書のまま `claude remote-control --name`)。既存の `doctor.ps1` / `claude-update.ps1` の書式(`param()`、`$ErrorActionPreference = "Stop"`、日本語 `Write-Host`、`Get-Command ... -ErrorAction SilentlyContinue`)に倣う。**作成後に BOM 正規化コマンドを実行**(未実施だと Windows PowerShell 5.1 が Shift-JIS として読み構文エラーで起動不能になる) | claude-remote.ps1 | なし | A |
 | 3 | ファイル末尾(L73 の後)にリモート運用チェックを追記(S3 の sh 版そのまま) | doctor.sh | なし | B |
 | 4 | **`finally { ... }` の閉じ括弧より後・ファイル末尾**にリモート運用チェックを追記(S3 の ps1 版に D-3/D-4 を適用)。try の内側に入れると `$Tmp` 削除より前に走り doctor.sh の追記位置(末尾)とズレる。編集後に BOM 正規化コマンドを実行 | doctor.ps1 | なし | B |
 | 5 | `.github/workflows` ブロック(L119-125)の**直後**にルート直下スクリプト配布ブロックを新設(設計書 L242-248 の形。メッセージは `OK: <f> を更新しました`、末尾に `chmod +x claude-remote.sh 2>/dev/null \|\| true`)。ループ・`[ -f ... ]` 判定・`echo "OK: ..."` の書式は同ファイル既存の `templates/*.template` ループ(L107-116)に倣う | claude-update.sh | なし | C |
 | 6 | 同じ位置(L129 の `.github/workflows` ブロック直後)に ps1 版を追加(設計書 L229-235 の形。メッセージは `OK: <f> を更新しました`)。**chmod 相当は書かない**(Windows に実行権限の概念が無いため)。編集後に BOM 正規化コマンドを実行 | claude-update.ps1 | なし | C |
 | 7 | `.github/workflows` ブロック(L128-135)の直後に Step 5 と同一構造のブロックを追加。メッセージのみ `OK: <f> を配置しました`(init の既存語彙。L114 の「を配布しました」ではなく L53 の「を配置しました」に合わせる) | claude-init.sh | Step 5 | C |
 | 8 | `.github/workflows` ブロック(L118-125)の直後に Step 6 と同一構造のブロックを追加。メッセージは `OK: <f> を配置しました`。編集後に BOM 正規化コマンドを実行 | claude-init.ps1 | Step 6 | C |
-| 9 | (配置先はユーザー承認済み: 1節末尾)L390 の直後・L392 の `---` の**前**に `### リモート運用(スマホ・ブラウザから操作)` を追加(設計書 S5 の markdown に D-1/D-5/D-6 を適用)。見出し階層は同節の既存 `###`+`####` に倣う。設計書のコードブロックは**外側のフェンスを外して**本文として書く | README.md | なし | D |
+| 9 | (配置先はユーザー承認済み: 1節末尾)L390 の直後・L392 の `---` の**前**に `### リモート運用(スマホ・ブラウザから操作)` を追加(設計書 S5 の markdown に D-5/D-6 を適用)。見出し階層は同節の既存 `###`+`####` に倣う。設計書のコードブロックは**外側のフェンスを外して**本文として書く | README.md | なし | D |
 | 10 | (実施はユーザー承認済み)6節ファイル一覧 L1390(`doctor.ps1 / .sh`)の直後に `claude-remote.ps1 / .sh` の1行を追加(説明の桁位置は既存行に揃える)。あわせて CHANGELOG の `### Added(2026-07-24)` ブロックの直後に `### Added(2026-07-26)` を新設し1項目追記 | README.md, CHANGELOG.md | Step 9 | D |
 | 11 | 「検証方法」の全コマンドを実行し、結果を報告に貼る | (なし) | Step 1-10 | 統合(逐次) |
 
@@ -200,9 +212,11 @@ grep -c $'\r' claude-remote.sh || true
 # 5. BOM(期待: 5行すべて efbbbf)
 for f in claude-remote.ps1 doctor.ps1 claude-init.ps1 claude-update.ps1 verify-hooks.ps1; do printf "%s: " "$f"; head -c 3 "$f" | xxd -p; done
 
-# 6. 起動コマンドが正しい形であること(期待: --remote-control が両ファイルにあり、誤形は0件)
-grep -n -- "--remote-control" claude-remote.sh claude-remote.ps1
-! grep -nE "claude[[:space:]]+remote-control" claude-remote.sh claude-remote.ps1 doctor.sh doctor.ps1 README.md && echo "OK: 誤ったサブコマンド形は無い"
+# 6. 起動コマンドが設計書どおりのサブコマンド形であること
+#    (期待: 前半は claude-remote.sh に2件・claude-remote.ps1 に1件、後半は OK 行)
+grep -nE "claude remote-control --name" claude-remote.sh claude-remote.ps1
+# フラグ形(claude --remote-control)は別機能なので使っていないこと(期待: OK 行)
+! grep -nE "claude[[:space:]]+--remote-control" claude-remote.sh claude-remote.ps1 doctor.sh doctor.ps1 README.md && echo "OK: フラグ形は使っていない"
 
 # 7. doctor の追記(期待: 2ファイルとも1件以上、diff は空)
 grep -c "Remote Control" doctor.sh doctor.ps1
@@ -269,10 +283,11 @@ grep -n "^### Added(2026-07-26)" CHANGELOG.md
 
 ## リスク
 
-- **未確認の仮定: 実起動の動作確認はしていない。** `claude --remote-control "<名前>"` の
-  構文は本機 v2.1.220 の `claude --help` 出力から確定したが、実際に起動して
-  スマホから見えるところまでは検証していない(実行すると対話セッションが立ち上がるため)。
-  最終確認はユーザーの手元操作に委ねる。
+- **未確認の仮定: 実セッションの起動までは確認していない。** `claude remote-control --name <名前>` は
+  `claude remote-control --help` の記載と、`--name probe-test --help` を付けた実行が
+  exit 0 で引数を受理することまで確認済み(claude 2.1.220)。ただし **実際に
+  Remote Control サーバーが起動しスマホから見える**ところまでは検証していない
+  (実行すると常駐セッションが立ち上がるため)。最終確認はユーザーの手元操作に委ねる。
 - **未確認の仮定: `powercfg` の出力文言**(設計書 L80 の `現在の AC 電源設定|Current AC Power Setting`)は
   Windows の言語設定に依存する。一致しなければ警告側に倒れるだけで起動は妨げない。
 - **配布は push 後に効く**。claude-init / claude-update は GitHub の公開リポジトリを clone するため、
@@ -298,8 +313,10 @@ grep -n "^### Added(2026-07-26)" CHANGELOG.md
 - **BOM の消失**。.ps1 を Edit ツールで編集すると BOM が落ちる可能性がある。落ちると
   Windows PowerShell 5.1 が Shift-JIS として解釈し**構文エラーで起動不能**になる(本日実測)。
   各 .ps1 編集ステップの直後に正規化コマンドを実行し、検証5で全ファイルを再確認する。
-- **設計書と実装の食い違いを残さない**。D-1 は設計書本文にも残るが、設計書は git 管理外の
-  drafts であり、実装後は本計画の「設計書からの逸脱」表が正となる。
+- **設計書と実装の食い違いを残さない**。逸脱 D-2〜D-7 は設計書本文には反映されないが、
+  設計書は git 管理外の drafts であり、実装後は本計画の「設計書からの逸脱」表が正となる。
+- **一覧に無いことを「存在しない」と読まない**(D-1 撤回の教訓)。CLI・API・設定キーの有無を
+  判定するときは、一覧の不在ではなく**その対象を直接叩いた結果**を根拠にする。
 
 ## トレーサビリティ
 
@@ -307,7 +324,7 @@ grep -n "^### Added(2026-07-26)" CHANGELOG.md
 
 | ID | 内容 | 対応ステップ | 検証方法 |
 |----|------|------------|---------|
-| S1 | claude-remote.ps1 の新規作成 | Step 2 | 検証1(存在)/ 検証4(構文0件)/ 検証5(BOM)/ 検証6(`--remote-control`) |
+| S1 | claude-remote.ps1 の新規作成 | Step 2 | 検証1(存在)/ 検証4(構文0件)/ 検証5(BOM)/ 検証6(`remote-control --name`) |
 | S2 | claude-remote.sh の新規作成 | Step 1 | 検証1(存在・`stat` で 755)/ 検証2(`bash -n` 4本)/ 検証3(LF)/ 検証6 |
 | S3 | doctor へのリモート運用チェック追加 | Step 3, 4 | 検証7(件数と対の文言一致)/ 検証2(doctor.sh の `bash -n`)/ 検証4・5(doctor.ps1) |
 | S4 | claude-init / claude-update への配布追加 | Step 5, 6, 7, 8 | 検証8(4ファイル・対一致・件数)/ 検証9a(sh ブロックの実動作)/ 検証9b(ps1 ブロックの実動作)/ 検証2(sh の `bash -n`)/ 検証4・5(ps1) |
@@ -347,5 +364,5 @@ grep -n "^### Added(2026-07-26)" CHANGELOG.md
 - (b) ADR: **作成対象あり** — 「ルート直下スクリプトの配布方式の新設」(上書き更新・配置位置・
   実行権限の扱い)は複数案から選んだ後戻りしにくい決定のため
   `docs/adr/0005-root-script-distribution.md` に記録する(既存 0001〜0004 の書式に倣う)。
-  D-1(起動コマンドの訂正)は設計書の誤りの修正でありトレードオフを伴わないため ADR にはしない。
+  D-1(起動コマンドの「訂正」)は撤回されたため ADR の対象ではない。
 - (c) EXPERIMENT_LOG: 学習・実験を伴わない(`experiment: false`)。追記対象なし。
