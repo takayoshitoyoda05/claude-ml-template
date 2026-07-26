@@ -874,11 +874,13 @@ def test_t41_crlf_nested_block_is_inspected(tmp_path: Path) -> None:
         "      dataset_gb: 1\n"
         "      parallel_jobs: 1\n" + _GOAL_COMPLETE
     ).replace("\n", "\r\n")
+    # write_text は Windows で \n を \r\n に変換するため、既に CRLF にした文字列が
+    # \r\r\n になってしまう。バイト列で書いて改行コードを固定する
     result = _run(
         tmp_path,
         branch="pipeline/20260726-foo",
         plan_name="20260726-foo.md",
-        plan_text=plan_text,
+        plan_bytes=plan_text.encode("utf-8"),
         invariants_text=_INVARIANTS_COMPLETE,
     )
     assert result.returncode == 2
