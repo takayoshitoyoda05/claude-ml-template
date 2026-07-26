@@ -298,7 +298,10 @@ def repo_state_signature(extra):
                 untracked_meta.append(f"{path}:gone")
     diff_hash = hashlib.sha256(diff_bytes).hexdigest()
     status_hash = hashlib.sha256(status_bytes).hexdigest()
-    # surrogateescape: path に surrogate が含まれると "utf-8" 単独では
-    # UnicodeEncodeError になり、署名計算そのものが落ちる
+    # backslashreplace: path に surrogate が含まれると "utf-8" 単独では
+    # UnicodeEncodeError になり、署名計算そのものが落ちる。surrogateescape は
+    # U+DC80-U+DCFF しか扱えず、Windows の fsdecode が使う surrogatepass 由来の
+    # 未対サロゲート(U+D800-U+DBFF)で落ちるため、どの文字でも失敗しない
+    # backslashreplace を使う(文字ごとに異なる表現になるので署名の区別も保たれる)
     raw = f"{extra}\n{head}\n{status_hash}\n{diff_hash}\n" + "\n".join(untracked_meta)
-    return hashlib.sha256(raw.encode("utf-8", "surrogateescape")).hexdigest()
+    return hashlib.sha256(raw.encode("utf-8", "backslashreplace")).hexdigest()
