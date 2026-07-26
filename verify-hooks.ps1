@@ -17,8 +17,14 @@ function Write-Utf8NoBom {
         [Parameter(Mandatory = $true)][string]$Path,
         [switch]$NoNewline
     )
+    begin { $chunks = New-Object System.Collections.Generic.List[string] }
+    process { $chunks.Add($Text) }
     end {
-        $body = if ($NoNewline -or $Text.EndsWith("`n")) { $Text } else { $Text + "`r`n" }
+        # process ブロックで受けないと、複数オブジェクトを流したときに最後の1件しか
+        # 書かれない(Out-File との非互換になる)。改行は Out-File と同じく
+        # プラットフォーム既定に合わせる(Windows は CRLF、Linux/pwsh7 は LF)
+        $body = [string]::Join([Environment]::NewLine, $chunks)
+        if (-not $NoNewline -and -not $body.EndsWith("`n")) { $body += [Environment]::NewLine }
         [System.IO.File]::WriteAllText($Path, $body, (New-Object System.Text.UTF8Encoding($false)))
     }
 }
