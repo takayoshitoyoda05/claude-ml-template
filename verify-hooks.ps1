@@ -7,6 +7,22 @@ $script:failed = 0
 $SavedWorkScope = $env:CLAUDE_WORK_SCOPE
 $env:CLAUDE_WORK_SCOPE = (Get-Location).Path
 
+# PowerShell 5.1 の Out-File -Encoding utf8 は BOM を付け、Set-Content の既定は
+# システムの ANSI コードページ(日本語環境では Shift-JIS)になる。どちらも
+# Python 側のフックが encoding="utf-8" で読めない(BOM は先頭に \ufeff が残り、
+# Shift-JIS は UnicodeDecodeError)。テストのフィクスチャは BOM なし UTF-8 で書く。
+function Write-Utf8NoBom {
+    param(
+        [Parameter(ValueFromPipeline = $true)][string]$Text,
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$NoNewline
+    )
+    end {
+        $body = if ($NoNewline -or $Text.EndsWith("`n")) { $Text } else { $Text + "`r`n" }
+        [System.IO.File]::WriteAllText($Path, $body, (New-Object System.Text.UTF8Encoding($false)))
+    }
+}
+
 function Test-Hook {
     param(
         [string]$Description,
@@ -109,7 +125,10 @@ Test-Hook "enforce_eval: no flag passes" '{}' ".claude\hooks\enforce_eval.py" 0
 # セッションが CLAUDE_QUALITY_GATE=1 を注入していても素の状態をテストできるよう明示的に外す
 $savedQualityGate = $env:CLAUDE_QUALITY_GATE
 Remove-Item Env:CLAUDE_QUALITY_GATE -ErrorAction SilentlyContinue
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 '{}' | uv run python ".claude\hooks\quality_gate.py" *> $null
+$ErrorActionPreference = $prevEAP
 if ($LASTEXITCODE -eq 0) {
     Write-Host "OK: quality_gate: off when flag not set (exit 0)"
 } else {
@@ -123,7 +142,10 @@ $savedNotify = $env:CLAUDE_NOTIFY
 $savedControlLevel = $env:CLAUDE_CONTROL_LEVEL
 Remove-Item Env:CLAUDE_NOTIFY -ErrorAction SilentlyContinue
 Remove-Item Env:CLAUDE_CONTROL_LEVEL -ErrorAction SilentlyContinue
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 '{}' | uv run python ".claude\hooks\notify.py" *> $null
+$ErrorActionPreference = $prevEAP
 if ($LASTEXITCODE -eq 0) {
     Write-Host "OK: notify: off when flag not set (exit 0)"
 } else {
@@ -135,7 +157,10 @@ if ($null -ne $savedControlLevel) { $env:CLAUDE_CONTROL_LEVEL = $savedControlLev
 # セッションが CLAUDE_CROSS_REVIEW=1 を注入していても素の状態をテストできるよう明示的に外す
 $savedCrossReview = $env:CLAUDE_CROSS_REVIEW
 Remove-Item Env:CLAUDE_CROSS_REVIEW -ErrorAction SilentlyContinue
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 '{}' | uv run python ".claude\hooks\codex_gate.py" *> $null
+$ErrorActionPreference = $prevEAP
 if ($LASTEXITCODE -eq 0) {
     Write-Host "OK: codex_gate: off when flag not set (exit 0)"
 } else {
@@ -165,7 +190,13 @@ function Test-CodexGate {
     param([string]$Description, [int]$ExpectedExit)
     $env:CLAUDE_CROSS_REVIEW = "1"
     Push-Location $CgTmp
+    # PowerShell 5.1 は $ErrorActionPreference = "Stop" の下でネイティブコマンドが
+    # stderr に出力すると終了エラーに変換する。codex_gate はブロック時に stderr へ
+    # 出すため、Test-Hook(L17-20)と同じく一時的に Continue へ落とす
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     '{}' | uv run python $AbsCodexGate *> $null
+    $ErrorActionPreference = $prevEAP
     $actual = $LASTEXITCODE
     Pop-Location
     Remove-Item Env:CLAUDE_CROSS_REVIEW -ErrorAction SilentlyContinue
@@ -231,7 +262,7 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
 | R-001 | ダミー要件1 | python -c "import sys; sys.exit(0)" | exit 0 | auto | |
 | R-002 | ダミー要件2(目視) | (目視) | 人間承認 | manual | |
 | R-003 | ダミー要件3 | python -c "import sys; sys.exit(0)" | exit 0 | auto | |
-'@ | Out-File -FilePath "$SpecFixture\docs\design.md" -Encoding utf8
+'@ | Write-Utf8NoBom -Path "$SpecFixture\docs\design.md"
 
         @'
 # フィクスチャ設計書(壊れたテーブル)
@@ -241,7 +272,7 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
 | ID | 要件 | 検証方法 | 期待結果 | 種別 |
 |---|---|---|---|---|
 | R-001 | ダミー要件1 | python -c "pass" | exit 0 | auto |
-'@ | Out-File -FilePath "$SpecFixture\docs_bad\design.md" -Encoding utf8
+'@ | Write-Utf8NoBom -Path "$SpecFixture\docs_bad\design.md"
 
         @'
 | ID | 判定 | 実行コマンド | 実測値 | 証拠 |
@@ -249,7 +280,7 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
 | R-001 | PASS | python -c "..." | 0 | test.py:1 |
 | R-002 | PASS | (目視) | - | test.py:2 |
 | R-003 | PASS | python -c "..." | 0 | test.py:3 |
-'@ | Out-File -FilePath "$SpecFixture\spec\verdict-design.md" -Encoding utf8
+'@ | Write-Utf8NoBom -Path "$SpecFixture\spec\verdict-design.md"
 
         @'
 | ID | 結果 | 備考 |
@@ -257,7 +288,7 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
 | R-001 | OK | ok |
 | R-002 | OK | ok |
 | R-003 | OK | ok |
-'@ | Out-File -FilePath "$SpecFixture\spec\audit-design.md" -Encoding utf8
+'@ | Write-Utf8NoBom -Path "$SpecFixture\spec\audit-design.md"
 
         function Test-SpecGate {
             param(
@@ -290,7 +321,10 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
         Test-SpecGate "spec_gate R-104: manual未承認はブロック" 2 "$SpecFixture\docs" "$SpecFixture\spec" @{ CLAUDE_SPEC_CHECK = "1" }
 
         # R-105: spec_approve 実行後は R-104 のケースが通過する
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         uv run python $AbsSpecApprove R-002 --docs "$SpecFixture\docs" --spec-dir "$SpecFixture\spec" *> $null
+        $ErrorActionPreference = $prevEAP
         Test-SpecGate "spec_approve後: R-105/R-101 全要件PASSで通過" 0 "$SpecFixture\docs" "$SpecFixture\spec" @{ CLAUDE_SPEC_CHECK = "1" }
 
         # 設計書ハッシュ: verdict/audit/approvals が揃っていても design_hashes.txt が
@@ -298,7 +332,7 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
         New-Item -ItemType Directory -Path "$SpecFixture\spec_nohash" -Force | Out-Null
         Copy-Item "$SpecFixture\spec\verdict-design.md" "$SpecFixture\spec_nohash\verdict-design.md"
         Copy-Item "$SpecFixture\spec\audit-design.md" "$SpecFixture\spec_nohash\audit-design.md"
-        "design R-002 2026-01-01T00:00:00" | Out-File -FilePath "$SpecFixture\spec_nohash\approvals.txt" -Encoding utf8
+        "design R-002 2026-01-01T00:00:00" | Write-Utf8NoBom -Path "$SpecFixture\spec_nohash\approvals.txt"
         Test-SpecGate "spec_gate 設計書ハッシュ: 計画承認記録なしはブロック" 2 "$SpecFixture\docs" "$SpecFixture\spec_nohash" @{ CLAUDE_SPEC_CHECK = "1" }
 
         # 設計書ハッシュ: 承認後に設計書が改変されたらブロック
@@ -307,17 +341,26 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
         Copy-Item "$SpecFixture\docs\design.md" "$SpecFixture\docs_tamper\design.md"
         Copy-Item "$SpecFixture\spec\verdict-design.md" "$SpecFixture\spec_tamper\verdict-design.md"
         Copy-Item "$SpecFixture\spec\audit-design.md" "$SpecFixture\spec_tamper\audit-design.md"
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         uv run python $AbsSpecApprove R-002 --docs "$SpecFixture\docs_tamper" --spec-dir "$SpecFixture\spec_tamper" *> $null
+        $ErrorActionPreference = $prevEAP
         Test-SpecGate "spec_gate 設計書ハッシュ: 承認直後は通過" 0 "$SpecFixture\docs_tamper" "$SpecFixture\spec_tamper" @{ CLAUDE_SPEC_CHECK = "1" }
         Add-Content -Path "$SpecFixture\docs_tamper\design.md" -Value "`n(tampered after approval)"
         Test-SpecGate "spec_gate 設計書ハッシュ: 承認後の改変はブロック" 2 "$SpecFixture\docs_tamper" "$SpecFixture\spec_tamper" @{ CLAUDE_SPEC_CHECK = "1" }
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         uv run python $AbsSpecApprove --design design --docs "$SpecFixture\docs_tamper" --spec-dir "$SpecFixture\spec_tamper" *> $null
+        $ErrorActionPreference = $prevEAP
         Test-SpecGate "spec_gate 設計書ハッシュ: --design 再承認で通過" 0 "$SpecFixture\docs_tamper" "$SpecFixture\spec_tamper" @{ CLAUDE_SPEC_CHECK = "1" }
 
         # R-108: CLAUDE_SPEC_RECHECK_N=all で auto要件が全件再実行される(ログに全ID)
         $env:CLAUDE_SPEC_CHECK = "1"
         $env:CLAUDE_SPEC_RECHECK_N = "all"
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         '{}' | uv run python $AbsSpecGate --docs "$SpecFixture\docs" --spec-dir "$SpecFixture\spec" *> "$SpecFixture\recheck_all.txt"
+        $ErrorActionPreference = $prevEAP
         Remove-Item -Path env:CLAUDE_SPEC_CHECK -ErrorAction SilentlyContinue
         Remove-Item -Path env:CLAUDE_SPEC_RECHECK_N -ErrorAction SilentlyContinue
         $recheckLog = Get-Content "$SpecFixture\recheck_all.txt" -Raw
@@ -342,9 +385,9 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
 | R-001 | FAIL | python -c "..." | 1 | test.py:1 |
 | R-002 | PASS | (目視) | - | test.py:2 |
 | R-003 | PASS | python -c "..." | 0 | test.py:3 |
-'@ | Out-File -FilePath "$SpecFixture\spec_fail\verdict-design.md" -Encoding utf8
+'@ | Write-Utf8NoBom -Path "$SpecFixture\spec_fail\verdict-design.md"
         Copy-Item "$SpecFixture\spec\audit-design.md" "$SpecFixture\spec_fail\audit-design.md"
-        "design R-002 2026-01-01T00:00:00" | Out-File -FilePath "$SpecFixture\spec_fail\approvals.txt" -Encoding utf8
+        "design R-002 2026-01-01T00:00:00" | Write-Utf8NoBom -Path "$SpecFixture\spec_fail\approvals.txt"
         Test-SpecGate "spec_gate R-102: FAIL要件があればブロック" 2 "$SpecFixture\docs" "$SpecFixture\spec_fail" @{ CLAUDE_SPEC_CHECK = "1" }
 
         # R-103: verdict ファイルに要件IDの欠けがあればブロック
@@ -354,9 +397,9 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
 |---|---|---|---|---|
 | R-001 | PASS | python -c "..." | 0 | test.py:1 |
 | R-002 | PASS | (目視) | - | test.py:2 |
-'@ | Out-File -FilePath "$SpecFixture\spec_missing\verdict-design.md" -Encoding utf8
+'@ | Write-Utf8NoBom -Path "$SpecFixture\spec_missing\verdict-design.md"
         Copy-Item "$SpecFixture\spec\audit-design.md" "$SpecFixture\spec_missing\audit-design.md"
-        "design R-002 2026-01-01T00:00:00" | Out-File -FilePath "$SpecFixture\spec_missing\approvals.txt" -Encoding utf8
+        "design R-002 2026-01-01T00:00:00" | Write-Utf8NoBom -Path "$SpecFixture\spec_missing\approvals.txt"
         Test-SpecGate "spec_gate R-103: verdictにID欠けがあればブロック" 2 "$SpecFixture\docs" "$SpecFixture\spec_missing" @{ CLAUDE_SPEC_CHECK = "1" }
 
         # R-107: テーブルが崩れている(列不足)場合は安全側に倒してブロック
@@ -387,21 +430,24 @@ $AbsSpecApprove = (Resolve-Path $SpecApprove).Path
 | ID | 要件 | 検証方法 | 期待結果 | 種別 | 対象 |
 |---|---|---|---|---|---|
 | R-001 | ダミー要件1 | python -c "import sys; sys.exit(0)" | exit 0 | auto | $SpecFixture\covdir\other_module.py |
-"@ | Out-File -FilePath "$SpecFixture\docs_cov\design.md" -Encoding utf8
+"@ | Write-Utf8NoBom -Path "$SpecFixture\docs_cov\design.md"
             @'
 | ID | 判定 | 実行コマンド | 実測値 | 証拠 |
 |---|---|---|---|---|
 | R-001 | PASS | python -c "..." | 0 | test.py:1 |
-'@ | Out-File -FilePath "$SpecFixture\spec_cov\verdict-design.md" -Encoding utf8
+'@ | Write-Utf8NoBom -Path "$SpecFixture\spec_cov\verdict-design.md"
             @'
 | ID | 結果 | 備考 |
 |---|---|---|
 | R-001 | OK | ok |
-'@ | Out-File -FilePath "$SpecFixture\spec_cov\audit-design.md" -Encoding utf8
+'@ | Write-Utf8NoBom -Path "$SpecFixture\spec_cov\audit-design.md"
 
             Push-Location "$SpecFixture\covdir"
             $env:CLAUDE_SPEC_CHECK = "1"
+            $prevEAP = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
             '{}' | uv run python $AbsSpecGate --docs "$SpecFixture\docs_cov" --spec-dir "$SpecFixture\spec_cov" *> "out_cov.txt"
+            $ErrorActionPreference = $prevEAP
             $actualCov = $LASTEXITCODE
             Remove-Item -Path env:CLAUDE_SPEC_CHECK -ErrorAction SilentlyContinue
             Pop-Location
@@ -482,11 +528,11 @@ function Test-PlanGate {
             $cl = Join-Path $tmp ".claude"
             $pl = Join-Path $cl "plans"
             New-Item -ItemType Directory -Path $pl -Force | Out-Null
-            Set-Content -Path (Join-Path $pl $PlanName) -Value $PlanText -NoNewline
+            $PlanText | Write-Utf8NoBom -Path (Join-Path $pl $PlanName) -NoNewline
             if ($InvText -ne "") {
                 $inv = Join-Path $cl "improvements"
                 New-Item -ItemType Directory -Path $inv -Force | Out-Null
-                Set-Content -Path (Join-Path $inv "invariants.md") -Value $InvText -NoNewline
+                $InvText | Write-Utf8NoBom -Path (Join-Path $inv "invariants.md") -NoNewline
             }
         }
         Push-Location $tmp
