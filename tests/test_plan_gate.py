@@ -802,3 +802,84 @@ def test_t38_consecutive_empty_then_eof_block_both_extracted(tmp_path: Path) -> 
     assert result.returncode == 2
     assert "cost_estimate.train_minutes が未定義です" in result.stderr
     assert "リソース超過" in result.stderr
+
+
+def test_t39_triple_nested_block_is_inspected(tmp_path: Path) -> None:
+    """T-39: 3重に入れ子になった最深部の上限超過も検出する。
+
+    入れ子1段だけを想定した実装(1段ぶんしか掘らない等)を落とすため、
+    T-36 より深い階層で違反値を隠す。
+    """
+    plan_text = (
+        "学習ジョブを実行する\n" + _COST_COMPLETE + "  a:\n"
+        "    cost_estimate:\n"
+        "      train_minutes: 30\n"
+        "      epochs: 5\n"
+        "      dataset_gb: 1\n"
+        "      parallel_jobs: 1\n"
+        "      b:\n"
+        "        cost_estimate:\n"
+        "          train_minutes: 9999\n"
+        "          epochs: 5\n"
+        "          dataset_gb: 1\n"
+        "          parallel_jobs: 1\n" + _GOAL_COMPLETE
+    )
+    result = _run(
+        tmp_path,
+        branch="pipeline/20260726-foo",
+        plan_name="20260726-foo.md",
+        plan_text=plan_text,
+        invariants_text=_INVARIANTS_COMPLETE,
+    )
+    assert result.returncode == 2
+    assert "リソース超過" in result.stderr
+
+
+def test_t40_tab_indented_nested_block_is_inspected(tmp_path: Path) -> None:
+    """T-40: タブでインデントされた入れ子ブロックの上限超過も検出する。
+
+    インデント幅をスペース前提で数える実装だと取りこぼすため、
+    タブ区切りの計画でも同じ判定になることを固定する。
+    """
+    plan_text = (
+        "学習ジョブを実行する\n" + _COST_COMPLETE + "\t詳細:\n"
+        "\t\tcost_estimate:\n"
+        "\t\t\ttrain_minutes: 9999\n"
+        "\t\t\tepochs: 5\n"
+        "\t\t\tdataset_gb: 1\n"
+        "\t\t\tparallel_jobs: 1\n" + _GOAL_COMPLETE
+    )
+    result = _run(
+        tmp_path,
+        branch="pipeline/20260726-foo",
+        plan_name="20260726-foo.md",
+        plan_text=plan_text,
+        invariants_text=_INVARIANTS_COMPLETE,
+    )
+    assert result.returncode == 2
+    assert "リソース超過" in result.stderr
+
+
+def test_t41_crlf_nested_block_is_inspected(tmp_path: Path) -> None:
+    """T-41: CRLF 改行の計画でも入れ子の上限超過を検出する。
+
+    Windows で編集された計画を想定する。行末の \\r がインデント判定や
+    数値の行末固定に影響しないことを固定する。
+    """
+    plan_text = (
+        "学習ジョブを実行する\n" + _COST_COMPLETE + "  詳細:\n"
+        "    cost_estimate:\n"
+        "      train_minutes: 9999\n"
+        "      epochs: 5\n"
+        "      dataset_gb: 1\n"
+        "      parallel_jobs: 1\n" + _GOAL_COMPLETE
+    ).replace("\n", "\r\n")
+    result = _run(
+        tmp_path,
+        branch="pipeline/20260726-foo",
+        plan_name="20260726-foo.md",
+        plan_text=plan_text,
+        invariants_text=_INVARIANTS_COMPLETE,
+    )
+    assert result.returncode == 2
+    assert "リソース超過" in result.stderr
