@@ -15,8 +15,17 @@ if [ "$SAFE_NAME" != "$NAME" ]; then
   # 置換後の名前だけを表示する。元の名前をそのまま出すと、改行や端末制御文字を
   # 含むディレクトリ名で表示が壊れる(端末側への注入経路になる)
   # 別々の名前が同じ結果に潰れる(`a.b` と `a:b` など)と、既存セッションの
-  # 判定で別プロジェクトに誤接続しうるので、元の名前のチェックサムを添える
-  NAME="${SAFE_NAME}_$(printf '%s' "$NAME" | cksum | cut -d' ' -f1)"
+  # 判定で別プロジェクトに誤接続しうるので、元の名前のハッシュを添える。
+  # sha256 を優先し(cksum の CRC32 は衝突を作れる)、環境に無ければ POSIX の
+  # cksum に落とす
+  if command -v sha256sum >/dev/null 2>&1; then
+    NAME_HASH=$(printf '%s' "$NAME" | sha256sum | cut -c1-12)
+  elif command -v shasum >/dev/null 2>&1; then
+    NAME_HASH=$(printf '%s' "$NAME" | shasum -a 256 | cut -c1-12)
+  else
+    NAME_HASH=$(printf '%s' "$NAME" | cksum | cut -d' ' -f1)
+  fi
+  NAME="${SAFE_NAME}_${NAME_HASH}"
   echo "情報: セッション名に使えない文字があったため '$NAME' を使います。"
 fi
 
