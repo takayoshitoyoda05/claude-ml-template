@@ -196,32 +196,48 @@ def test_mask_hides_quoted_value_containing_spaces(sample: str, secret: str) -> 
 
 
 @pytest.mark.parametrize(
-    "command, secret",
+    "command, secret, keep",
     [
         pytest.param(
-            'export API_KEY="my secret value"', "my secret value", id="quoted-value"
+            'export API_KEY="my secret value"',
+            "my secret value",
+            "export",
+            id="quoted-value",
         ),
-        pytest.param("export API_KEY=abcdefgh123", "abcdefgh123", id="bare-value"),
         pytest.param(
-            "curl -H 'X-Token: abcdefgh123'", "abcdefgh123", id="header-token"
+            "export API_KEY=abcdefgh123", "abcdefgh123", "export", id="bare-value"
+        ),
+        pytest.param(
+            "curl -H 'X-Token: abcdefgh123'", "abcdefgh123", "curl", id="header-token"
         ),
     ],
 )
-def test_mask_hides_secret_nested_in_tool_input(command: str, secret: str) -> None:
+def test_mask_hides_secret_nested_in_tool_input(
+    command: str, secret: str, keep: str
+) -> None:
     """action_log の実際の適用点(json.dumps された tool_input)で伏せること。
 
     任意のキー名に一致するパターンだと、外側の `"command": "..."` が値ごと
     一致して走査位置を進めてしまい、値の中の `API_KEY=...` が検査されない
     まま素通りする。中核語を先頭アンカーにすればこの飲み込みは起きない。
+    値を丸ごと潰す実装で通らないよう、コマンド名が残ることも見る。
     """
     payload = json.dumps({"command": command}, ensure_ascii=False)
-    assert secret not in _mask_in_subprocess(payload)
+    masked = _mask_in_subprocess(payload)
+    assert secret not in masked
+    assert keep in masked, "秘密でない部分まで消えています"
 
 
 def test_mask_handles_escaped_quote_in_value() -> None:
-    """値の中のエスケープされた引用符を終端と誤認しないこと。"""
-    sample = '{"api_key":"abcdef\\"TOP_SECRET_TAIL"}'
-    assert "TOP_SECRET_TAIL" not in _mask_in_subprocess(sample)
+    """値の中のエスケープされた引用符を終端と誤認しないこと。
+
+    エスケープを跨いだ値の前半・後半のどちらも残ってはいけない
+    (片側だけ伏せる実装を通さないため両方を見る)。
+    """
+    sample = '{"api_key":"LEAD_SECRET\\"TOP_SECRET_TAIL"}'
+    masked = _mask_in_subprocess(sample)
+    assert "TOP_SECRET_TAIL" not in masked, "エスケープより後ろが残っています"
+    assert "LEAD_SECRET" not in masked, "エスケープより前が残っています"
 
 
 @pytest.mark.parametrize(
