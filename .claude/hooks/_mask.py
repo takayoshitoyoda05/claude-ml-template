@@ -32,15 +32,13 @@ _SIMPLE_PATTERNS = [re.compile(p) for p in SECRET_CONTENT_PATTERNS] + [
 # 秘密鍵は「ヘッダ行だけ」を伏せても base64 の本体が平文で残る。ブロック全体を
 # 1つの塊として最初に潰す(_SIMPLE_PATTERNS がヘッダを [MASKED] に置き換えると
 # ブロックの開始位置を見失うため、必ず他パターンより先に適用する)
+# END 行があればそこまで、無ければ末尾まで伏せる。END が無い場合にどこで鍵が
+# 終わるかは判定できず、base64 文字だけを食う書き方では暗号化 PEM の
+# `Proc-Type:` / `DEK-Info:` ヘッダで停止して以降の鍵データが平文で残る。
+# 鍵が出ている時点で異常事態なので、後続を残して漏らすより潰す方を選ぶ
 _PRIVATE_KEY_BLOCK = re.compile(
-    r"-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----"
-)
-
-# END 行が無い秘密鍵(出力が途中で切れた場合など)。ブロック用パターンは
-# 終端が無いと一致しないので、BEGIN に続く base64 らしき文字を食い切る。
-# `\\` を含めるのは JSONL 内で改行が `\n` とエスケープされているため
-_PRIVATE_KEY_HEADER_ONLY = re.compile(
-    r"-----BEGIN [^-]*PRIVATE KEY-----[A-Za-z0-9+/=\s\\]*"
+    r"-----BEGIN [^-]*PRIVATE KEY-----"
+    r"[\s\S]*?(?:-----END [^-]*PRIVATE KEY-----|\Z)"
 )
 
 # URL に埋め込まれた認証情報(postgres://user:pw@host、https://user:pw@repo)。
@@ -58,8 +56,14 @@ _URL_CREDENTIALS = re.compile(
 # キー名の引用符を任意にすることで、JSON の `{"api_key": "..."}` 形式にも
 # 一致する(action_log は json.dumps の結果をマスクするので、実際のログは
 # ほぼすべてこの形)。
+# 値は引用符の有無で終端が変わる。引用符があれば閉じ引用符まで(空白を含む
+# パスフレーズが切れないように)、無ければ空白や JSON の区切り文字まで。
+# 否定文字クラス1つで書き、交替の繰り返しを避ける(バックトラックを抑えるため)。
+# キー名側は前後に `[A-Za-z0-9_-]*` を置かない(その形は一致しない長い識別子で
+# 総当たりが起き、処理時間が入力長の2乗に伸びる)。
 _KEYVALUE_PATTERN = re.compile(
-    r"([\"']?)([A-Za-z0-9_-]{1,64})\1(\s*[=:]\s*)([\"']?)([^\s\"']{8,})\4"
+    r"([\"']?)([A-Za-z0-9_-]{1,64})\1(\s*[=:]\s*)"
+    r"(?:\"([^\"]{6,})\"|'([^']{6,})'|([^\s,;}\)\]]{8,}))"
 )
 
 # キー名がこれを含むとき、その値を秘密情報とみなす
@@ -69,10 +73,20 @@ _SECRET_KEY_WORDS = re.compile(
 
 
 def _mask_keyvalue(m: "re.Match[str]") -> str:
-    """key=value / "key": "value" の値だけを伏せる(キー名は残す)。"""
-    key_quote, key, separator, value_quote, _value = m.groups()
+    """key=value / "key": "value" の値だけを伏せる(キー名は残す)。
+
+    値は3通りのどれか1つだけが一致する(ダブルクォート / シングルクォート /
+    引用符なし)。どれが一致したかで、復元する引用符を決める。
+    """
+    key_quote, key, separator = m.group(1), m.group(2), m.group(3)
     if not _SECRET_KEY_WORDS.search(key):
         return m.group(0)
+    if m.group(4) is not None:
+        value_quote = '"'
+    elif m.group(5) is not None:
+        value_quote = "'"
+    else:
+        value_quote = ""
     return (
         f"{key_quote}{key}{key_quote}{separator}"
         f"{value_quote}[MASKED]{value_quote}"
@@ -85,7 +99,6 @@ def mask(text: str) -> str:
         return text
     # 秘密鍵ブロックとURL認証情報は他パターンに先に食われると本体を取り逃すため先頭で処理する
     masked = _PRIVATE_KEY_BLOCK.sub("[MASKED PRIVATE KEY]", text)
-    masked = _PRIVATE_KEY_HEADER_ONLY.sub("[MASKED PRIVATE KEY]", masked)
     masked = _URL_CREDENTIALS.sub(r"\1[MASKED]\2", masked)
     for pat in _SIMPLE_PATTERNS:
         masked = pat.sub("[MASKED]", masked)
