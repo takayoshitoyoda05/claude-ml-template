@@ -45,8 +45,12 @@ _PRIVATE_KEY_BLOCK = re.compile(
 # userinfo 全体(user:pass、および user だけの形)を伏せる。ユーザー名の位置に
 # トークンを置く認証方式(https://<token>@github.com 等)があるため、パスワード
 # だけ伏せる粒度では漏れる。スキームとホストは残すのでログから接続先は追える
+# スキーム部分に長さ上限を置く。上限が無いと `token=yyyy...` のような長い
+# 英数字列に対してスキーム候補の総当たりが起き、処理時間が入力長の2乗に伸びる
+# (実測: 20万文字で 26 秒)。実在のスキームは https / postgres / mongodb+srv 等
+# なので 15 文字あれば足りる
 _URL_CREDENTIALS = re.compile(
-    r"([a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@]+(?::[^\s@]*)?(@)"
+    r"([a-zA-Z][a-zA-Z0-9+.-]{0,15}://)[^\s/@]+(?::[^\s@]*)?(@)"
 )
 
 # キー名を「1回だけ」取り、中核語を含むかどうかは置換関数側で判定する。
@@ -68,49 +72,98 @@ _URL_CREDENTIALS = re.compile(
 # (その形は一致しない長い識別子で総当たりが起き、処理時間が入力長の2乗に伸びる)。
 _SECRET_KEY_WORDS_SRC = r"api[_-]?key|token|secret|password|passwd|credential"
 
-# 値は4通り。JSON 文字列の中でエスケープされた引用符に囲まれた形
-# (`API_KEY=\"my secret\"`)を最初に見るのは、裸の値として先に食われると
-# 空白の手前で切れてしまうため。引用符の中では `\<任意の1文字>` を1単位として
-# 読み飛ばし、エスケープ済みの引用符を終端と誤認しないようにする。
-# 値の長さに下限は設けない(パターンが秘密語アンカーなので、`password="1234"`
-# のような短い値まで拾って問題ない)。
+# キーと区切りまでを正規表現で見つけ、値の終端は `_scan_value` が文字単位で決める。
+# 終端判定を正規表現1本でやろうとすると、引用符の内側のエスケープと JSON の
+# 閉じ引用符を区別できず、「後半が漏れる」か「後続コマンドまで飲む」の
+# どちらかが必ず起きる(可変長後読みが必要になるが Python の re では書けない)。
 # 中核語の後に続けてよいのは複数形の `s` と、`_`/`-` 区切りで始まる残りだけ。
 # 任意の英数字を許すと `tokenizer = AutoTokenizer...` のような ML コードで
 # 頻出する語を誤爆し、ログが読めなくなる(`token` + `izer` に一致するため)。
-_KEYVALUE_PATTERN = re.compile(
-    r"((?:" + _SECRET_KEY_WORDS_SRC + r")s?(?:[_-][A-Za-z0-9_-]{0,32})?"
-    r"[\"']?\s*[=:]\s*)"
-    r"(?:"
-    # エスケープ済みの引用符で囲まれた値は、最後のエスケープ引用符まで貪欲に取る。
-    # 値の中のエスケープ済み引用符を終端と誤認すると後半が平文で残るが、その
-    # 厳密な判定(バックスラッシュの偶数個)は可変長後読みが要り Python の re では
-    # 書けない。同じ行の別の値を巻き込む可能性は残るが、伏せすぎる方向なので安全側
-    r"\\+\"(.*)\\+\""
-    r"|\"((?:[^\"\\]|\\.)+)\""
-    r"|'((?:[^'\\]|\\.)+)'"
-    # 裸の値の終端に引用符とバックスラッシュを含める。含めないと
-    # `{"command": "export TOKEN=abc"}` で閉じ引用符まで飲み込み JSON が壊れる
-    r"|([^\s,;}\)\]\"'\\]+)"
-    r")",
+_KEY_PREFIX_PATTERN = re.compile(
+    r"(?:" + _SECRET_KEY_WORDS_SRC + r")s?(?:[_-][A-Za-z0-9_-]{0,32})?"
+    r"[\"']?\s*[=:]\s*",
     re.IGNORECASE,
 )
 
+# 値の開始が引用符かどうかを見るときの候補。JSON 文字列の中では引用符が
+# エスケープされる(`\"`)ので、2文字の形を先に試す
+_QUOTE_FORMS = ('\\"', "\\'", '"', "'")
 
-def _mask_keyvalue(m: "re.Match[str]") -> str:
-    """key=value / "key": "value" の値だけを伏せる(キー名と区切りは残す)。
+# 裸の値の終端になる文字(空白と、JSON/シェルの区切り)
+_BARE_VALUE_STOP = set(" \t\r\n,;}])")
 
-    値は4通りのどれか1つだけが一致する(JSON 内のエスケープされた引用符 /
-    ダブルクォート / シングルクォート / 引用符なし)。どれが一致したかで、
-    復元する引用符を決める。
+
+def _scan_value(text: str, start: int) -> tuple[int, str]:
+    """`start` から始まる値の終端位置と、使われていた引用符を返す。
+
+    Args:
+        text: 走査対象の全文。
+        start: 値の開始位置(区切りの直後)。
+
+    Returns:
+        (終端位置, 引用符). 終端位置は値の直後を指す(引用符があれば閉じ引用符を
+        含む)。引用符は復元用で、引用符なしなら空文字列。
     """
-    prefix = m.group(1)
-    if m.group(2) is not None:
-        return f'{prefix}\\"[MASKED]\\"'
-    if m.group(3) is not None:
-        return f'{prefix}"[MASKED]"'
-    if m.group(4) is not None:
-        return f"{prefix}'[MASKED]'"
-    return f"{prefix}[MASKED]"
+    n = len(text)
+    if start >= n:
+        return start, ""
+
+    for quote in _QUOTE_FORMS:
+        if not text.startswith(quote, start):
+            continue
+        i = start + len(quote)
+        while i < n:
+            if text[i] == "\\":
+                # バックスラッシュの連続数で「閉じ」と「値の中のエスケープ済み
+                # 引用符」を見分ける。JSON 文字列の中では値の引用符が `\\\"`
+                # (バックスラッシュ3個+引用符)になる一方、値を囲む引用符は
+                # `\"`(1個+引用符)なので、連続数が1のときだけ閉じとみなす
+                run = i
+                while run < n and text[run] == "\\":
+                    run += 1
+                if run < n and text[run] in "\"'":
+                    if len(quote) == 2 and run - i == 1 and text[run] == quote[1]:
+                        return run + 1, quote
+                    i = run + 1  # 値の一部として読み飛ばす
+                    continue
+                i = run
+                continue
+            if text.startswith(quote, i):
+                return i + len(quote), quote
+            i += 1
+        return n, quote  # 閉じないまま終端(出力が切れた場合など)
+
+    i = start
+    while i < n:
+        char = text[i]
+        if char == "\\" and i + 1 < n:
+            # `\"` は JSON 文字列の閉じなので値の終端。それ以外のエスケープ
+            # (`\ ` など)は値の一部として読み進める
+            if text[i + 1] == '"':
+                break
+            i += 2
+            continue
+        if char in _BARE_VALUE_STOP or char in "\"'":
+            break
+        i += 1
+    return i, ""
+
+
+def _mask_keyvalues(text: str) -> str:
+    """秘密語を含むキーの値だけを伏せる(キー名と区切りは残す)。"""
+    out = []
+    pos = 0
+    for m in _KEY_PREFIX_PATTERN.finditer(text):
+        if m.start() < pos:
+            continue  # 直前にマスクした値の内側にあるキーは飛ばす
+        end, quote = _scan_value(text, m.end())
+        if end <= m.end():
+            continue  # 値が空。区切りだけの行などは触らない
+        out.append(text[pos : m.end()])
+        out.append(f"{quote}[MASKED]{quote}")
+        pos = end
+    out.append(text[pos:])
+    return "".join(out)
 
 
 def mask(text: str) -> str:
@@ -123,5 +176,5 @@ def mask(text: str) -> str:
     for pat in _SIMPLE_PATTERNS:
         masked = pat.sub("[MASKED]", masked)
     # key=value / JSON 形式は値だけマスクする
-    masked = _KEYVALUE_PATTERN.sub(_mask_keyvalue, masked)
+    masked = _mask_keyvalues(masked)
     return masked
