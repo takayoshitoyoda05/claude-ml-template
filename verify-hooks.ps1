@@ -134,16 +134,22 @@ if ($dlinkExisting -and -not $dlinkExisting.LinkType) {
     $script:failed++
 } else {
     Remove-Item "verify_dlink_fixture" -Force -ErrorAction SilentlyContinue
-    $dlink = New-Item -ItemType SymbolicLink -Path "verify_dlink_fixture" -Target "data" -ErrorAction SilentlyContinue
-    if ($dlink) {
-        try {
-            Test-Hook "guard_scope: symlinked data/ write is blocked" '{"tool_input":{"file_path":"verify_dlink_fixture/train.csv","content":"a,b"}}' ".claude\hooks\guard_scope.py" 2
-            Test-Hook "guard_bash: cp via symlinked data/ is blocked" '{"tool_input":{"command":"cp evil.csv verify_dlink_fixture/train.csv"}}' ".claude\hooks\guard_bash.py" 2
-        } finally {
-            Remove-Item "verify_dlink_fixture" -Force -ErrorAction SilentlyContinue
-        }
+    if (Get-Item "verify_dlink_fixture" -Force -ErrorAction SilentlyContinue) {
+        # 削除に失敗した残骸を「symlink を作れない環境」と誤認して SKIP しない
+        Write-Host "NG: verify_dlink_fixture の残骸を削除できません(手動で削除してください)"
+        $script:failed++
     } else {
-        Write-Host "SKIP: symlink を作成できないため symlink 迂回テストをスキップします"
+        $dlink = New-Item -ItemType SymbolicLink -Path "verify_dlink_fixture" -Target "data" -ErrorAction SilentlyContinue
+        if ($dlink) {
+            try {
+                Test-Hook "guard_scope: symlinked data/ write is blocked" '{"tool_input":{"file_path":"verify_dlink_fixture/train.csv","content":"a,b"}}' ".claude\hooks\guard_scope.py" 2
+                Test-Hook "guard_bash: cp via symlinked data/ is blocked" '{"tool_input":{"command":"cp evil.csv verify_dlink_fixture/train.csv"}}' ".claude\hooks\guard_bash.py" 2
+            } finally {
+                Remove-Item "verify_dlink_fixture" -Force -ErrorAction SilentlyContinue
+            }
+        } else {
+            Write-Host "SKIP: symlink を作成できないため symlink 迂回テストをスキップします"
+        }
     }
 }
 

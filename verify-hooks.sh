@@ -115,7 +115,11 @@ if [ -e verify_dlink_fixture ] && [ ! -L verify_dlink_fixture ]; then
   failed=$((failed+1))
 else
   rm -f verify_dlink_fixture
-  if ln -s data verify_dlink_fixture 2>/dev/null; then
+  if [ -L verify_dlink_fixture ] || [ -e verify_dlink_fixture ]; then
+    # 削除に失敗した残骸を「symlink を作れない環境」と誤認して SKIP しない
+    echo "NG: verify_dlink_fixture の残骸を削除できません(手動で削除してください)"
+    failed=$((failed+1))
+  elif ln -s data verify_dlink_fixture 2>/dev/null; then
     test_hook "guard_scope: symlinked data/ write is blocked" '{"tool_input":{"file_path":"verify_dlink_fixture/train.csv","content":"a,b"}}' ".claude/hooks/guard_scope.py" 2
     test_hook "guard_bash: cp via symlinked data/ is blocked" '{"tool_input":{"command":"cp evil.csv verify_dlink_fixture/train.csv"}}' ".claude/hooks/guard_bash.py" 2
     rm -f verify_dlink_fixture
