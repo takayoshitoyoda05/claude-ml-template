@@ -144,9 +144,12 @@ def test_mask_hides_whole_url_userinfo() -> None:
     assert "appuser" not in masked, "ユーザー名が残っています"
     assert "db.example.com" in masked, "ホストまで消えています"
 
-    # パスワードを伴わない、ユーザー名の位置だけのトークン
-    token_only = _mask_in_subprocess("https://ghp_" + "a" * 25 + "@github.com/o/r.git")
-    assert "ghp_" not in token_only, "ユーザー名位置のトークンが残っています"
+    # パスワードを伴わない、ユーザー名の位置だけのトークン。接頭辞だけ削って
+    # 残りを漏らす実装を通さないよう、トークン全文が消えたことを見る
+    token = "ghp_" + "b" * 25
+    token_only = _mask_in_subprocess(f"https://{token}@github.com/o/r.git")
+    assert token not in token_only, "ユーザー名位置のトークンが残っています"
+    assert "b" * 25 not in token_only, "接頭辞だけが削られ本体が残っています"
     assert "github.com" in token_only
 
 
