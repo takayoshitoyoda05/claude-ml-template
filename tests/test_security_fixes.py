@@ -20,6 +20,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -130,6 +131,54 @@ def test_mask_hides_secret(sample: str, must_be_gone: str) -> None:
 def test_mask_leaves_benign_text_untouched(sample: str) -> None:
     """秘密情報でない文字列を書き換えないこと(誤爆の防止)。"""
     assert _mask_in_subprocess(sample) == sample
+
+
+@pytest.mark.parametrize(
+    "sample, secret",
+    [
+        pytest.param(
+            '{"api_key": "abcdefgh12345678"}', "abcdefgh12345678", id="json-api-key"
+        ),
+        pytest.param(
+            '{"token":"abcdefgh12345678"}', "abcdefgh12345678", id="json-no-space"
+        ),
+        pytest.param(
+            '{"AWS_SECRET_ACCESS_KEY": "' + _AWS_SECRET + '"}',
+            _AWS_SECRET,
+            id="json-aws-secret",
+        ),
+        pytest.param("api_key=abcdefgh12345678", "abcdefgh12345678", id="bare-equals"),
+        pytest.param("password: hunter2pass99", "hunter2pass99", id="colon-separated"),
+    ],
+)
+def test_mask_hides_value_in_json_and_bare_forms(sample: str, secret: str) -> None:
+    """JSON 形式でも値を伏せること。
+
+    action_log は `json.dumps()` の結果をマスクするため、実運用のログはほぼ
+    すべて `{"api_key": "..."}` の形になる。キー名の直後に `=`/`:` を要求する
+    実装では閉じ引用符が挟まって一致せず、素通りしていた。
+    """
+    assert secret not in _mask_in_subprocess(sample)
+
+
+def test_mask_hides_private_key_without_end_line() -> None:
+    """END 行を欠く秘密鍵でも本体を残さないこと(出力が途中で切れた場合)。"""
+    truncated = _KEY_BEGIN + "\n" + _KEY_BODY + "\n...[clipped]"
+    assert _KEY_BODY not in _mask_in_subprocess(truncated)
+
+
+def test_mask_completes_quickly_on_large_input() -> None:
+    """巨大な入力でも実用的な時間で終わること(ReDoS の回帰防止)。
+
+    キー名の中核語の前後に `[A-Za-z0-9_-]*` を置く実装は、一致しない長い
+    識別子で総当たりが起き、処理時間が入力長の2乗で伸びた(実測: 5万文字で
+    約130秒)。action_log は毎ツール実行で走るため実害になる。
+    """
+    payload = ("A" * 2000 + "_" + "B" * 2000 + " ") * 12  # 約5万文字
+    start = time.monotonic()
+    _mask_in_subprocess(payload)
+    elapsed = time.monotonic() - start
+    assert elapsed < 10.0, f"マスクに {elapsed:.1f} 秒かかりました(ReDoS の疑い)"
 
 
 def test_mask_hides_whole_url_userinfo() -> None:
