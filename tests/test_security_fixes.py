@@ -587,16 +587,56 @@ def test_enforce_eval_blocks_incomplete_evaluation(
     )
 
 
+_REMOTE_SCRIPT = Path(__file__).resolve().parent.parent / "claude-remote.sh"
+
+
+def _run_claude_remote(tmp_path: Path, session_name: str) -> str:
+    """claude-remote.sh を偽の claude/tmux で実行し、tmux が受け取った引数を返す。
+
+    スクリプト本体を通すことが要点。正規化のロジックだけを試験側に写すと、
+    結果を `NAME` に入れ忘れる・tmux に元の値を渡す、といった回帰を見逃す。
+    """
+    bindir = tmp_path / "bin"
+    bindir.mkdir(parents=True)
+    record = tmp_path / "tmux-args.txt"
+    # tmux: has-session は常に失敗させ(新規起動の経路に入れる)、new のときだけ
+    # 受け取った引数を記録して終了する
+    (bindir / "tmux").write_text(
+        "#!/bin/bash\n"
+        'if [ "$1" = "has-session" ]; then exit 1; fi\n'
+        f'printf "%s\\n" "$@" > {record}\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    (bindir / "claude").write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+    for name in ("tmux", "claude"):
+        (bindir / name).chmod(0o755)
+
+    subprocess.run(
+        ["bash", str(_REMOTE_SCRIPT), session_name],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        timeout=_SUBPROCESS_TIMEOUT,
+        env={
+            "PATH": f"{bindir}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+            "HOME": str(tmp_path),
+        },
+    )
+    return record.read_text(encoding="utf-8") if record.exists() else ""
+
+
 @pytest.mark.parametrize(
     "raw_name, must_not_contain",
     [
         pytest.param("proj; touch /tmp/pwned", ";", id="semicolon"),
         pytest.param("a$(whoami)b", "$", id="command-substitution"),
         pytest.param("dir with space", " ", id="space"),
+        pytest.param("x.y:z", ":", id="tmux-special"),
     ],
 )
 def test_claude_remote_normalizes_session_name(
-    raw_name: str, must_not_contain: str
+    tmp_path: Path, raw_name: str, must_not_contain: str
 ) -> None:
     """tmux に渡すセッション名からメタ文字を除くこと。
 
@@ -604,27 +644,27 @@ def test_claude_remote_normalizes_session_name(
     するため、名前にメタ文字が残ると解釈される。名前は引数指定が無ければ
     カレントディレクトリ名から来るので、意図せず混じりうる。
     """
-    script = Path(__file__).resolve().parent.parent / "claude-remote.sh"
-    source = script.read_text(encoding="utf-8")
-    assert "SAFE_NAME=" in source, "正規化の処理が見つかりません(実装の変更を確認)"
-
-    # claude を起動せずに正規化だけを確かめる(スクリプト本体は claude を exec する)
-    proc = subprocess.run(
-        ["bash", "-c", 'printf "%s" "$1" | tr -c "A-Za-z0-9_-" "_"', "_", raw_name],
-        capture_output=True,
-        text=True,
-        timeout=_SUBPROCESS_TIMEOUT,
-    )
-    assert proc.returncode == 0
-    assert must_not_contain not in proc.stdout, f"メタ文字が残っています: {proc.stdout}"
+    args = _run_claude_remote(tmp_path, raw_name)
+    assert args, "tmux が呼ばれていません(スクリプトの経路を確認)"
+    assert must_not_contain not in args, f"メタ文字が tmux に渡っています: {args!r}"
+    assert raw_name not in args, "正規化前の名前がそのまま渡っています"
 
 
-def test_claude_remote_keeps_plain_session_name() -> None:
+def test_claude_remote_keeps_plain_session_name(tmp_path: Path) -> None:
     """通常の名前は書き換えないこと(正規化が過剰でないこと)。"""
-    proc = subprocess.run(
-        ["bash", "-c", 'printf "%s" "$1" | tr -c "A-Za-z0-9_-" "_"', "_", "my-project"],
-        capture_output=True,
-        text=True,
-        timeout=_SUBPROCESS_TIMEOUT,
-    )
-    assert proc.stdout == "my-project"
+    args = _run_claude_remote(tmp_path, "my-project")
+    assert "claude-my-project" in args, f"名前が書き換えられています: {args!r}"
+
+
+def test_claude_remote_distinguishes_names_that_normalize_alike(
+    tmp_path: Path,
+) -> None:
+    """正規化すると同じ形になる名前を、別のセッションとして扱うこと。
+
+    `a.b` と `a:b` が同じ名前に潰れると、既存セッションの判定で別プロジェクトに
+    誤接続する。
+    """
+    first = _run_claude_remote(tmp_path / "one", "proj.alpha")
+    second = _run_claude_remote(tmp_path / "two", "proj:alpha")
+    assert first and second
+    assert first != second, "異なる名前が同じセッション名に潰れています"

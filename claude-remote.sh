@@ -12,8 +12,12 @@ NAME="${1:-$(basename "$PWD")}"
 # この正規化は不要(sh 側だけの対処でよい)。
 SAFE_NAME=$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9_-' '_')
 if [ "$SAFE_NAME" != "$NAME" ]; then
-  echo "情報: セッション名に使えない文字を _ に置き換えました: '$NAME' → '$SAFE_NAME'"
-  NAME="$SAFE_NAME"
+  # 置換後の名前だけを表示する。元の名前をそのまま出すと、改行や端末制御文字を
+  # 含むディレクトリ名で表示が壊れる(端末側への注入経路になる)
+  # 別々の名前が同じ結果に潰れる(`a.b` と `a:b` など)と、既存セッションの
+  # 判定で別プロジェクトに誤接続しうるので、元の名前のチェックサムを添える
+  NAME="${SAFE_NAME}_$(printf '%s' "$NAME" | cksum | cut -d' ' -f1)"
+  echo "情報: セッション名に使えない文字があったため '$NAME' を使います。"
 fi
 
 if ! command -v claude >/dev/null 2>&1; then
