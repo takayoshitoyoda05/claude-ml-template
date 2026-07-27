@@ -167,6 +167,59 @@ def test_mask_hides_value_in_json_and_bare_forms(sample: str, secret: str) -> No
     assert "keep me" in masked, "非秘密フィールドまで消えています"
 
 
+@pytest.mark.parametrize(
+    "sample, secret",
+    [
+        pytest.param(
+            '{"password": "correct horse battery staple"}',
+            "correct horse battery staple",
+            id="passphrase-with-spaces",
+        ),
+        pytest.param(
+            '{"api_key": "abcd efgh 1234"}', "abcd efgh 1234", id="value-with-spaces"
+        ),
+        pytest.param(
+            "{'secret': 'pass phrase here'}", "pass phrase here", id="single-quoted"
+        ),
+    ],
+)
+def test_mask_hides_quoted_value_containing_spaces(sample: str, secret: str) -> None:
+    """引用符で囲まれた値は空白を含んでいても最後まで伏せること。
+
+    値を「空白以外の連続」として取ると、パスフレーズ形式のパスワードが
+    空白の手前で切れて一致せず、丸ごと素通りしていた。
+    """
+    masked = _mask_in_subprocess(sample)
+    assert secret not in masked
+    # 値の断片も残らないこと(先頭の語だけ消して後ろが残る実装を落とす)
+    assert secret.split()[-1] not in masked, "値の後半が残っています"
+
+
+def test_mask_hides_encrypted_pem_body() -> None:
+    """暗号化 PEM(Proc-Type ヘッダ付き)でも鍵本体を残さないこと。
+
+    END 行が無い鍵の本体を base64 文字だけで食う実装は、`Proc-Type:` /
+    `DEK-Info:` ヘッダで停止し、以降の鍵データを平文で残していた。
+    """
+    encrypted = (
+        _KEY_BEGIN + "\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,ABC"
+        "\n\nMIIEowsecret123\n...cut"
+    )
+    assert "MIIEowsecret123" not in _mask_in_subprocess(encrypted)
+
+
+def test_mask_keeps_text_after_complete_private_key() -> None:
+    """END 行がある鍵では、その後ろの通常文を巻き込まないこと。
+
+    終端が分かる場合まで末尾まで潰すと、ログが読めなくなる。
+    """
+    key_end = "-" * 5 + "END RSA PRIVATE KEY" + "-" * 5
+    complete = _KEY_BEGIN + "\n" + _KEY_BODY + "\n" + key_end + "\ntail-text"
+    masked = _mask_in_subprocess(complete)
+    assert _KEY_BODY not in masked
+    assert "tail-text" in masked, "END 以降まで消えています"
+
+
 def test_mask_hides_private_key_without_end_line() -> None:
     """END 行を欠く秘密鍵でも本体を残さないこと(出力が途中で切れた場合)。
 
