@@ -111,11 +111,11 @@ Test-Hook "guard_bash: redirect to last_eval_pass.txt is blocked" '{"tool_input"
 Test-Hook "guard_scope: last_eval_pass.txt write is blocked" '{"tool_input":{"file_path":".claude/checkpoints/last_eval_pass.txt","content":"deadbeef"}}' ".claude\hooks\guard_scope.py" 2
 Test-Hook "guard_bash: redirect to last_quality_pass.txt is blocked" '{"tool_input":{"command":"echo deadbeef > .claude/checkpoints/last_quality_pass.txt"}}' ".claude\hooks\guard_bash.py" 2
 Test-Hook "guard_scope: last_quality_pass.txt write is blocked" '{"tool_input":{"file_path":".claude/checkpoints/last_quality_pass.txt","content":"deadbeef"}}' ".claude\hooks\guard_scope.py" 2
-# codex_review_done.txt(クロスレビュー実施済みの印)も他のゲートマーカーと同様に守る。
-# guard_scope 側は ARTIFACT_DIR_PATTERNS の "/checkpoints/" でも止まるが、
-# guard_bash のリダイレクトは保護パスに入れないと素通りする
-Test-Hook "guard_bash: redirect to codex_review_done.txt is blocked" '{"tool_input":{"command":"git rev-parse HEAD > .claude/checkpoints/codex_review_done.txt"}}' ".claude\hooks\guard_bash.py" 2
-Test-Hook "guard_scope: codex_review_done.txt write is blocked" '{"tool_input":{"file_path":".claude/checkpoints/codex_review_done.txt","content":"deadbeef"}}' ".claude\hooks\guard_scope.py" 2
+# codex_review_done.txt は他のゲートマーカーと違い「エージェント自身が書く」設計
+# (cross-review スキル手順6 / ml-pipeline 手順9)。保護パスに入れると cross-review を
+# 完了できず codex_gate が永久にブロックするデッドロックになるため、あえて保護しない。
+# 将来この判断が覆されたら気づけるよう、正規コマンドが通ることを検査する
+Test-Hook "guard_bash: cross-review sentinel write passes" '{"tool_input":{"command":"git rev-parse HEAD > .claude/checkpoints/codex_review_done.txt"}}' ".claude\hooks\guard_bash.py" 0
 
 # --- data/ 保護(データセットの上書き・削除防止) ---
 Test-Hook "guard_scope: data/ write is blocked" '{"tool_input":{"file_path":"data/train.csv","content":"a,b"}}' ".claude\hooks\guard_scope.py" 2
