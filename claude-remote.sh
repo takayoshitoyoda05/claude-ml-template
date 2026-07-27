@@ -3,6 +3,35 @@ set -euo pipefail
 
 NAME="${1:-$(basename "$PWD")}"
 
+# tmux はセッション起動時のコマンドを1本の文字列に連結してシェル経由で実行する
+# ため、名前にメタ文字が含まれるとそのまま解釈される。名前は引数指定が無ければ
+# カレントディレクトリ名から来るので、意図せず危険な文字が混じりうる。
+# 安全な文字だけに正規化する(`.` と `:` は tmux のセッション/ウィンドウ指定で
+# 特別な意味を持つので併せて除く)。
+# PowerShell 版は tmux を介さず claude を直接起動し、引数も配列で渡るため
+# この正規化は不要(sh 側だけの対処でよい)。
+SAFE_NAME=$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9_-' '_')
+if [ "$SAFE_NAME" != "$NAME" ]; then
+  # 置換後の名前だけを表示する。元の名前をそのまま出すと、改行や端末制御文字を
+  # 含むディレクトリ名で表示が壊れる(端末側への注入経路になる)
+  # 別々の名前が同じ結果に潰れる(`a.b` と `a:b` など)と、既存セッションの
+  # 判定で別プロジェクトに誤接続しうるので、元の名前のハッシュを添える。
+  # 防ぎたいのは自分のディレクトリ名同士の偶発的な衝突であって、攻撃者による
+  # 意図的な衝突ではない(セッションは同一ユーザーのものなので、衝突させても
+  # 攻撃者に得るものがない)。そのため 12 桁への切り詰めと、sha256 が無い環境で
+  # cksum に落とすことを許容する — セッション名の可読性と、最小構成の環境でも
+  # 起動できることを優先する
+  if command -v sha256sum >/dev/null 2>&1; then
+    NAME_HASH=$(printf '%s' "$NAME" | sha256sum | cut -c1-12)
+  elif command -v shasum >/dev/null 2>&1; then
+    NAME_HASH=$(printf '%s' "$NAME" | shasum -a 256 | cut -c1-12)
+  else
+    NAME_HASH=$(printf '%s' "$NAME" | cksum | cut -d' ' -f1)
+  fi
+  NAME="${SAFE_NAME}_${NAME_HASH}"
+  echo "情報: セッション名に使えない文字があったため '$NAME' を使います。"
+fi
+
 if ! command -v claude >/dev/null 2>&1; then
   echo "エラー: claude コマンドが見つかりません。"
   exit 1

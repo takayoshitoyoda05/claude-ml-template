@@ -537,3 +537,134 @@ def test_quality_gate_cannot_be_silenced_by_inspected_code(tmp_path: Path) -> No
 
     assert proc.returncode == 2, f"lint 違反がブロックされていません: {proc.stderr}"
     assert "ruff" in proc.stderr
+
+
+@pytest.mark.parametrize(
+    "eval_cmd, expected_exit, description",
+    [
+        pytest.param("sleep 30", 2, "時間切れ", id="timeout"),
+        pytest.param("true", 0, "成功", id="success"),
+        pytest.param("false", 2, "失敗", id="failure"),
+        pytest.param("no_such_cmd_xyz", 2, "綴り間違い(exit 127)", id="typo"),
+    ],
+)
+def test_enforce_eval_blocks_incomplete_evaluation(
+    tmp_path: Path, eval_cmd: str, expected_exit: int, description: str
+) -> None:
+    """評価が完了していない場合に完了を許さないこと。
+
+    時間切れは環境の不調ではなく「評価が終わらなかった」状態なので、通すと
+    「評価が通った」と区別できなくなる。なお `shell=True` では存在しない
+    コマンドは例外にならず exit 127 で返るため、綴り間違いは returncode の
+    検査側でブロックされる(ここで併せて固定する)。
+
+    フックの制限時間は 600 秒なので、そのままでは検証に時間がかかりすぎる。
+    制限時間だけを差し替えた写しを作って実行経路を確かめる。
+    """
+    source = (HOOKS_DIR / "enforce_eval.py").read_text(encoding="utf-8")
+    assert "timeout=600" in source, "制限時間の指定が見つかりません(実装の変更を確認)"
+    short = tmp_path / "enforce_eval_short.py"
+    short.write_text(source.replace("timeout=600", "timeout=2"), encoding="utf-8")
+
+    proc = subprocess.run(
+        [sys.executable, str(short)],
+        input=json.dumps({"stop_hook_active": False}),
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        timeout=_SUBPROCESS_TIMEOUT,
+        env={
+            "CLAUDE_ENFORCE_EVAL": "1",
+            "CLAUDE_EVAL_CMD": eval_cmd,
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": os.environ.get("HOME", "/tmp"),
+            "PYTHONPATH": str(HOOKS_DIR),  # _common を import できるようにする
+        },
+    )
+
+    assert proc.returncode == expected_exit, (
+        f"{description}のときの終了コードが期待と違います: {proc.stderr[:200]}"
+    )
+
+
+_REMOTE_SCRIPT = Path(__file__).resolve().parent.parent / "claude-remote.sh"
+
+
+def _run_claude_remote(tmp_path: Path, session_name: str) -> str:
+    """claude-remote.sh を偽の claude/tmux で実行し、tmux が受け取った引数を返す。
+
+    スクリプト本体を通すことが要点。正規化のロジックだけを試験側に写すと、
+    結果を `NAME` に入れ忘れる・tmux に元の値を渡す、といった回帰を見逃す。
+    """
+    bindir = tmp_path / "bin"
+    bindir.mkdir(parents=True)
+    record = tmp_path / "tmux-args.txt"
+    # tmux: has-session は常に失敗させ(新規起動の経路に入れる)、new のときだけ
+    # 受け取った引数を記録して終了する
+    (bindir / "tmux").write_text(
+        "#!/bin/bash\n"
+        'if [ "$1" = "has-session" ]; then exit 1; fi\n'
+        f'printf "%s\\n" "$@" > {record}\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    (bindir / "claude").write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+    for name in ("tmux", "claude"):
+        (bindir / name).chmod(0o755)
+
+    subprocess.run(
+        ["bash", str(_REMOTE_SCRIPT), session_name],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        timeout=_SUBPROCESS_TIMEOUT,
+        env={
+            "PATH": f"{bindir}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+            "HOME": str(tmp_path),
+        },
+    )
+    return record.read_text(encoding="utf-8") if record.exists() else ""
+
+
+@pytest.mark.parametrize(
+    "raw_name, must_not_contain",
+    [
+        pytest.param("proj; touch /tmp/pwned", ";", id="semicolon"),
+        pytest.param("a$(whoami)b", "$", id="command-substitution"),
+        pytest.param("dir with space", " ", id="space"),
+        pytest.param("x.y:z", ":", id="tmux-special"),
+    ],
+)
+def test_claude_remote_normalizes_session_name(
+    tmp_path: Path, raw_name: str, must_not_contain: str
+) -> None:
+    """tmux に渡すセッション名からメタ文字を除くこと。
+
+    tmux はセッション起動時のコマンドを1本の文字列に連結してシェル経由で実行
+    するため、名前にメタ文字が残ると解釈される。名前は引数指定が無ければ
+    カレントディレクトリ名から来るので、意図せず混じりうる。
+    """
+    args = _run_claude_remote(tmp_path, raw_name)
+    assert args, "tmux が呼ばれていません(スクリプトの経路を確認)"
+    assert must_not_contain not in args, f"メタ文字が tmux に渡っています: {args!r}"
+    assert raw_name not in args, "正規化前の名前がそのまま渡っています"
+
+
+def test_claude_remote_keeps_plain_session_name(tmp_path: Path) -> None:
+    """通常の名前は書き換えないこと(正規化が過剰でないこと)。"""
+    args = _run_claude_remote(tmp_path, "my-project")
+    assert "claude-my-project" in args, f"名前が書き換えられています: {args!r}"
+
+
+def test_claude_remote_distinguishes_names_that_normalize_alike(
+    tmp_path: Path,
+) -> None:
+    """正規化すると同じ形になる名前を、別のセッションとして扱うこと。
+
+    `a.b` と `a:b` が同じ名前に潰れると、既存セッションの判定で別プロジェクトに
+    誤接続する。
+    """
+    first = _run_claude_remote(tmp_path / "one", "proj.alpha")
+    second = _run_claude_remote(tmp_path / "two", "proj:alpha")
+    assert first and second
+    assert first != second, "異なる名前が同じセッション名に潰れています"
