@@ -239,9 +239,13 @@ def test_mask_hides_value_containing_escaped_quotes_in_tool_input() -> None:
     の判定が要り、可変長後読みが使えない Python の re では書けない。最後の
     エスケープ引用符まで貪欲に取ることで、後半が平文で残るのを防ぐ。
     """
-    command = 'export API_KEY="say \\"hello\\" SECRETVAL"'
+    # 値の前半・エスケープ引用符の内側・後半に別々の目印を置き、全部消えることを見る
+    command = 'export API_KEY="LEADSEC \\"INNERSEC\\" TAILSEC"'
     payload = json.dumps({"command": command}, ensure_ascii=False)
-    assert "SECRETVAL" not in _mask_in_subprocess(payload)
+    masked = _mask_in_subprocess(payload)
+    assert "LEADSEC" not in masked, "エスケープ引用符より前が残っています"
+    assert "INNERSEC" not in masked, "エスケープ引用符の内側が残っています"
+    assert "TAILSEC" not in masked, "エスケープ引用符より後ろが残っています"
 
 
 def test_mask_keeps_json_parseable() -> None:
