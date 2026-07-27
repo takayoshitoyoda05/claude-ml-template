@@ -232,6 +232,30 @@ def test_mask_hides_secret_nested_in_tool_input(command: str, secret: str) -> No
     assert "TRAIL-SENTINEL" in masked, "秘密値より後ろまで消えています"
 
 
+def test_mask_hides_value_containing_escaped_quotes_in_tool_input() -> None:
+    """値の中にエスケープされた引用符があっても、そこで終端と誤認しないこと。
+
+    エスケープ済み引用符の終端を厳密に判定するには「バックスラッシュが偶数個」
+    の判定が要り、可変長後読みが使えない Python の re では書けない。最後の
+    エスケープ引用符まで貪欲に取ることで、後半が平文で残るのを防ぐ。
+    """
+    command = 'export API_KEY="say \\"hello\\" SECRETVAL"'
+    payload = json.dumps({"command": command}, ensure_ascii=False)
+    assert "SECRETVAL" not in _mask_in_subprocess(payload)
+
+
+def test_mask_keeps_json_parseable() -> None:
+    """マスク後も JSON として読めること。
+
+    裸の値の終端に引用符・バックスラッシュを含めないと、閉じ引用符まで
+    飲み込んで JSON が壊れる(`{"command": "export TOKEN=[MASKED]}`)。
+    """
+    payload = json.dumps({"command": "export TOKEN=abc123"}, ensure_ascii=False)
+    masked = _mask_in_subprocess(payload)
+    json.loads(masked)  # 壊れていれば ValueError で落ちる
+    assert "abc123" not in masked
+
+
 def test_mask_handles_escaped_quote_in_value() -> None:
     """値の中のエスケープされた引用符を終端と誤認しないこと。
 
