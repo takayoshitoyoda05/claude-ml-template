@@ -3,6 +3,19 @@ set -euo pipefail
 
 NAME="${1:-$(basename "$PWD")}"
 
+# tmux はセッション起動時のコマンドを1本の文字列に連結してシェル経由で実行する
+# ため、名前にメタ文字が含まれるとそのまま解釈される。名前は引数指定が無ければ
+# カレントディレクトリ名から来るので、意図せず危険な文字が混じりうる。
+# 安全な文字だけに正規化する(`.` と `:` は tmux のセッション/ウィンドウ指定で
+# 特別な意味を持つので併せて除く)。
+# PowerShell 版は tmux を介さず claude を直接起動し、引数も配列で渡るため
+# この正規化は不要(sh 側だけの対処でよい)。
+SAFE_NAME=$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9_-' '_')
+if [ "$SAFE_NAME" != "$NAME" ]; then
+  echo "情報: セッション名に使えない文字を _ に置き換えました: '$NAME' → '$SAFE_NAME'"
+  NAME="$SAFE_NAME"
+fi
+
 if ! command -v claude >/dev/null 2>&1; then
   echo "エラー: claude コマンドが見つかりません。"
   exit 1

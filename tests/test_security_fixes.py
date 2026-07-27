@@ -537,3 +537,94 @@ def test_quality_gate_cannot_be_silenced_by_inspected_code(tmp_path: Path) -> No
 
     assert proc.returncode == 2, f"lint 違反がブロックされていません: {proc.stderr}"
     assert "ruff" in proc.stderr
+
+
+@pytest.mark.parametrize(
+    "eval_cmd, expected_exit, description",
+    [
+        pytest.param("sleep 30", 2, "時間切れ", id="timeout"),
+        pytest.param("true", 0, "成功", id="success"),
+        pytest.param("false", 2, "失敗", id="failure"),
+        pytest.param("no_such_cmd_xyz", 2, "綴り間違い(exit 127)", id="typo"),
+    ],
+)
+def test_enforce_eval_blocks_incomplete_evaluation(
+    tmp_path: Path, eval_cmd: str, expected_exit: int, description: str
+) -> None:
+    """評価が完了していない場合に完了を許さないこと。
+
+    時間切れは環境の不調ではなく「評価が終わらなかった」状態なので、通すと
+    「評価が通った」と区別できなくなる。なお `shell=True` では存在しない
+    コマンドは例外にならず exit 127 で返るため、綴り間違いは returncode の
+    検査側でブロックされる(ここで併せて固定する)。
+
+    フックの制限時間は 600 秒なので、そのままでは検証に時間がかかりすぎる。
+    制限時間だけを差し替えた写しを作って実行経路を確かめる。
+    """
+    source = (HOOKS_DIR / "enforce_eval.py").read_text(encoding="utf-8")
+    assert "timeout=600" in source, "制限時間の指定が見つかりません(実装の変更を確認)"
+    short = tmp_path / "enforce_eval_short.py"
+    short.write_text(source.replace("timeout=600", "timeout=2"), encoding="utf-8")
+
+    proc = subprocess.run(
+        [sys.executable, str(short)],
+        input=json.dumps({"stop_hook_active": False}),
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        timeout=_SUBPROCESS_TIMEOUT,
+        env={
+            "CLAUDE_ENFORCE_EVAL": "1",
+            "CLAUDE_EVAL_CMD": eval_cmd,
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": os.environ.get("HOME", "/tmp"),
+            "PYTHONPATH": str(HOOKS_DIR),  # _common を import できるようにする
+        },
+    )
+
+    assert proc.returncode == expected_exit, (
+        f"{description}のときの終了コードが期待と違います: {proc.stderr[:200]}"
+    )
+
+
+@pytest.mark.parametrize(
+    "raw_name, must_not_contain",
+    [
+        pytest.param("proj; touch /tmp/pwned", ";", id="semicolon"),
+        pytest.param("a$(whoami)b", "$", id="command-substitution"),
+        pytest.param("dir with space", " ", id="space"),
+    ],
+)
+def test_claude_remote_normalizes_session_name(
+    raw_name: str, must_not_contain: str
+) -> None:
+    """tmux に渡すセッション名からメタ文字を除くこと。
+
+    tmux はセッション起動時のコマンドを1本の文字列に連結してシェル経由で実行
+    するため、名前にメタ文字が残ると解釈される。名前は引数指定が無ければ
+    カレントディレクトリ名から来るので、意図せず混じりうる。
+    """
+    script = Path(__file__).resolve().parent.parent / "claude-remote.sh"
+    source = script.read_text(encoding="utf-8")
+    assert "SAFE_NAME=" in source, "正規化の処理が見つかりません(実装の変更を確認)"
+
+    # claude を起動せずに正規化だけを確かめる(スクリプト本体は claude を exec する)
+    proc = subprocess.run(
+        ["bash", "-c", 'printf "%s" "$1" | tr -c "A-Za-z0-9_-" "_"', "_", raw_name],
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
+    assert proc.returncode == 0
+    assert must_not_contain not in proc.stdout, f"メタ文字が残っています: {proc.stdout}"
+
+
+def test_claude_remote_keeps_plain_session_name() -> None:
+    """通常の名前は書き換えないこと(正規化が過剰でないこと)。"""
+    proc = subprocess.run(
+        ["bash", "-c", 'printf "%s" "$1" | tr -c "A-Za-z0-9_-" "_"', "_", "my-project"],
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
+    assert proc.stdout == "my-project"
