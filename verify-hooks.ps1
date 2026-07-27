@@ -49,6 +49,31 @@ function Test-Hook {
     }
 }
 
+# ブロック時の stderr メッセージに期待文字列が含まれるかを、exit code と
+# 同一実行で検査する。data/ ブロックに「フック/設定への書き込み」と表示して
+# いた誤メッセージの回帰防止(exit code だけでは検出できない。メッセージ
+# だけの検査では「期待文字列を出すが exit 0 で許可する」実装を見逃す)
+function Test-HookMsg {
+    param(
+        [string]$Description,
+        [string]$JsonInput,
+        [string]$Script,
+        [string]$Pattern,
+        [int]$ExpectedExit
+    )
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $msg = $JsonInput | uv run python $Script 2>&1 | Out-String
+    $ErrorActionPreference = $prevEAP
+    $actual = $LASTEXITCODE
+    if (($actual -eq $ExpectedExit) -and ($msg -match [regex]::Escape($Pattern))) {
+        Write-Host "OK: $Description (exit $actual)"
+    } else {
+        Write-Host "NG: $Description (expected exit $ExpectedExit + message '$Pattern', got exit $actual)"
+        $script:failed++
+    }
+}
+
 Test-Hook "guard_scope: .pth is blocked" '{"tool_input":{"file_path":"model.pth"}}' ".claude\hooks\guard_scope.py" 2
 Test-Hook "guard_scope: .py passes" '{"tool_input":{"file_path":"src/train.py"}}' ".claude\hooks\guard_scope.py" 0
 Test-Hook "guard_scope: .env is blocked" '{"tool_input":{"file_path":".env"}}' ".claude\hooks\guard_scope.py" 2
@@ -94,6 +119,39 @@ Test-Hook "guard_scope: database/ write passes" '{"tool_input":{"file_path":"src
 Test-Hook "guard_bash: rm -rf data is blocked" '{"tool_input":{"command":"rm -rf data"}}' ".claude\hooks\guard_bash.py" 2
 Test-Hook "guard_bash: cp into data/ is blocked" '{"tool_input":{"command":"cp evil.csv data/train.csv"}}' ".claude\hooks\guard_bash.py" 2
 Test-Hook "guard_bash: redirect to data/ is blocked" '{"tool_input":{"command":"echo x > data/train.csv"}}' ".claude\hooks\guard_bash.py" 2
+Test-HookMsg "guard_scope: data/ block message names dataset" '{"tool_input":{"file_path":"data/train.csv","content":"a,b"}}' ".claude\hooks\guard_scope.py" "データセット" 2
+Test-HookMsg "guard_bash: data/ block message names dataset" '{"tool_input":{"command":"cp evil.csv data/train.csv"}}' ".claude\hooks\guard_bash.py" "データセット" 2
+Test-HookMsg "guard_scope: hooks block message stays hook-specific" '{"tool_input":{"file_path":".claude/hooks/guard_scope.py","content":"x"}}' ".claude\hooks\guard_scope.py" "フック/設定" 2
+# symlink 迂回(dlink -> data 経由の書き込み)も realpath 照合でブロックする。
+# 中断残りの fixture(symlink)は削除してから作り直す(残骸を「symlink を
+# 作れない環境」と誤認して恒久スキップしないため)。symlink 以外が同名で
+# 存在する場合は誤削除を避けて NG にする(スキップで隠さない)。
+# Windows のシンボリックリンク作成には開発者モード/管理者権限が必要なため、
+# 作れない環境ではスキップする
+$dlinkExisting = Get-Item "verify_dlink_fixture" -Force -ErrorAction SilentlyContinue
+if ($dlinkExisting -and -not $dlinkExisting.LinkType) {
+    Write-Host "NG: verify_dlink_fixture の位置に symlink 以外のファイルが存在します(手動で退避してください)"
+    $script:failed++
+} else {
+    Remove-Item "verify_dlink_fixture" -Force -ErrorAction SilentlyContinue
+    if (Get-Item "verify_dlink_fixture" -Force -ErrorAction SilentlyContinue) {
+        # 削除に失敗した残骸を「symlink を作れない環境」と誤認して SKIP しない
+        Write-Host "NG: verify_dlink_fixture の残骸を削除できません(手動で削除してください)"
+        $script:failed++
+    } else {
+        $dlink = New-Item -ItemType SymbolicLink -Path "verify_dlink_fixture" -Target "data" -ErrorAction SilentlyContinue
+        if ($dlink) {
+            try {
+                Test-Hook "guard_scope: symlinked data/ write is blocked" '{"tool_input":{"file_path":"verify_dlink_fixture/train.csv","content":"a,b"}}' ".claude\hooks\guard_scope.py" 2
+                Test-Hook "guard_bash: cp via symlinked data/ is blocked" '{"tool_input":{"command":"cp evil.csv verify_dlink_fixture/train.csv"}}' ".claude\hooks\guard_bash.py" 2
+            } finally {
+                Remove-Item "verify_dlink_fixture" -Force -ErrorAction SilentlyContinue
+            }
+        } else {
+            Write-Host "SKIP: symlink を作成できないため symlink 迂回テストをスキップします"
+        }
+    }
+}
 
 # --- guard_scope: worktree封じ込め(cwdベース。$RP はテスト実行時のリポジトリ絶対パス) ---
 $RP = (Get-Location).Path

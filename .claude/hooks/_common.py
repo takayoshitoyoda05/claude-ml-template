@@ -94,6 +94,28 @@ def path_for_match(norm_path):
     return norm_path.lower() if CASE_INSENSITIVE_FS else norm_path
 
 
+def matched_protected_pattern(abs_path: str) -> str | None:
+    """絶対パスに一致する保護パターンを返す(一致しなければ None)。
+
+    パス名そのものに加えて realpath 解決後のパスも照合する(symlink 経由の
+    迂回防止。名前が保護対象なら実体が別の場所でもブロックする)。比較時は
+    末尾に "/" を足す。ディレクトリを末尾スラッシュなしで指定した場合でも
+    "/.claude/hooks/" のようなパターンと一致させるため(ファイルパターンは
+    元々末尾スラッシュなしなので影響しない)。
+    """
+    candidates = [abs_path]
+    try:
+        candidates.append(os.path.realpath(abs_path))
+    except OSError:
+        pass  # realpath 不能ならパス名の照合だけで続行する(補助線のfail-open)
+    for cand in candidates:
+        norm = path_for_match(cand.replace("\\", "/")) + "/"
+        for pat in PROTECTED_PATH_PATTERNS:
+            if pat in norm:
+                return pat
+    return None
+
+
 class AcceptanceTableError(Exception):
     """受け入れ条件テーブルのパースに失敗したことを表す例外。
 

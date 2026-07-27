@@ -36,6 +36,28 @@ test_hook() {
   fi
 }
 
+# ブロック時の stderr メッセージに期待文字列が含まれるかを、exit code と
+# 同一実行で検査する。data/ ブロックに「フック/設定への書き込み」と表示して
+# いた誤メッセージの回帰防止(exit code だけでは検出できない。メッセージ
+# だけの検査では「期待文字列を出すが exit 0 で許可する」実装を見逃す)
+test_hook_msg() {
+  local description="$1"
+  local json_input="$2"
+  local script="$3"
+  local pattern="$4"
+  local expected_exit="$5"
+
+  local msg actual
+  msg=$(echo "$json_input" | uv run python "$script" 2>&1 >/dev/null)
+  actual=$?
+  if [ "$actual" -eq "$expected_exit" ] && echo "$msg" | grep -q "$pattern"; then
+    echo "OK: $description (exit $actual)"
+  else
+    echo "NG: $description (expected exit $expected_exit + message '$pattern', got exit $actual)"
+    failed=$((failed+1))
+  fi
+}
+
 test_hook "guard_scope: .pth is blocked" '{"tool_input":{"file_path":"model.pth"}}' ".claude/hooks/guard_scope.py" 2
 test_hook "guard_scope: .py passes" '{"tool_input":{"file_path":"src/train.py"}}' ".claude/hooks/guard_scope.py" 0
 test_hook "guard_scope: .env is blocked" '{"tool_input":{"file_path":".env"}}' ".claude/hooks/guard_scope.py" 2
@@ -81,6 +103,30 @@ test_hook "guard_scope: database/ write passes" '{"tool_input":{"file_path":"src
 test_hook "guard_bash: rm -rf data is blocked" '{"tool_input":{"command":"rm -rf data"}}' ".claude/hooks/guard_bash.py" 2
 test_hook "guard_bash: cp into data/ is blocked" '{"tool_input":{"command":"cp evil.csv data/train.csv"}}' ".claude/hooks/guard_bash.py" 2
 test_hook "guard_bash: redirect to data/ is blocked" '{"tool_input":{"command":"echo x > data/train.csv"}}' ".claude/hooks/guard_bash.py" 2
+test_hook_msg "guard_scope: data/ block message names dataset" '{"tool_input":{"file_path":"data/train.csv","content":"a,b"}}' ".claude/hooks/guard_scope.py" "データセット" 2
+test_hook_msg "guard_bash: data/ block message names dataset" '{"tool_input":{"command":"cp evil.csv data/train.csv"}}' ".claude/hooks/guard_bash.py" "データセット" 2
+test_hook_msg "guard_scope: hooks block message stays hook-specific" '{"tool_input":{"file_path":".claude/hooks/guard_scope.py","content":"x"}}' ".claude/hooks/guard_scope.py" "フック/設定" 2
+# symlink 迂回(ln -s data dlink 経由の書き込み)も realpath 照合でブロックする。
+# 中断残りの fixture(symlink)は削除してから作り直す(残骸を「symlink を
+# 作れない環境」と誤認して恒久スキップしないため)。symlink 以外が同名で
+# 存在する場合は誤削除を避けて NG にする(スキップで隠さない)
+if [ -e verify_dlink_fixture ] && [ ! -L verify_dlink_fixture ]; then
+  echo "NG: verify_dlink_fixture の位置に symlink 以外のファイルが存在します(手動で退避してください)"
+  failed=$((failed+1))
+else
+  rm -f verify_dlink_fixture
+  if [ -L verify_dlink_fixture ] || [ -e verify_dlink_fixture ]; then
+    # 削除に失敗した残骸を「symlink を作れない環境」と誤認して SKIP しない
+    echo "NG: verify_dlink_fixture の残骸を削除できません(手動で削除してください)"
+    failed=$((failed+1))
+  elif ln -s data verify_dlink_fixture 2>/dev/null; then
+    test_hook "guard_scope: symlinked data/ write is blocked" '{"tool_input":{"file_path":"verify_dlink_fixture/train.csv","content":"a,b"}}' ".claude/hooks/guard_scope.py" 2
+    test_hook "guard_bash: cp via symlinked data/ is blocked" '{"tool_input":{"command":"cp evil.csv verify_dlink_fixture/train.csv"}}' ".claude/hooks/guard_bash.py" 2
+    rm -f verify_dlink_fixture
+  else
+    echo "SKIP: symlink を作成できないため symlink 迂回テストをスキップします"
+  fi
+fi
 
 # --- guard_scope: worktree封じ込め(cwdベース。$RP はテスト実行時のリポジトリ絶対パス) ---
 RP="$(pwd)"
