@@ -56,41 +56,55 @@ _URL_CREDENTIALS = re.compile(
 # キー名の引用符を任意にすることで、JSON の `{"api_key": "..."}` 形式にも
 # 一致する(action_log は json.dumps の結果をマスクするので、実際のログは
 # ほぼすべてこの形)。
-# 値は引用符の有無で終端が変わる。引用符があれば閉じ引用符まで(空白を含む
-# パスフレーズが切れないように)、無ければ空白や JSON の区切り文字まで。
-# 否定文字クラス1つで書き、交替の繰り返しを避ける(バックトラックを抑えるため)。
-# キー名側は前後に `[A-Za-z0-9_-]*` を置かない(その形は一致しない長い識別子で
-# 総当たりが起き、処理時間が入力長の2乗に伸びる)。
-_KEYVALUE_PATTERN = re.compile(
-    r"([\"']?)([A-Za-z0-9_-]{1,64})\1(\s*[=:]\s*)"
-    r"(?:\"([^\"]{6,})\"|'([^']{6,})'|([^\s,;}\)\]]{8,}))"
-)
+# 中核語をパターンの先頭アンカーにする。任意のキー名に一致させると、
+# `{"command": "export API_KEY=abc"}` のような入力で外側の `"command": "..."`
+# が値ごと一致して走査位置を進めてしまい、値の中の `API_KEY=abc` が検査
+# されないまま素通りする(action_log は json.dumps の結果をマスクするので、
+# 実運用の入力はこの形になる)。秘密語で始まる形にすれば飲み込みが起きない。
+# `AWS_SECRET_ACCESS_KEY` のような接頭辞付きは、`SECRET_ACCESS_KEY` の位置から
+# 一致が始まり `AWS_` はそのまま残るだけなので、値のマスクは正しく効く。
+#
+# 中核語の前に `[A-Za-z0-9_-]*` を置かないことがそのまま ReDoS 対策にもなる
+# (その形は一致しない長い識別子で総当たりが起き、処理時間が入力長の2乗に伸びる)。
+_SECRET_KEY_WORDS_SRC = r"api[_-]?key|token|secret|password|passwd|credential"
 
-# キー名がこれを含むとき、その値を秘密情報とみなす
-_SECRET_KEY_WORDS = re.compile(
-    r"api[_-]?key|token|secret|password|passwd|credential", re.IGNORECASE
+# 値は4通り。JSON 文字列の中でエスケープされた引用符に囲まれた形
+# (`API_KEY=\"my secret\"`)を最初に見るのは、裸の値として先に食われると
+# 空白の手前で切れてしまうため。引用符の中では `\<任意の1文字>` を1単位として
+# 読み飛ばし、エスケープ済みの引用符を終端と誤認しないようにする。
+# 値の長さに下限は設けない(パターンが秘密語アンカーなので、`password="1234"`
+# のような短い値まで拾って問題ない)。
+# 中核語の後に続けてよいのは複数形の `s` と、`_`/`-` 区切りで始まる残りだけ。
+# 任意の英数字を許すと `tokenizer = AutoTokenizer...` のような ML コードで
+# 頻出する語を誤爆し、ログが読めなくなる(`token` + `izer` に一致するため)。
+_KEYVALUE_PATTERN = re.compile(
+    r"((?:" + _SECRET_KEY_WORDS_SRC + r")s?(?:[_-][A-Za-z0-9_-]{0,32})?"
+    r"[\"']?\s*[=:]\s*)"
+    r"(?:"
+    r"\\+\"((?:[^\"\\]|\\.)*?)\\+\""
+    r"|\"((?:[^\"\\]|\\.)+)\""
+    r"|'((?:[^'\\]|\\.)+)'"
+    r"|([^\s,;}\)\]]+)"
+    r")",
+    re.IGNORECASE,
 )
 
 
 def _mask_keyvalue(m: "re.Match[str]") -> str:
-    """key=value / "key": "value" の値だけを伏せる(キー名は残す)。
+    """key=value / "key": "value" の値だけを伏せる(キー名と区切りは残す)。
 
-    値は3通りのどれか1つだけが一致する(ダブルクォート / シングルクォート /
-    引用符なし)。どれが一致したかで、復元する引用符を決める。
+    値は4通りのどれか1つだけが一致する(JSON 内のエスケープされた引用符 /
+    ダブルクォート / シングルクォート / 引用符なし)。どれが一致したかで、
+    復元する引用符を決める。
     """
-    key_quote, key, separator = m.group(1), m.group(2), m.group(3)
-    if not _SECRET_KEY_WORDS.search(key):
-        return m.group(0)
+    prefix = m.group(1)
+    if m.group(2) is not None:
+        return f'{prefix}\\"[MASKED]\\"'
+    if m.group(3) is not None:
+        return f'{prefix}"[MASKED]"'
     if m.group(4) is not None:
-        value_quote = '"'
-    elif m.group(5) is not None:
-        value_quote = "'"
-    else:
-        value_quote = ""
-    return (
-        f"{key_quote}{key}{key_quote}{separator}"
-        f"{value_quote}[MASKED]{value_quote}"
-    )
+        return f"{prefix}'[MASKED]'"
+    return f"{prefix}[MASKED]"
 
 
 def mask(text: str) -> str:
