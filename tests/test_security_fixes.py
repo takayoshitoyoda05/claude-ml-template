@@ -196,36 +196,40 @@ def test_mask_hides_quoted_value_containing_spaces(sample: str, secret: str) -> 
 
 
 @pytest.mark.parametrize(
-    "command, secret, keep",
+    "command, secret",
     [
         pytest.param(
-            'export API_KEY="my secret value"',
+            'export API_KEY="my secret value" && LEAD-SENTINEL TRAIL-SENTINEL',
             "my secret value",
-            "export",
             id="quoted-value",
         ),
         pytest.param(
-            "export API_KEY=abcdefgh123", "abcdefgh123", "export", id="bare-value"
+            "export API_KEY=abcdefgh123 LEAD-SENTINEL TRAIL-SENTINEL",
+            "abcdefgh123",
+            id="bare-value",
         ),
         pytest.param(
-            "curl -H 'X-Token: abcdefgh123'", "abcdefgh123", "curl", id="header-token"
+            "curl -H 'X-Token: abcdefgh123' LEAD-SENTINEL TRAIL-SENTINEL",
+            "abcdefgh123",
+            id="header-token",
         ),
     ],
 )
-def test_mask_hides_secret_nested_in_tool_input(
-    command: str, secret: str, keep: str
-) -> None:
+def test_mask_hides_secret_nested_in_tool_input(command: str, secret: str) -> None:
     """action_log の実際の適用点(json.dumps された tool_input)で伏せること。
 
     任意のキー名に一致するパターンだと、外側の `"command": "..."` が値ごと
     一致して走査位置を進めてしまい、値の中の `API_KEY=...` が検査されない
     まま素通りする。中核語を先頭アンカーにすればこの飲み込みは起きない。
-    値を丸ごと潰す実装で通らないよう、コマンド名が残ることも見る。
+
+    秘密値の前と後ろの両方に sentinel を置き、それらが残ることも見る
+    (コマンド名だけの確認では、以降を全部消す実装を通してしまうため)。
     """
     payload = json.dumps({"command": command}, ensure_ascii=False)
     masked = _mask_in_subprocess(payload)
     assert secret not in masked
-    assert keep in masked, "秘密でない部分まで消えています"
+    assert "LEAD-SENTINEL" in masked, "秘密値より前まで消えています"
+    assert "TRAIL-SENTINEL" in masked, "秘密値より後ろまで消えています"
 
 
 def test_mask_handles_escaped_quote_in_value() -> None:
