@@ -33,15 +33,23 @@ _ASIA = "AS" + "IA" + "ABCDEFGHIJKLMNOP"
 _KEY_BEGIN = "-" * 5 + "BEGIN RSA PRIVATE KEY" + "-" * 5
 _KEY_END = "-" * 5 + "END RSA PRIVATE KEY" + "-" * 5
 _KEY_BODY = "MIIEowIBAAKCAQEA0Zx8"
+# AWS のシークレットアクセスキーは40文字(AWS 公式ドキュメントのダミー値と同形式)
+_AWS_SECRET = "wJalrXUtnFEMI" + "/K7MDENG/" + "bPxRfiCYEXAMPLEKEY"
 
 # (検体, マスク後に残っていてはいけない部分文字列 = 秘密の本体)
 _SECRET_SAMPLES = [
     pytest.param(_AKIA, _AKIA, id="aws-access-key-id"),
     pytest.param(_ASIA, _ASIA, id="aws-temporary-key-id"),
     pytest.param(
-        "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENGbPxRfiCY",
-        "wJalrXUtnFEMIK7MDENGbPxRfiCY",
+        # AWS のシークレットは40文字。実形式で検査する
+        f"AWS_SECRET_ACCESS_KEY={_AWS_SECRET}",
+        _AWS_SECRET,
         id="aws-secret-access-key",
+    ),
+    pytest.param(
+        f'AWS_SECRET_ACCESS_KEY="{_AWS_SECRET}"',
+        _AWS_SECRET,
+        id="aws-secret-access-key-quoted",
     ),
     pytest.param("ghs_" + "a" * 25, "ghs_" + "a" * 25, id="github-server-token"),
     pytest.param("ghr_" + "a" * 25, "ghr_" + "a" * 25, id="github-refresh-token"),
@@ -122,6 +130,19 @@ def test_mask_hides_secret(sample: str, must_be_gone: str) -> None:
 def test_mask_leaves_benign_text_untouched(sample: str) -> None:
     """秘密情報でない文字列を書き換えないこと(誤爆の防止)。"""
     assert _mask_in_subprocess(sample) == sample
+
+
+def test_mask_keeps_url_structure_readable() -> None:
+    """URL 認証情報はパスワードだけを伏せ、接続先の特定に要る情報は残すこと。
+
+    ユーザー名・ホスト・スキームまで潰すとログから接続先が追えなくなる。
+    パスワードが消えていれば認証情報としては用をなさないため、この粒度を
+    意図的な設計として固定する(全部伏せる実装に変わったらここで気づける)。
+    """
+    masked = _mask_in_subprocess("postgres://appuser:hunter2pass@db.example.com/mydb")
+    assert "hunter2pass" not in masked
+    assert "appuser" in masked, "ユーザー名まで消えています"
+    assert "db.example.com" in masked, "ホストまで消えています"
 
 
 def test_spec_gate_does_not_run_verify_of_unapproved_design(tmp_path: Path) -> None:
