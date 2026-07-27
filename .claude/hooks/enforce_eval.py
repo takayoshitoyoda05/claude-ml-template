@@ -51,9 +51,27 @@ def main():
         result = subprocess.run(
             eval_cmd, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600
         )
+    except subprocess.TimeoutExpired:
+        # 時間切れは環境の不調ではなく「評価が完了していない」状態。ここで通すと
+        # 「評価が通った」と「評価が終わらなかった」を区別できなくなるのでブロックする
+        print(
+            "[enforce_eval] 評価コマンドが制限時間(600秒)内に終わりませんでした。\n"
+            "評価が完了していないため完了にできません。コマンドの見直しか、"
+            "対象を絞った評価を検討してください。",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     except Exception as e:
-        print(f"[enforce_eval] 評価コマンド実行エラー: {e}", file=sys.stderr)
-        sys.exit(0)  # 実行自体が失敗したら通す(環境問題を疑う)
+        # fork 失敗・メモリ不足など、ユーザーが手を出せない環境側の問題。
+        # ここで止めると作業不能になるので通すが、黙って通さず必ず知らせる
+        # (コマンドの綴り間違いは shell=True では例外にならず returncode 127 で
+        #  返るため、下の returncode 検査でブロックされる)
+        print(
+            f"[enforce_eval] 警告: 評価コマンドを実行できませんでした({e})。\n"
+            f"環境側の問題とみなして完了を許可しますが、評価は行われていません。",
+            file=sys.stderr,
+        )
+        sys.exit(0)
 
     if result.returncode != 0:
         tail = (result.stdout + result.stderr)[-1500:]
