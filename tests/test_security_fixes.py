@@ -152,33 +152,54 @@ def test_mask_leaves_benign_text_untouched(sample: str) -> None:
     ],
 )
 def test_mask_hides_value_in_json_and_bare_forms(sample: str, secret: str) -> None:
-    """JSON 形式でも値を伏せること。
+    """JSON 形式でも値を伏せ、周囲の非秘密フィールドは残すこと。
 
     action_log は `json.dumps()` の結果をマスクするため、実運用のログはほぼ
     すべて `{"api_key": "..."}` の形になる。キー名の直後に `=`/`:` を要求する
     実装では閉じ引用符が挟まって一致せず、素通りしていた。
+    入力を丸ごと潰す実装で通らないよう、非秘密部分の保持も併せて見る。
     """
-    assert secret not in _mask_in_subprocess(sample)
+    # 秘密でないフィールドを前後に足し、それが残ることまで確かめる
+    wrapped = '{"file_path": "src/train.py", "note": "keep me"} ' + sample
+    masked = _mask_in_subprocess(wrapped)
+    assert secret not in masked
+    assert "src/train.py" in masked, "非秘密フィールドまで消えています"
+    assert "keep me" in masked, "非秘密フィールドまで消えています"
 
 
 def test_mask_hides_private_key_without_end_line() -> None:
-    """END 行を欠く秘密鍵でも本体を残さないこと(出力が途中で切れた場合)。"""
-    truncated = _KEY_BEGIN + "\n" + _KEY_BODY + "\n...[clipped]"
-    assert _KEY_BODY not in _mask_in_subprocess(truncated)
+    """END 行を欠く秘密鍵でも本体を残さず、前後の通常文は残すこと。
+
+    出力が途中で切れた場合(clip 後など)を想定する。
+    """
+    truncated = (
+        "before-marker\n"
+        + _KEY_BEGIN
+        + "\n"
+        + _KEY_BODY
+        + "\n...[clipped]\nafter-marker"
+    )
+    masked = _mask_in_subprocess(truncated)
+    assert _KEY_BODY not in masked
+    assert "before-marker" in masked, "鍵の前の通常文まで消えています"
+    assert "after-marker" in masked, "鍵の後の通常文まで消えています"
 
 
 def test_mask_completes_quickly_on_large_input() -> None:
-    """巨大な入力でも実用的な時間で終わること(ReDoS の回帰防止)。
+    """巨大な入力でも実用的な時間で終わり、内容を変えないこと(ReDoS の回帰防止)。
 
     キー名の中核語の前後に `[A-Za-z0-9_-]*` を置く実装は、一致しない長い
     識別子で総当たりが起き、処理時間が入力長の2乗で伸びた(実測: 5万文字で
     約130秒)。action_log は毎ツール実行で走るため実害になる。
+    入力を切り捨てて速くする実装で通らないよう、出力の一致も確かめる。
     """
     payload = ("A" * 2000 + "_" + "B" * 2000 + " ") * 12  # 約5万文字
     start = time.monotonic()
-    _mask_in_subprocess(payload)
+    masked = _mask_in_subprocess(payload)
     elapsed = time.monotonic() - start
     assert elapsed < 10.0, f"マスクに {elapsed:.1f} 秒かかりました(ReDoS の疑い)"
+    # 秘密情報を含まない入力なので、1文字も変わってはいけない
+    assert masked == payload, "秘密情報でない入力が書き換えられています"
 
 
 def test_mask_hides_whole_url_userinfo() -> None:
