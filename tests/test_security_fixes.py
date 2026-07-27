@@ -168,21 +168,19 @@ def test_mask_hides_value_in_json_and_bare_forms(sample: str, secret: str) -> No
 
 
 def test_mask_hides_private_key_without_end_line() -> None:
-    """END 行を欠く秘密鍵でも本体を残さず、前後の通常文は残すこと。
+    """END 行を欠く秘密鍵でも本体を残さないこと(出力が途中で切れた場合)。
 
-    出力が途中で切れた場合(clip 後など)を想定する。
+    鍵より後ろがどこまで残るかは検査しない。END が無い以上どこで鍵が終わるかは
+    判定できず、「BEGIN 以降は末尾まで伏せる」のが最も安全な実装だからである
+    (後続の保持を要求すると、その安全な実装を落としてしまう)。一方で入力を
+    丸ごと潰す実装は通したくないので、鍵より前の通常文の保持だけを見る。
     """
     truncated = (
-        "before-marker\n"
-        + _KEY_BEGIN
-        + "\n"
-        + _KEY_BODY
-        + "\n...[clipped]\nafter-marker"
+        "before-marker\n" + _KEY_BEGIN + "\n" + _KEY_BODY + "\n...[clipped]\ntail"
     )
     masked = _mask_in_subprocess(truncated)
     assert _KEY_BODY not in masked
     assert "before-marker" in masked, "鍵の前の通常文まで消えています"
-    assert "after-marker" in masked, "鍵の後の通常文まで消えています"
 
 
 def test_mask_completes_quickly_on_large_input() -> None:
