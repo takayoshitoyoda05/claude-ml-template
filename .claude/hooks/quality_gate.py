@@ -8,7 +8,10 @@
 3. mypy        — 型エラーゼロ(mypy がインストールされている場合のみ)
 
 ツールが見つからない場合、そのチェックはスキップする(uv 環境に無ければ強制しない)。
-欠落判定は uv の実際のエラー文言(Failed to spawn / No module named 等)で行う。
+欠落判定は uv の実際のエラー文言(Failed to spawn / No module named 等)を
+**stderr のみ**から探して行う。stdout を混ぜると、ruff が診断に添えるソース
+スニペット経由で検査対象のコード自身が判定を左右できてしまう
+(例: コードに "command not found" と書くだけで lint 違反が全件スキップされる)。
 
 効率化: 前回PASS時のリポジトリ状態を .claude/checkpoints/last_quality_pass.txt に
 記録し、状態が変わっていなければ再実行をスキップする(enforce_eval.py と同じ
@@ -50,8 +53,13 @@ def run(cmd: list[str], timeout: int = 120) -> tuple[int, str, str]:
         return -1, "", "timeout"
 
 
-def tool_missing(out: str) -> bool:
-    low = out.lower()
+def tool_missing(stderr: str) -> bool:
+    """ツール未導入を示すエラーかどうかを stderr だけから判定する。
+
+    stdout を渡してはならない。lint/型チェックの出力には検査対象のソースが
+    含まれるため、コード側の文字列でゲートを黙らせられてしまう。
+    """
+    low = stderr.lower()
     return any(p in low for p in TOOL_MISSING_PATTERNS)
 
 
@@ -74,14 +82,14 @@ def main():
     # 1. ruff check
     code, out, err = run(["uv", "run", "ruff", "check", scope])
     combined = (out + "\n" + err).strip()
-    if code > 0 and not tool_missing(combined):
+    if code > 0 and not tool_missing(err):
         failures.append(f"[ruff check] lint違反があります:\n{combined[:2000]}")
 
     # 2. radon cc(複雑度 C 以上の関数を検出。-n C は C 以上のみ表示。
     #    radon 未導入なら uv が非ゼロ終了するので code == 0 の条件で自然にスキップ。
     #    判定は stdout のみ(uv が stderr に出す進捗等で誤発火しないため)
     code, out, err = run(["uv", "run", "radon", "cc", scope, "-n", "C", "-s"])
-    if code == 0 and out and not tool_missing(out):
+    if code == 0 and out and not tool_missing(err):
         failures.append(
             f"[radon cc] 循環的複雑度が C(11)以上の関数があります。\n"
             f"分割・早期リターン・条件の切り出しで複雑度を下げてください:\n{out[:2000]}"
@@ -90,7 +98,7 @@ def main():
     # 3. mypy(インストールされている場合のみ)
     code, out, err = run(["uv", "run", "mypy", scope, "--no-error-summary"])
     combined = (out + "\n" + err).strip()
-    if code > 0 and combined and not tool_missing(combined):
+    if code > 0 and combined and not tool_missing(err):
         failures.append(f"[mypy] 型エラーがあります:\n{combined[:2000]}")
 
     if failures:

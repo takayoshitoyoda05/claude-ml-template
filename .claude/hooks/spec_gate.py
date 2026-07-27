@@ -352,7 +352,22 @@ def main():
     if not args.ci:
         # verdict/audit/approvals/design_hashes は .gitignore 対象のローカル
         # ファイルで CI 環境には存在しないため、ローカル(Stop フック)のみ検査する
-        reasons += check_design_hashes(design_files, spec_dir)
+
+        # 設計書の承認確認だけは先に打ち切り判定をする。check_auto_recheck は
+        # 「検証方法」列を shell 実行するため、未承認・改変済みの設計書を
+        # 他の検査と一緒に reasons へ積むだけでは「ブロックと表示しつつ
+        # コマンドは実行済み」になる(ユーザーが承認していない内容を実行
+        # しないことが、この承認ゲートの目的そのもの)
+        approval_reasons = check_design_hashes(design_files, spec_dir)
+        if approval_reasons:
+            print(
+                "[spec_gate] BLOCKED: 設計書が計画承認されていません"
+                "(検証方法の実行前に停止しました):",
+                file=sys.stderr,
+            )
+            for r in approval_reasons:
+                print(f"  - {r}", file=sys.stderr)
+            sys.exit(2)
         reasons += check_verdict(all_rows, spec_dir)
     auto_reasons, auto_log_line = check_auto_recheck(all_rows, recheck_n, args.ci)
     print(auto_log_line, file=sys.stderr)

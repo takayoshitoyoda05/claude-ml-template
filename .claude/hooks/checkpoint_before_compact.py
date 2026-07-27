@@ -2,10 +2,14 @@
 """PreCompact: コンテキスト圧縮の直前に、現在の状態をバックアップする。
 async実行を想定(圧縮の速度を妨げないため)。"""
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _mask import mask  # noqa: E402
 
 
 KEEP_GENERATIONS = 10
@@ -71,9 +75,14 @@ def main():
     (backup_dir / f"state-{trigger}-{ts}.md").write_text(content, encoding="utf-8")
 
     if transcript_path and Path(transcript_path).exists():
+        # 会話全体には秘密情報が混入しうる。action_log / agent_log / report_gen と
+        # 同じくマスキングを通してから保存する(ここだけ平文だと、他をマスクした
+        # 意味が失われる)
         try:
-            import shutil
-            shutil.copy2(transcript_path, backup_dir / f"transcript-{trigger}-{ts}.jsonl")
+            text = Path(transcript_path).read_text(encoding="utf-8", errors="replace")
+            (backup_dir / f"transcript-{trigger}-{ts}.jsonl").write_text(
+                mask(text), encoding="utf-8"
+            )
         except Exception:
             pass
 
