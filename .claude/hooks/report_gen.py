@@ -59,7 +59,12 @@ def run(cmd: list[str]) -> str:
 
 
 def _copy_masked(src: str, dst: str) -> None:
-    """runs/ 配下のファイルをマスキングしてからコピーする(evidence/はコミット対象のため)。"""
+    """runs/ 配下のファイルをマスキングしてからコピーする。
+
+    このテンプレートの .gitignore は docs/ ごと除外するため evidence/ は
+    追跡されないが、配布先がこの除外を外せばコミット対象になりうる。
+    いずれにせよローカルに平文を残さないためマスクは常に通す。
+    """
     raw = Path(src).read_bytes()
     if len(raw) > MAX_COPY_BYTES:
         text = raw[:MAX_COPY_BYTES].decode("utf-8", errors="replace")
@@ -153,7 +158,13 @@ def _write_tool_logs(
         src = Path(src_dir)
         if not src.exists():
             continue
-        merged = [f.read_text(encoding="utf-8") for f in sorted(src.glob(pattern))]
+        # symlink はリポジトリ外(~/.ssh/id_rsa 等)を指しうる。runs/ と同じく
+        # 追わない(logs/ 配下だけ素通りだと、そこが取り込みの抜け道になる)
+        merged = [
+            f.read_text(encoding="utf-8")
+            for f in sorted(src.glob(pattern))
+            if not f.is_symlink()
+        ]
         if merged:
             (evidence / f"{name}.jsonl").write_text("".join(merged), encoding="utf-8")
             stats[f"{name}_entries"] = sum(m.count("\n") for m in merged)
@@ -252,6 +263,14 @@ def _write_transcript_evidence(
     if not transcript_arg:
         return
     transcript_path = Path(transcript_arg)
+    # transcript は Claude Code が書く .jsonl 。拡張子を固定して、認証情報
+    # ファイル等の任意のパスを evidence/ に複製できないようにする
+    if transcript_path.suffix != ".jsonl":
+        stats["transcript"] = f"refused (not a .jsonl file): {transcript_arg}"
+        return
+    if transcript_path.is_symlink():
+        stats["transcript"] = f"refused (symlink): {transcript_arg}"
+        return
     if transcript_path.exists():
         text = transcript_path.read_text(encoding="utf-8", errors="replace")
         (evidence / "transcript.jsonl").write_text(mask(text), encoding="utf-8")

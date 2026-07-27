@@ -41,10 +41,12 @@ def main():
         "ts": datetime.now(timezone.utc).isoformat(),
         "session": session,
         "tool": payload.get("tool_name", ""),
-        "input": mask(
-            _clip(json.dumps(payload.get("tool_input", {}), ensure_ascii=False))
+        # mask を先に通してから clip する。順序が逆だと、秘密情報が clip 境界を
+        # 跨いだときに前半だけが残り、パターンに一致せず未マスクで記録される
+        "input": _clip(
+            mask(json.dumps(payload.get("tool_input", {}), ensure_ascii=False))
         ),
-        "output": mask(_clip(str(payload.get("tool_response", "")))),
+        "output": _clip(mask(str(payload.get("tool_response", "")))),
         "duration_ms": payload.get("duration_ms"),
     }
 
