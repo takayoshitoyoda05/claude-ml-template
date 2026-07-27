@@ -248,6 +248,42 @@ def test_mask_hides_value_containing_escaped_quotes_in_tool_input() -> None:
     assert "TAILSEC" not in masked, "エスケープ引用符より後ろが残っています"
 
 
+def test_mask_hides_bare_value_containing_backslash() -> None:
+    """バックスラッシュを含む裸の値でも後半を残さないこと。
+
+    シェルではバックスラッシュは後続文字のエスケープであって値の終端ではない。
+    正規表現で終端を決めていたときは、終端に含めないと JSON の閉じ引用符を
+    飲んで構造が壊れ、含めるとここが漏れる、という板挟みだった。
+    """
+    assert "def" not in _mask_in_subprocess("TOKEN=abc\\ def")
+
+
+def test_mask_does_not_swallow_following_command() -> None:
+    """引用符付きの値は閉じ引用符で止まり、後続コマンドを巻き込まないこと。
+
+    値の終端を貪欲マッチで決めると行内最後の引用符まで飲み、監査ログが
+    大きく欠落する。
+    """
+    command = 'export TOKEN="secret" && echo "public"'
+    payload = json.dumps({"command": command}, ensure_ascii=False)
+    masked = _mask_in_subprocess(payload)
+    assert "secret" not in masked
+    assert "public" in masked, "後続コマンドまで消えています"
+
+
+def test_mask_completes_quickly_on_long_value() -> None:
+    """長い値でも実用的な時間で終わること(URL パターンの ReDoS 回帰防止)。
+
+    URL 認証情報のスキーム部分に長さ上限が無いと、長い英数字列に対して
+    スキーム候補の総当たりが起き、処理時間が入力長の2乗に伸びた
+    (実測: 20万文字で 26 秒)。
+    """
+    start = time.monotonic()
+    _mask_in_subprocess("token=" + "y" * 200_000)
+    elapsed = time.monotonic() - start
+    assert elapsed < 10.0, f"マスクに {elapsed:.1f} 秒かかりました(ReDoS の疑い)"
+
+
 def test_mask_keeps_json_parseable() -> None:
     """マスク後も JSON として読めること。
 
