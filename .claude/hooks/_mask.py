@@ -115,14 +115,20 @@ def _scan_value(text: str, start: int) -> tuple[int, str]:
         while i < n:
             if text[i] == "\\":
                 # バックスラッシュの連続数で「閉じ」と「値の中のエスケープ済み
-                # 引用符」を見分ける。JSON 文字列の中では値の引用符が `\\\"`
-                # (バックスラッシュ3個+引用符)になる一方、値を囲む引用符は
-                # `\"`(1個+引用符)なので、連続数が1のときだけ閉じとみなす
+                # 引用符」を見分ける
                 run = i
                 while run < n and text[run] == "\\":
                     run += 1
                 if run < n and text[run] in "\"'":
-                    if len(quote) == 2 and run - i == 1 and text[run] == quote[1]:
+                    if len(quote) == 2:
+                        # JSON 文字列の中。値を囲む引用符は `\"`(1個+引用符)、
+                        # 値の中の引用符は `\\\"`(3個+引用符)なので、連続数が
+                        # 1のときだけ閉じとみなす
+                        if run - i == 1 and text[run] == quote[1]:
+                            return run + 1, quote
+                    elif (run - i) % 2 == 0 and text[run] == quote:
+                        # バックスラッシュが偶数個ならそれ自体がエスケープされた
+                        # バックスラッシュなので、直後の引用符は生の閉じ引用符
                         return run + 1, quote
                     i = run + 1  # 値の一部として読み飛ばす
                     continue
@@ -137,10 +143,11 @@ def _scan_value(text: str, start: int) -> tuple[int, str]:
     while i < n:
         char = text[i]
         if char == "\\" and i + 1 < n:
-            # `\"` は JSON 文字列の閉じなので値の終端。それ以外のエスケープ
-            # (`\ ` など)は値の一部として読み進める
-            if text[i + 1] == '"':
-                break
+            # バックスラッシュは後続1文字のエスケープとして読み飛ばす。
+            # `\"` を JSON の閉じとみなして終端にすると
+            # `TOKEN=abc\"SECRET_TAIL` の後半が漏れる。実際の JSON では閉じ
+            # 引用符は素の `"` になる(json.dumps の出力は
+            # `{"command": "export TOKEN=abc"}`)ので、下の条件で正しく止まる
             i += 2
             continue
         if char in _BARE_VALUE_STOP or char in "\"'":
