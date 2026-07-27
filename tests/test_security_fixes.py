@@ -199,17 +199,17 @@ def test_mask_hides_quoted_value_containing_spaces(sample: str, secret: str) -> 
     "command, secret",
     [
         pytest.param(
-            'export API_KEY="my secret value" && LEAD-SENTINEL TRAIL-SENTINEL',
+            'LEAD-SENTINEL && export API_KEY="my secret value" && TRAIL-SENTINEL',
             "my secret value",
             id="quoted-value",
         ),
         pytest.param(
-            "export API_KEY=abcdefgh123 LEAD-SENTINEL TRAIL-SENTINEL",
+            "LEAD-SENTINEL && export API_KEY=abcdefgh123 && TRAIL-SENTINEL",
             "abcdefgh123",
             id="bare-value",
         ),
         pytest.param(
-            "curl -H 'X-Token: abcdefgh123' LEAD-SENTINEL TRAIL-SENTINEL",
+            "LEAD-SENTINEL && curl -H 'X-Token: abcdefgh123' && TRAIL-SENTINEL",
             "abcdefgh123",
             id="header-token",
         ),
