@@ -34,25 +34,31 @@ _KEY_BEGIN = "-" * 5 + "BEGIN RSA PRIVATE KEY" + "-" * 5
 _KEY_END = "-" * 5 + "END RSA PRIVATE KEY" + "-" * 5
 _KEY_BODY = "MIIEowIBAAKCAQEA0Zx8"
 
-# (検体, マスク後に残っていてはいけない部分文字列。None なら [MASKED] の有無だけ見る)
+# (検体, マスク後に残っていてはいけない部分文字列 = 秘密の本体)
 _SECRET_SAMPLES = [
-    pytest.param(_AKIA, None, id="aws-access-key-id"),
-    pytest.param(_ASIA, None, id="aws-temporary-key-id"),
+    pytest.param(_AKIA, _AKIA, id="aws-access-key-id"),
+    pytest.param(_ASIA, _ASIA, id="aws-temporary-key-id"),
     pytest.param(
         "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENGbPxRfiCY",
         "wJalrXUtnFEMIK7MDENGbPxRfiCY",
         id="aws-secret-access-key",
     ),
-    pytest.param("ghs_" + "a" * 25, None, id="github-server-token"),
-    pytest.param("ghr_" + "a" * 25, None, id="github-refresh-token"),
-    pytest.param("github_pat_" + "a" * 25, None, id="github-fine-grained-pat"),
+    pytest.param("ghs_" + "a" * 25, "ghs_" + "a" * 25, id="github-server-token"),
+    pytest.param("ghr_" + "a" * 25, "ghr_" + "a" * 25, id="github-refresh-token"),
+    pytest.param(
+        "github_pat_" + "a" * 25,
+        "github_pat_" + "a" * 25,
+        id="github-fine-grained-pat",
+    ),
     pytest.param(
         "Authorization: Bearer abcdefghijklmnop12345",
         "abcdefghijklmnop12345",
         id="bearer-token",
     ),
     pytest.param(
-        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijklmnop", None, id="jwt"
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijklmnop",
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijklmnop",
+        id="jwt",
     ),
     pytest.param(
         "postgres://user:hunter2pass@db.example.com:5432/mydb",
@@ -64,7 +70,9 @@ _SECRET_SAMPLES = [
         "s3cretpass",
         id="https-basic-url",
     ),
-    pytest.param("xapp-1-A00-abcdefghijkl", None, id="slack-app-token"),
+    pytest.param(
+        "xapp-1-A00-abcdefghijkl", "xapp-1-A00-abcdefghijkl", id="slack-app-token"
+    ),
     pytest.param(
         _KEY_BEGIN + "\n" + _KEY_BODY + "\n" + _KEY_END,
         _KEY_BODY,
@@ -99,12 +107,15 @@ def _mask_in_subprocess(sample: str) -> str:
 
 
 @pytest.mark.parametrize("sample, must_be_gone", _SECRET_SAMPLES)
-def test_mask_hides_secret(sample: str, must_be_gone: str | None) -> None:
-    """既知の秘密情報形式がマスクされ、値の本体が残らないこと。"""
+def test_mask_hides_secret(sample: str, must_be_gone: str) -> None:
+    """既知の秘密情報形式がマスクされ、値の本体が残らないこと。
+
+    `[MASKED]` の有無だけを見ると、元の値を残したまま印を足す実装や一部分しか
+    置換しない実装でも通ってしまう。秘密の本体が消えていることを常に必須にする。
+    """
     masked = _mask_in_subprocess(sample)
     assert "[MASKED" in masked, f"マスクが適用されていません: {masked}"
-    if must_be_gone is not None:
-        assert must_be_gone not in masked, f"値が残っています: {masked}"
+    assert must_be_gone not in masked, f"値が残っています: {masked}"
 
 
 @pytest.mark.parametrize("sample", _BENIGN_SAMPLES)
@@ -164,6 +175,28 @@ def test_quality_gate_cannot_be_silenced_by_inspected_code(tmp_path: Path) -> No
         'import os\ny = "command not found"\n', encoding="utf-8"
     )
 
+    # ruff の可否は quality_gate に尋ねず直接確かめる。quality_gate は欠落を
+    # 内部で握って exit 0 にするため、その stderr からは可否を判別できない
+    probe = subprocess.run(
+        ["uv", "run", "ruff", "check", str(scope)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env={
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": os.environ.get("HOME", "/tmp"),
+        },
+    )
+    probe_output = probe.stdout + probe.stderr
+    if probe.returncode < 0 or "failed to spawn" in probe_output.lower():
+        pytest.skip("ruff が利用できないため quality_gate の検査をスキップします")
+    # このテストは「欺瞞文字列が ruff の出力に現れる」ことが前提。ruff の表示形式が
+    # 変わって前提が崩れたら、検出力が無いまま緑になるので先に落とす
+    assert "command not found" in probe.stdout, (
+        "ruff の出力に欺瞞文字列が現れないため、このテストは "
+        "stdout 経由の無効化を検出できません(ruff の表示形式の変更を確認してください)"
+    )
+
     proc = subprocess.run(
         [sys.executable, str(HOOKS_DIR / "quality_gate.py")],
         input=json.dumps({"stop_hook_active": False}),
@@ -179,7 +212,5 @@ def test_quality_gate_cannot_be_silenced_by_inspected_code(tmp_path: Path) -> No
         },
     )
 
-    if "failed to spawn" in proc.stderr.lower():
-        pytest.skip("ruff が利用できないため quality_gate の検査をスキップします")
     assert proc.returncode == 2, f"lint 違反がブロックされていません: {proc.stderr}"
     assert "ruff" in proc.stderr
