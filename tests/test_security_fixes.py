@@ -176,17 +176,23 @@ def test_quality_gate_cannot_be_silenced_by_inspected_code(tmp_path: Path) -> No
     )
 
     # ruff の可否は quality_gate に尋ねず直接確かめる。quality_gate は欠落を
-    # 内部で握って exit 0 にするため、その stderr からは可否を判別できない
-    probe = subprocess.run(
-        ["uv", "run", "ruff", "check", str(scope)],
-        capture_output=True,
-        text=True,
-        timeout=300,
-        env={
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-            "HOME": os.environ.get("HOME", "/tmp"),
-        },
-    )
+    # 内部で握って exit 0 にするため、その stderr からは可否を判別できない。
+    # cwd はゲート側と揃える(uv はカレントのプロジェクト環境を見るため、
+    # 別ディレクトリで確かめると可否の判定がゲート側と食い違う)
+    try:
+        probe = subprocess.run(
+            ["uv", "run", "ruff", "check", str(scope)],
+            capture_output=True,
+            text=True,
+            cwd=tmp_path,
+            timeout=300,
+            env={
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "HOME": os.environ.get("HOME", "/tmp"),
+            },
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pytest.skip("uv が利用できないため quality_gate の検査をスキップします")
     probe_output = probe.stdout + probe.stderr
     if probe.returncode < 0 or "failed to spawn" in probe_output.lower():
         pytest.skip("ruff が利用できないため quality_gate の検査をスキップします")
