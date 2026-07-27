@@ -28,9 +28,9 @@ from _common import (
     ARTIFACT_EXTENSIONS,
     BLOCKED_EXTENSIONS,
     BLOCKED_FILENAMES,
-    PROTECTED_PATH_PATTERNS,
     SECRET_CONTENT_PATTERNS,
     NAME_MATCH_FLAGS,
+    matched_protected_pattern,
     path_for_match,
 )
 
@@ -251,22 +251,19 @@ def _segment_mutating_targets(segment):
 
 
 def touches_protected_via_mutating_cmd(cmd):
-    """変更コマンドが保護パスを実引数に取っていれば、そのパスを返す。
+    """変更コマンドが保護パスを実引数に取っていれば (パス, 一致パターン) を返す。
 
     セグメント(; && || | 区切り)ごとに先頭コマンド名を見るため、
     コミットメッセージ本文に "rm" や保護パス名が現れても誤検知しない。
+    一致パターンは呼び出し側がメッセージの出し分け(データセット保護と
+    フック/設定保護の区別)に使う。realpath 照合(symlink 迂回防止)は
+    matched_protected_pattern 側で行う。
     """
     for segment in _SEGMENT_SPLIT.split(cmd):
         for token in _segment_mutating_targets(segment):
-            abs_norm = os.path.abspath(token).replace("\\", "/")
-            # 末尾に "/" を足してから比較する。ディレクトリを末尾スラッシュ
-            # なしで指定した場合(例: "rm -rf .claude/hooks")でも
-            # PROTECTED_PATH_PATTERNS の "/.claude/hooks/" と一致させるため
-            # (ファイルパターンは元々末尾スラッシュなしなので影響しない)。
-            if any(
-                pat in path_for_match(abs_norm) + "/" for pat in PROTECTED_PATH_PATTERNS
-            ):
-                return token
+            pat = matched_protected_pattern(os.path.abspath(token))
+            if pat is not None:
+                return token, pat
     return None
 
 
@@ -338,10 +335,19 @@ def main():
             sys.exit(2)
 
     # cp/mv/rm/install/truncate/tee/git rm/sed -i・PowerShellの変更系コマンド等で
-    # フック・設定・承認記録を書き換え/削除するのをブロック(guard_scope は
-    # Edit/Write しか見ないため)
-    protected_token = touches_protected_via_mutating_cmd(cmd)
-    if protected_token is not None:
+    # フック・設定・承認記録・データセットを書き換え/削除するのをブロック
+    # (guard_scope は Edit/Write しか見ないため)
+    protected_hit = touches_protected_via_mutating_cmd(cmd)
+    if protected_hit is not None:
+        protected_token, matched_pat = protected_hit
+        if matched_pat == "/data/":
+            print(
+                f"[guard_bash] BLOCKED: データセット(data/、{protected_token})を変更する"
+                f"コマンドは禁止です。invariants の「データセットの削除・上書き禁止」の"
+                f"保護です。変更が必要な場合はユーザーが手動で行ってください。",
+                file=sys.stderr,
+            )
+            sys.exit(2)
         print(
             f"[guard_bash] BLOCKED: フック/設定/承認記録({protected_token})を変更する"
             f"コマンドは禁止です。変更が必要な場合はユーザーが手動で編集してください。",
@@ -363,10 +369,15 @@ def main():
                 file=sys.stderr,
             )
             sys.exit(2)
-        abs_norm = os.path.abspath(target).replace("\\", "/")
-        if any(
-            pat in path_for_match(abs_norm) + "/" for pat in PROTECTED_PATH_PATTERNS
-        ):
+        matched_pat = matched_protected_pattern(os.path.abspath(target))
+        if matched_pat == "/data/":
+            print(
+                f"[guard_bash] BLOCKED: データセット(data/、{target})への書き込みは"
+                f"禁止です。invariants の「データセットの削除・上書き禁止」の保護です。",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        if matched_pat is not None:
             print(
                 f"[guard_bash] BLOCKED: フック/設定({target})への書き込みは禁止です。"
                 f"変更が必要な場合はユーザーが手動で編集してください。",

@@ -23,8 +23,8 @@ from _common import (
     ARTIFACT_EXTENSIONS,
     BLOCKED_EXTENSIONS,
     BLOCKED_FILENAMES,
-    PROTECTED_PATH_PATTERNS,
     SECRET_CONTENT_PATTERNS,
+    matched_protected_pattern,
     path_for_match,
 )
 
@@ -139,10 +139,20 @@ def main():
         )
         sys.exit(2)
 
-    # 末尾に "/" を足してから比較する。ディレクトリを末尾スラッシュなしで
-    # 指定した場合でも PROTECTED_PATH_PATTERNS の "/.claude/hooks/" と
-    # 一致させるため(ファイルパターンは元々末尾スラッシュなしなので影響しない)。
-    if any(pat in path_for_match(norm) + "/" for pat in PROTECTED_PATH_PATTERNS):
+    # 保護パスの照合は _common.matched_protected_pattern に委譲する(パス名と
+    # realpath の両方を見るため、symlink 経由の迂回もここで塞がれる)。
+    # データセット保護とガード自身の保護は原因が別物なので、メッセージを分ける
+    # (data/ のブロックで「フック/設定への書き込み」と表示すると切り分けを誤らせる)。
+    protected_pat = matched_protected_pattern(abs_path)
+    if protected_pat == "/data/":
+        print(
+            f"[guard_scope] BLOCKED: データセット(data/)への書き込みは禁止です: {file_path}\n"
+            f"invariants の「データセットの削除・上書き禁止」の保護です。"
+            f"変更が必要な場合はユーザーが手動で行ってください。",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if protected_pat is not None:
         print(
             f"[guard_scope] BLOCKED: フック/設定(ガード自身)への書き込みは禁止です: {file_path}\n"
             f"変更が必要な場合はユーザーが手動で編集してください。",
