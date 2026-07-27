@@ -258,6 +258,28 @@ def test_mask_hides_bare_value_containing_backslash() -> None:
     assert "def" not in _mask_in_subprocess("TOKEN=abc\\ def")
 
 
+def test_mask_hides_bare_value_with_escaped_quote() -> None:
+    """裸の値の中にエスケープされた引用符があっても後半を残さないこと。
+
+    `\\"` を JSON 文字列の閉じとみなして終端にすると後半が漏れる。実際の JSON では
+    閉じ引用符は素の `"` になる(`json.dumps` の出力は
+    `{"command": "export TOKEN=abc"}`)ので、`\\"` を特別扱いする必要はない。
+    """
+    assert "SECRET_TAIL" not in _mask_in_subprocess('TOKEN=abc\\"SECRET_TAIL')
+
+
+def test_mask_stops_at_quote_after_even_backslashes() -> None:
+    """偶数個のバックスラッシュの後の引用符を閉じとして扱うこと。
+
+    偶数個ならそれ自体がエスケープされたバックスラッシュなので、直後の
+    引用符は生の閉じ引用符である。値の一部として読み飛ばすと後続まで巻き込む。
+    """
+    sample = 'TOKEN="secret\\\\" && echo "public"'
+    masked = _mask_in_subprocess(sample)
+    assert "secret" not in masked
+    assert "echo" in masked, "閉じ引用符を越えて後続まで消えています"
+
+
 def test_mask_does_not_swallow_following_command() -> None:
     """引用符付きの値は閉じ引用符で止まり、後続コマンドを巻き込まないこと。
 
