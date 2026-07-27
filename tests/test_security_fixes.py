@@ -132,17 +132,22 @@ def test_mask_leaves_benign_text_untouched(sample: str) -> None:
     assert _mask_in_subprocess(sample) == sample
 
 
-def test_mask_keeps_url_structure_readable() -> None:
-    """URL 認証情報はパスワードだけを伏せ、接続先の特定に要る情報は残すこと。
+def test_mask_hides_whole_url_userinfo() -> None:
+    """URL の認証情報はユーザー名側も含めて伏せ、接続先は残すこと。
 
-    ユーザー名・ホスト・スキームまで潰すとログから接続先が追えなくなる。
-    パスワードが消えていれば認証情報としては用をなさないため、この粒度を
-    意図的な設計として固定する(全部伏せる実装に変わったらここで気づける)。
+    `https://<token>@github.com` のようにユーザー名の位置にトークンを置く
+    認証方式があるため、パスワードだけを伏せる粒度では漏れる。一方でスキームと
+    ホストまで潰すとログから接続先を追えないので、そこは残す。
     """
     masked = _mask_in_subprocess("postgres://appuser:hunter2pass@db.example.com/mydb")
     assert "hunter2pass" not in masked
-    assert "appuser" in masked, "ユーザー名まで消えています"
+    assert "appuser" not in masked, "ユーザー名が残っています"
     assert "db.example.com" in masked, "ホストまで消えています"
+
+    # パスワードを伴わない、ユーザー名の位置だけのトークン
+    token_only = _mask_in_subprocess("https://ghp_" + "a" * 25 + "@github.com/o/r.git")
+    assert "ghp_" not in token_only, "ユーザー名位置のトークンが残っています"
+    assert "github.com" in token_only
 
 
 def test_spec_gate_does_not_run_verify_of_unapproved_design(tmp_path: Path) -> None:
