@@ -195,6 +195,67 @@ def test_mask_hides_quoted_value_containing_spaces(sample: str, secret: str) -> 
     assert secret.split()[-1] not in masked, "値の後半が残っています"
 
 
+@pytest.mark.parametrize(
+    "command, secret",
+    [
+        pytest.param(
+            'export API_KEY="my secret value"', "my secret value", id="quoted-value"
+        ),
+        pytest.param("export API_KEY=abcdefgh123", "abcdefgh123", id="bare-value"),
+        pytest.param(
+            "curl -H 'X-Token: abcdefgh123'", "abcdefgh123", id="header-token"
+        ),
+    ],
+)
+def test_mask_hides_secret_nested_in_tool_input(command: str, secret: str) -> None:
+    """action_log の実際の適用点(json.dumps された tool_input)で伏せること。
+
+    任意のキー名に一致するパターンだと、外側の `"command": "..."` が値ごと
+    一致して走査位置を進めてしまい、値の中の `API_KEY=...` が検査されない
+    まま素通りする。中核語を先頭アンカーにすればこの飲み込みは起きない。
+    """
+    payload = json.dumps({"command": command}, ensure_ascii=False)
+    assert secret not in _mask_in_subprocess(payload)
+
+
+def test_mask_handles_escaped_quote_in_value() -> None:
+    """値の中のエスケープされた引用符を終端と誤認しないこと。"""
+    sample = '{"api_key":"abcdef\\"TOP_SECRET_TAIL"}'
+    assert "TOP_SECRET_TAIL" not in _mask_in_subprocess(sample)
+
+
+@pytest.mark.parametrize(
+    "sample, secret",
+    [
+        pytest.param('password="1234"', "1234", id="short-quoted"),
+        pytest.param("token=abcdefg", "abcdefg", id="short-bare"),
+        pytest.param('{"secret": "pw12"}', "pw12", id="short-json"),
+    ],
+)
+def test_mask_hides_short_values(sample: str, secret: str) -> None:
+    """短い値も伏せること。
+
+    キー名が中核語を含む時点で値は秘密なので、長さで絞ると取りこぼす。
+    """
+    assert secret not in _mask_in_subprocess(sample)
+
+
+@pytest.mark.parametrize(
+    "sample",
+    [
+        pytest.param("tokenizer = AutoTokenizer.from_pretrained(name)", id="tokenizer"),
+        pytest.param("secretary = 1", id="secretary"),
+    ],
+)
+def test_mask_does_not_fire_on_words_containing_secret_terms(sample: str) -> None:
+    """中核語を部分文字列に含むだけの語で誤爆しないこと。
+
+    `tokenizer` は ML コードで頻出する。`token` に続く任意の英数字を許すと
+    ここに一致してしまい、ログが読めなくなる。
+    """
+    assert _mask_in_subprocess(sample) == sample
+
+
 def test_mask_hides_encrypted_pem_body() -> None:
     """暗号化 PEM(Proc-Type ヘッダ付き)でも鍵本体を残さないこと。
 
