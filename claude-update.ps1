@@ -137,17 +137,36 @@ try {
     # (テンプレート由来のファイルだけを上書きし、同名の独自ファイルは保持する。
     # 配布元にマーカーが無いファイル(claude-remote.*)は識別できないため従来どおり
     # 常に上書き。claude- 接頭辞のため独自ファイルとの衝突リスクは低い)
-    # claude-update.ps1 は実行中の自分自身も上書きするが、PowerShell は実行前に
-    # スクリプト全文を読み込むため直接上書きで問題ない
+    # claude-update.ps1 は実行中の自分自身も更新対象になるが、PowerShell は実行前に
+    # スクリプト全文を読み込むため置き換えても問題ない
     $marker = "takayoshitoyoda05/claude-ml-template"
     foreach ($f in @("claude-remote.ps1", "claude-remote.sh", "claude-update.ps1", "claude-update.sh", "doctor.ps1", "doctor.sh")) {
         $src = Join-Path $Tmp $f
         if (Test-Path $src) {
+            # ディレクトリは独自ファイル判定(Select-String)がエラーになるため先に
+            # 処理する。ディレクトリへのリンクはリンク自体を除去し、実ディレクトリは
+            # 警告してスキップする
+            $existing = Get-Item $f -Force -ErrorAction SilentlyContinue
+            if (Test-Path $f -PathType Container) {
+                if ($existing -and $existing.LinkType) {
+                    $existing.Delete()
+                } else {
+                    Write-Host "警告: $f はディレクトリのため更新をスキップしました"
+                    continue
+                }
+            }
             if ((Select-String -Path $src -Pattern $marker -Quiet) -and (Test-Path $f) -and -not (Select-String -Path $f -Pattern $marker -Quiet)) {
                 Write-Host "警告: $f は独自ファイルのため保持しました(テンプレート版が必要なら $f を退避してから再実行してください)"
                 continue
             }
-            Copy-Item $src $f -Force
+            # Copy-Item は既存の $f がシンボリックリンクだとリンク先に書き込んで
+            # しまうため、リンク自体を除去し、一時ファイル+Move-Item で置き換える
+            $existing = Get-Item $f -Force -ErrorAction SilentlyContinue
+            if ($existing -and $existing.LinkType) { $existing.Delete() }
+            $tmpf = "$f." + [System.IO.Path]::GetRandomFileName()
+            Copy-Item $src $tmpf
+            Move-Item $tmpf $f -Force
+            $tmpf = $null
             Write-Host "OK: $f を更新しました"
         } else {
             Write-Host "警告: 配布元に $f が見つかりません(コピーされませんでした)"
@@ -159,4 +178,5 @@ try {
 }
 finally {
     Remove-Item -Path $Tmp -Recurse -Force
+    if ($tmpf -and (Test-Path $tmpf)) { Remove-Item $tmpf -Force }
 }

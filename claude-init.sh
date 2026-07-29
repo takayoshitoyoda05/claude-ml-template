@@ -29,7 +29,8 @@ if [ -d ".claude" ]; then
 fi
 
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+TMPF=""
+trap 'rm -rf "$TMP"; [ -n "$TMPF" ] && rm -f "$TMPF"' EXIT
 echo "テンプレートを取得中..."
 git clone --depth 1 --quiet "$TEMPLATE_REPO" "$TMP"
 
@@ -150,7 +151,21 @@ for f in claude-remote.ps1 claude-remote.sh claude-update.ps1 claude-update.sh d
       echo "警告: $f は独自ファイルのため保持しました(テンプレート版が必要なら $f を退避してから再実行してください)"
       continue
     fi
-    cp "$TMP/$f" "$f"
+    # cp は既存の $f がシンボリックリンクだとリンク先に書き込んでしまう
+    # (悪意あるリポジトリが仕込んだリンク経由で無関係なファイルを破壊しうる)。
+    # mktemp + mv ならリンク自体が実体ファイルに置き換わり、リンク先は無傷で済む。
+    # ただしディレクトリへのリンクだと mv はリンク先の中へ移動してしまうため、
+    # リンクはリンク自体を除去し、実ディレクトリはスキップする
+    [ -L "$f" ] && rm -f -- "$f"
+    if [ -d "$f" ]; then
+      echo "警告: $f はディレクトリのため配置をスキップしました"
+      continue
+    fi
+    TMPF=$(mktemp "$f.XXXXXX")
+    cp "$TMP/$f" "$TMPF"
+    chmod 644 "$TMPF"
+    mv "$TMPF" "$f"
+    TMPF=""
     echo "OK: $f を配置しました"
     case "$f" in
       *.sh) chmod +x "$f" 2>/dev/null || true ;;

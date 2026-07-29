@@ -137,11 +137,30 @@ try {
     foreach ($f in @("claude-remote.ps1", "claude-remote.sh", "claude-update.ps1", "claude-update.sh", "doctor.ps1", "doctor.sh")) {
         $src = Join-Path $Tmp $f
         if (Test-Path $src) {
+            # ディレクトリは独自ファイル判定(Select-String)がエラーになるため先に
+            # 処理する。ディレクトリへのリンクはリンク自体を除去し、実ディレクトリは
+            # 警告してスキップする
+            $existing = Get-Item $f -Force -ErrorAction SilentlyContinue
+            if (Test-Path $f -PathType Container) {
+                if ($existing -and $existing.LinkType) {
+                    $existing.Delete()
+                } else {
+                    Write-Host "警告: $f はディレクトリのため配置をスキップしました"
+                    continue
+                }
+            }
             if ((Select-String -Path $src -Pattern $marker -Quiet) -and (Test-Path $f) -and -not (Select-String -Path $f -Pattern $marker -Quiet)) {
                 Write-Host "警告: $f は独自ファイルのため保持しました(テンプレート版が必要なら $f を退避してから再実行してください)"
                 continue
             }
-            Copy-Item $src $f -Force
+            # Copy-Item は既存の $f がシンボリックリンクだとリンク先に書き込んで
+            # しまうため、リンク自体を除去し、一時ファイル+Move-Item で置き換える
+            $existing = Get-Item $f -Force -ErrorAction SilentlyContinue
+            if ($existing -and $existing.LinkType) { $existing.Delete() }
+            $tmpf = "$f." + [System.IO.Path]::GetRandomFileName()
+            Copy-Item $src $tmpf
+            Move-Item $tmpf $f -Force
+            $tmpf = $null
             Write-Host "OK: $f を配置しました"
         } else {
             Write-Host "警告: 配布元に $f が見つかりません(コピーされませんでした)"
@@ -160,4 +179,5 @@ try {
 }
 finally {
     Remove-Item -Path $Tmp -Recurse -Force
+    if ($tmpf -and (Test-Path $tmpf)) { Remove-Item $tmpf -Force }
 }
