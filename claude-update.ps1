@@ -43,16 +43,21 @@ try {
         Write-Host "OK: agents/shared/ を更新しました"
     }
 
-    # agents/shared/ から AGENTS.md を生成(Codex CLI 用)
+    # agents/shared/ から AGENTS.md を生成(Codex CLI 用。自動生成マーカーの無い
+    # 既存 AGENTS.md はプロジェクト独自のファイルとみなして保持する)
     if (Test-Path "agents\shared") {
-        $agentsLines = @("# AGENTS.md", "",
-            "<!-- claude-ml-template により自動生成。編集は agents/shared/ で行い claude-update で再生成 -->", "")
-        Get-ChildItem -Path "agents\shared" -Filter "*.md" | ForEach-Object {
-            $agentsLines += (Get-Content $_.FullName -Encoding UTF8)
-            $agentsLines += ""
+        if ((Test-Path "AGENTS.md") -and -not (Select-String -Path "AGENTS.md" -Pattern "<!-- claude-ml-template" -Quiet)) {
+            Write-Host "警告: AGENTS.md は独自ファイルのため保持しました(自動生成版に切り替えるには AGENTS.md を退避してから再実行してください)"
+        } else {
+            $agentsLines = @("# AGENTS.md", "",
+                "<!-- claude-ml-template により自動生成。編集は agents/shared/ で行い claude-update で再生成 -->", "")
+            Get-ChildItem -Path "agents\shared" -Filter "*.md" | ForEach-Object {
+                $agentsLines += (Get-Content $_.FullName -Encoding UTF8)
+                $agentsLines += ""
+            }
+            $agentsLines -join "`n" | Out-File -FilePath "AGENTS.md" -Encoding utf8
+            Write-Host "OK: AGENTS.md を生成しました(Codex CLI 用)"
         }
-        $agentsLines -join "`n" | Out-File -FilePath "AGENTS.md" -Encoding utf8
-        Write-Host "OK: AGENTS.md を生成しました(Codex CLI 用)"
     }
 
     # スキルを .codex/skills/ にもコピー(Codex CLI 用。配布元にあるスキルディレクトリだけを
@@ -128,12 +133,20 @@ try {
         Write-Host "OK: .github/workflows/spec-gate.yml を配置しました"
     }
 
-    # 運用スクリプト(claude-remote.* / claude-update.* / doctor.*)を配布(常に上書き)
+    # 運用スクリプト(claude-remote.* / claude-update.* / doctor.*)を配布
+    # (テンプレート由来のファイルだけを上書きし、同名の独自ファイルは保持する。
+    # 配布元にマーカーが無いファイル(claude-remote.*)は識別できないため従来どおり
+    # 常に上書き。claude- 接頭辞のため独自ファイルとの衝突リスクは低い)
     # claude-update.ps1 は実行中の自分自身も上書きするが、PowerShell は実行前に
     # スクリプト全文を読み込むため直接上書きで問題ない
+    $marker = "takayoshitoyoda05/claude-ml-template"
     foreach ($f in @("claude-remote.ps1", "claude-remote.sh", "claude-update.ps1", "claude-update.sh", "doctor.ps1", "doctor.sh")) {
         $src = Join-Path $Tmp $f
         if (Test-Path $src) {
+            if ((Select-String -Path $src -Pattern $marker -Quiet) -and (Test-Path $f) -and -not (Select-String -Path $f -Pattern $marker -Quiet)) {
+                Write-Host "警告: $f は独自ファイルのため保持しました(テンプレート版が必要なら $f を退避してから再実行してください)"
+                continue
+            }
             Copy-Item $src $f -Force
             Write-Host "OK: $f を更新しました"
         } else {

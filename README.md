@@ -101,7 +101,9 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/clau
 `CLAUDE.md`(共通ルール)、フック設定の雛形 `.claude/settings.local.json` が作られ、
 Codex CLI 連携用に `agents/shared/` の配置・`AGENTS.md` の生成・`.codex/`
 (config.toml と skills のコピー)も行われる。運用スクリプト
-(`claude-remote.*` / `claude-update.*` / `doctor.*`)も配置される。`.gitignore` に
+(`claude-remote.*` / `claude-update.*` / `doctor.*`)も配置される
+(`claude-update.*` / `doctor.*` は同名の独自ファイルがあれば保持して警告する。
+自動生成マーカーの無い独自の `AGENTS.md` も保持される)。`.gitignore` に
 `.claude/checkpoints/` / `.claude/settings.local.json` / `**/.claude/spec/` / `/.worktrees/`
 が自動追加される。対話質問は無い(既存の `.claude` があるプロジェクトで再実行した
 場合のみ上書き確認が出る。確認は端末から受け付けるため `curl | bash` でも機能し、
@@ -173,6 +175,8 @@ chmod +x claude-update.sh && ./claude-update.sh
 `doctor.*`)。実行中の claude-update 自身も最新版に置き換わる。`.claude/plans/`(実行履歴)と
 プロジェクト固有の `CLAUDE.md` は
 保持され、`agents/shared/` や `.codex/skills/` にユーザーが独自に置いたファイルも残る。
+`claude-update.*` / `doctor.*` と同名の独自ファイル、自動生成マーカーの無い独自の
+`AGENTS.md` も上書きされない(保持して警告する)。
 テンプレートとの差分だけ先に確認したい場合は `doctor` を使う(4.5節)。
 運用の全体像(テンプレート改善→push→各プロジェクトで反映)は4節を参照。
 

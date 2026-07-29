@@ -53,18 +53,23 @@ if [ -d "$SHARED_SRC" ]; then
   echo "OK: agents/shared/ を配置しました"
 fi
 
-# agents/shared/ から AGENTS.md を生成(Codex CLI 用)
+# agents/shared/ から AGENTS.md を生成(Codex CLI 用。自動生成マーカーの無い
+# 既存 AGENTS.md はプロジェクト独自のファイルとみなして保持する)
 if [ -d "agents/shared" ]; then
-  {
-    echo "# AGENTS.md"
-    echo ""
-    echo "<!-- claude-ml-template により自動生成。編集は agents/shared/ で行い claude-update で再生成 -->"
-    echo ""
-    for f in agents/shared/*.md; do
-      [ -f "$f" ] && cat "$f" && echo ""
-    done
-  } > AGENTS.md
-  echo "OK: AGENTS.md を生成しました(Codex CLI 用)"
+  if [ -f AGENTS.md ] && ! grep -q '<!-- claude-ml-template' AGENTS.md; then
+    echo "警告: AGENTS.md は独自ファイルのため保持しました(自動生成版に切り替えるには AGENTS.md を退避してから再実行してください)"
+  else
+    {
+      echo "# AGENTS.md"
+      echo ""
+      echo "<!-- claude-ml-template により自動生成。編集は agents/shared/ で行い claude-update で再生成 -->"
+      echo ""
+      for f in agents/shared/*.md; do
+        [ -f "$f" ] && cat "$f" && echo ""
+      done
+    } > AGENTS.md
+    echo "OK: AGENTS.md を生成しました(Codex CLI 用)"
+  fi
 fi
 
 # スキルを .codex/skills/ にもコピー(Codex CLI 用。配布元にあるスキルディレクトリだけを
@@ -134,9 +139,17 @@ else
   echo "OK: .github/workflows/spec-gate.yml を配置しました"
 fi
 
-# 運用スクリプト(claude-remote.* / claude-update.* / doctor.*)を配置(常に上書き)
+# 運用スクリプト(claude-remote.* / claude-update.* / doctor.*)を配置
+# (テンプレート由来のファイルだけを上書きし、同名の独自ファイルは保持する。
+# 配布元にマーカーが無いファイル(claude-remote.*)は識別できないため従来どおり
+# 常に上書き。claude- 接頭辞のため独自ファイルとの衝突リスクは低い)
+MARKER="takayoshitoyoda05/claude-ml-template"
 for f in claude-remote.ps1 claude-remote.sh claude-update.ps1 claude-update.sh doctor.ps1 doctor.sh; do
   if [ -f "$TMP/$f" ]; then
+    if grep -q "$MARKER" "$TMP/$f" && [ -f "$f" ] && ! grep -q "$MARKER" "$f"; then
+      echo "警告: $f は独自ファイルのため保持しました(テンプレート版が必要なら $f を退避してから再実行してください)"
+      continue
+    fi
     cp "$TMP/$f" "$f"
     echo "OK: $f を配置しました"
     case "$f" in
