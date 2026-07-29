@@ -19,3 +19,8 @@ jobs:
         run: |
           chmod +x verify-hooks.sh
           ./verify-hooks.sh
+
+      - name: Run installer verification
+        run: |
+          chmod +x verify-installers.sh
+          ./verify-installers.sh
