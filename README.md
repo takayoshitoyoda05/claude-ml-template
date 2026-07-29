@@ -100,7 +100,8 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/clau
 `.claude/`(agents / commands / skills / hooks / output-styles / rules / settings.json)と
 `CLAUDE.md`(共通ルール)、フック設定の雛形 `.claude/settings.local.json` が作られ、
 Codex CLI 連携用に `agents/shared/` の配置・`AGENTS.md` の生成・`.codex/`
-(config.toml と skills のコピー)も行われる。`.gitignore` に
+(config.toml と skills のコピー)も行われる。運用スクリプト
+(`claude-remote.*` / `claude-update.*` / `doctor.*`)も配置される。`.gitignore` に
 `.claude/checkpoints/` / `.claude/settings.local.json` / `**/.claude/spec/` / `/.worktrees/`
 が自動追加される。対話質問は無い(既存の `.claude` があるプロジェクトで再実行した
 場合のみ上書き確認が出る。確認は端末から受け付けるため `curl | bash` でも機能し、
@@ -142,7 +143,19 @@ CI 等の非対話環境では上書きせず安全に中止する)。
 
 ### 更新(2回目以降・テンプレート側の改善を反映)
 
-テンプレートリポジトリが更新されたら、各プロジェクトのルートで実行する。
+claude-update は claude-init が配布するので、テンプレートリポジトリが更新されたら
+各プロジェクトのルートで実行するだけでよい。
+
+```powershell
+.\claude-update.ps1
+```
+
+```bash
+./claude-update.sh
+```
+
+手元に claude-update が無い場合(claude-update の配布が入る前の claude-init で
+導入したプロジェクト)は、ダウンロードしてから実行する。
 
 ```powershell
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-update.ps1" -OutFile "claude-update.ps1"
@@ -154,9 +167,11 @@ curl -sO https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/
 chmod +x claude-update.sh && ./claude-update.sh
 ```
 
-更新されるのは `agents` / `commands` / `hooks` / `skills` / `output-styles` / `rules` /
+主な更新対象は `agents` / `commands` / `hooks` / `skills` / `output-styles` / `rules` /
 `settings.json` と、Codex CLI 連携分(`agents/shared/` の配布ファイル・`AGENTS.md` の再生成・
-`.codex/skills/` のコピー)。`.claude/plans/`(実行履歴)とプロジェクト固有の `CLAUDE.md` は
+`.codex/skills/` のコピー)、運用スクリプト(`claude-remote.*` / `claude-update.*` /
+`doctor.*`)。実行中の claude-update 自身も最新版に置き換わる。`.claude/plans/`(実行履歴)と
+プロジェクト固有の `CLAUDE.md` は
 保持され、`agents/shared/` や `.codex/skills/` にユーザーが独自に置いたファイルも残る。
 テンプレートとの差分だけ先に確認したい場合は `doctor` を使う(4.5節)。
 運用の全体像(テンプレート改善→push→各プロジェクトで反映)は4節を参照。
@@ -1276,7 +1291,8 @@ M(単一モジュール)は planner 省略の短縮経路、L はフルパイプ
 
 ### doctor(テンプレートとの差分確認)
 
-プロジェクト側がテンプレートの最新版からどれだけ差分があるか確認する。
+プロジェクト側がテンプレートの最新版からどれだけ差分があるか確認する
+(doctor は claude-init / claude-update が配布する)。
 
 ```
 .\doctor.ps1        # PowerShell
