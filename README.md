@@ -886,6 +886,10 @@ claude-update 実行時に AGENTS.md が自動生成され、.codex/skills/ に�
 | python-style.md | `**/*.py` | 型ヒント・docstring・コメント規約 |
 | minimal-diff.md | (全ファイル) | 修正対象以外を書き換えない |
 | secret-safety.md | (全ファイル) | 秘密情報をコード・コマンドに書かない |
+| consistency.md | (全ファイル) | 記述と実装の整合・対になるファイル(sh/ps1 等)の整合を検証コマンド付きで確認する |
+| search-hygiene.md | (全ファイル) | リポジトリ横断検索で大容量の未追跡ディレクトリ(checkpoints/logs 等)を除外し、rg を優先する |
+
+このほか taste.md(美しさの個人辞書)も rules/ に置かれる(3.14節)。
 
 ### 3.9 自己改善(retrospective + improvement-reviewer)
 
@@ -1291,6 +1295,13 @@ M(単一モジュール)は planner 省略の短縮経路、L はフルパイプ
 ./verify-hooks.sh         # bash
 ```
 
+インストーラ(claude-init / claude-update)の配布ロジックを変更した場合は、
+保護動作(独自ファイル保持・上書き・symlink 対策)の回帰テストも実行する。
+
+```
+./verify-installers.sh    # bash のみ(ps1 側は Windows での実機確認)
+```
+
 ## 4.5 その他のツール
 
 ### doctor(テンプレートとの差分確認)
@@ -1306,7 +1317,7 @@ M(単一モジュール)は planner 省略の短縮経路、L はフルパイプ
 差分があれば claude-update の実行を検討する。
 
 ### CI
-push / PR のたびに GitHub Actions で verify-hooks が自動実行される。
+push / PR のたびに GitHub Actions で verify-hooks と verify-installers が自動実行される。
 フックを変更したらローカルでも `.\verify-hooks.ps1` で確認してからpushする。
 
 ## 4.6 実プロジェクトでの初回実走(スモークテスト推奨)
@@ -1396,6 +1407,8 @@ claude-ml-template/
       plan-reviewer.md              Sonnet / 計画の自動承認判定(CLAUDE_AUTO_APPROVE=1 時)
       improvement-reviewer.md       Opus / retrospectiveの改善案を不変条件に照らして審査・適用
       final-gate.md                 Fable / 最終形を俯瞰しマージ承認の三択判断のみ(第3層)
+      router.md                     Haiku / タスク規模(S/M/L)を判定する軽量ルータ(手順0)
+      scout-*.md(7体)             Haiku / リファクタ偵察係(命名/重複/複雑度/コメント/対称性/docstring/デッドコード。提案のみ)
     commands/
       ml-pipeline.md                エージェントを繋ぐフロー制御
     skills/
@@ -1423,21 +1436,34 @@ claude-ml-template/
       literature-review/            構造化された文献調査
       paper-writing/                論文の品質チェック(構造・引用実在確認・査読対応・推敲)
       multi-seed/                   worktree並列で複数seedを自動実行・自動集計(自動キュー化)
+      spec-checklist/               設計書・計画の品質検査(完全性・明確性 等5次元。手順3.3で自動実行)
+      branch-naming/                ブランチ命名規則の探索・決定(手順1.5で自動使用)
+      refactor-scout/               スカウト隊の単独実行(レンズ選択可・提案から選んで適用)
     rules/
       python-style.md               .py 編集時に自動適用されるPython規約
       minimal-diff.md               全ファイル編集時に自動適用される最小diff規律
       secret-safety.md              全ファイル編集時に自動適用される秘密情報の扱い
+      consistency.md                記述と実装・対になるファイル(sh/ps1)の整合確認
+      search-hygiene.md             横断検索の衛生(大容量ディレクトリ除外・rg優先)
       taste.md                      美しさの個人辞書(ユーザーの好みの実例を蓄積)
     improvements/
       invariants.md                 improvement-reviewer が改善案を却下する基準
       feedback.md                   差し戻し・却下の記録(運用中に自動で溜まる。.gitignore対象)
+      patterns.md                   retrospective が生成する改善案(運用中に生成)
+      applied.md                    improvement-reviewer の適用結果の記録
     output-styles/
       fable-like.md                 Fable 5行動様式のoutput style(メインセッション用)
     hooks/
       _common.py                    guard系で共有する検知パターン・保護パス定義
+      _logutil.py                   ログ系フック共通のローテーション処理
+      _mask.py                      ログ書き込み前の秘密情報マスキング
       guard_scope.py                スコープ外・秘密情報・フック自己書き換えのブロック
       guard_bash.py                 危険コマンド・git add・リダイレクト/tee のガード
       auto_format.py                ruff format 自動実行
+      action_log.py                 全ツール実行の JSONL 自動記録(logs/actions/)
+      agent_log.py                  サブエージェント委譲チェーンの記録(logs/agents/)
+      plan_gate.py                  Stop: 計画のリソース超過・goal未定義をブロック
+      report_gen.py                 完全レポートの evidence/ 機械集約(手順8.5で手動実行)
       enforce_eval.py               評価コマンド実行強制(状態不変ならスキップ)
       spec_gate.py                  Stop: 設計書の受け入れ条件を機械検査(--ci でCIモード)
       spec_approve.py               manual要件の承認・設計書ハッシュの計画承認記録(ユーザーの`!`実行専用。エージェント経由の実行はguard_bashがブロック)
@@ -1448,12 +1474,14 @@ claude-ml-template/
       reinject_after_compact.py     圧縮後の再注入
     settings.json                   フックの配線・許可コマンド・エージェントチーム設定
   .github/workflows/
-    verify-hooks.yml                CI: push/PR時のフック自動テスト
-    spec-gate.yml                   CI: push/PR時にspec_gate.py --ciを実行(init/updateが配置)
+    verify-hooks.yml                CI: push/PR時のフック・インストーラ自動テスト
+    (spec-gate.yml)                 下流プロジェクト用のCI。本リポジトリには無く、init/update が
+                                    templates/spec-gate.yml.template から各プロジェクトに配置する
   templates/
     CLAUDE.md.template              プロジェクト共通ルールの雛形
     ADR.md.template                 ADR の雛形
     CONTEXT.md.template             ドメイン用語集の雛形
+    design-doc.md.template          設計書の雛形(受け入れ条件テーブル付き。2.4節)
     settings.local.json.template    フック用環境変数の雛形(init/update が展開)
     spec-gate.yml.template          spec-gate CIワークフローの雛形(init/update が配置)
     codex-config.toml.template      Codex CLI のモデル固定用(init/update が .codex/ に配置)
@@ -1463,6 +1491,8 @@ claude-ml-template/
     env_fingerprint.py             実行環境(Python版数/git commit/uv.lock ハッシュ/torch・CUDA版数)をJSONで標準出力へ
   tests/
     test_env_fingerprint.py        env_fingerprint.py の受け入れ回帰テスト
+    test_plan_gate.py              plan_gate.py の回帰テスト
+    test_security_fixes.py         ガード系の脆弱性修正の回帰テスト
   agents/shared/                    Claude Code と Codex CLI で共有する規約(AGENTS.md の生成元)
     coding-rules.md                 コメント規約・最小diff・Python規約
     secret-safety.md                秘密情報の安全な取り扱い
@@ -1471,6 +1501,8 @@ claude-ml-template/
   claude-update.ps1 / .sh           更新(agents/commands/hooks/skills/output-styles/rules/settings.json
                                     に加え agents/shared/ の配置、AGENTS.md 生成、.codex/ への連携)
   verify-hooks.ps1 / .sh            フックの自動テスト
+  verify-installers.sh              インストーラ(init/update)の保護動作の回帰テスト(bash のみ。
+                                    ps1 側の実機確認は Windows で行う)
   doctor.ps1 / .sh                  テンプレートとの差分確認
   claude-remote.ps1 / .sh           リモート運用(Remote Control)の起動
   CHANGELOG.md                      変更履歴
