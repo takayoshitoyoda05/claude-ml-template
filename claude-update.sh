@@ -16,7 +16,8 @@ if [ ! -d ".claude" ]; then
 fi
 
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+TMPF=""
+trap 'rm -rf "$TMP"; [ -n "$TMPF" ] && rm -f "$TMPF"' EXIT
 echo "最新テンプレートを取得中..."
 git clone --depth 1 --quiet "$TEMPLATE_REPO" "$TMP"
 
@@ -124,14 +125,23 @@ else
   echo "OK: .github/workflows/spec-gate.yml を配置しました"
 fi
 
-# リモート運用の起動スクリプト(claude-remote.*)を配布(常に上書き)
-for f in claude-remote.ps1 claude-remote.sh; do
+# 運用スクリプト(claude-remote.* / claude-update.* / doctor.*)を配布(常に上書き)
+# claude-update.sh は実行中の自分自身も更新対象になる。bash はスクリプトを
+# 逐次読みするため cp で同じ inode に直接書くと実行中の本体が壊れる。
+# 一時ファイルに書いてから mv で差し替えれば、実行中の bash は旧 inode を
+# 読み続けるので安全
+for f in claude-remote.ps1 claude-remote.sh claude-update.ps1 claude-update.sh doctor.ps1 doctor.sh; do
   if [ -f "$TMP/$f" ]; then
-    cp "$TMP/$f" "$f"
+    # 固定名だと同名のユーザーファイルやシンボリックリンクを壊すため mktemp で一意にする
+    TMPF=$(mktemp "$f.XXXXXX")
+    cp "$TMP/$f" "$TMPF"
+    chmod 644 "$TMPF"
+    mv "$TMPF" "$f"
+    TMPF=""
     echo "OK: $f を更新しました"
-    if [ "$f" = "claude-remote.sh" ]; then
-      chmod +x "$f" 2>/dev/null || true
-    fi
+    case "$f" in
+      *.sh) chmod +x "$f" 2>/dev/null || true ;;
+    esac
   else
     echo "警告: 配布元に $f が見つかりません(コピーされませんでした)"
   fi

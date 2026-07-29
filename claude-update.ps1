@@ -128,8 +128,10 @@ try {
         Write-Host "OK: .github/workflows/spec-gate.yml を配置しました"
     }
 
-    # リモート運用の起動スクリプト(claude-remote.*)を配布(常に上書き)
-    foreach ($f in @("claude-remote.ps1", "claude-remote.sh")) {
+    # 運用スクリプト(claude-remote.* / claude-update.* / doctor.*)を配布(常に上書き)
+    # claude-update.ps1 は実行中の自分自身も上書きするが、PowerShell は実行前に
+    # スクリプト全文を読み込むため直接上書きで問題ない
+    foreach ($f in @("claude-remote.ps1", "claude-remote.sh", "claude-update.ps1", "claude-update.sh", "doctor.ps1", "doctor.sh")) {
         $src = Join-Path $Tmp $f
         if (Test-Path $src) {
             Copy-Item $src $f -Force
