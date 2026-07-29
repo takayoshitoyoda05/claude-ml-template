@@ -145,6 +145,13 @@ for f in claude-remote.ps1 claude-remote.sh claude-update.ps1 claude-update.sh d
       echo "警告: $f は独自ファイルのため保持しました(テンプレート版が必要なら $f を退避してから再実行してください)"
       continue
     fi
+    # ディレクトリへのリンクだと mv がリンク先の中へ移動してしまうため、
+    # リンクはリンク自体を除去し、実ディレクトリはスキップする
+    [ -L "$f" ] && rm -f -- "$f"
+    if [ -d "$f" ]; then
+      echo "警告: $f はディレクトリのため更新をスキップしました"
+      continue
+    fi
     # 固定名だと同名のユーザーファイルやシンボリックリンクを壊すため mktemp で一意にする
     TMPF=$(mktemp "$f.XXXXXX")
     cp "$TMP/$f" "$TMPF"
