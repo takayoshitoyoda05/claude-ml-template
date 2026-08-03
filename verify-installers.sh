@@ -46,12 +46,13 @@ place_installers() {
   done
 }
 
+# 新しいサンドボックスを作り、パスを $SB に入れる。コマンド置換
+# (d=$(make_sandbox))だとサブシェル実行になり SANDBOXES の更新が親に
+# 反映されず cleanup が空振りするため、グローバル変数で返す
 make_sandbox() {
-  local d
-  d=$(mktemp -d /tmp/verify-installers.XXXXXX)
-  SANDBOXES="$SANDBOXES $d"
-  place_installers "$d"
-  echo "$d"
+  SB=$(mktemp -d /tmp/verify-installers.XXXXXX)
+  SANDBOXES="$SANDBOXES $SB"
+  place_installers "$SB"
 }
 
 MARKER="takayoshitoyoda05/claude-ml-template"
@@ -59,7 +60,7 @@ MARKER="takayoshitoyoda05/claude-ml-template"
 # ============================================================
 # claude-init.sh: 新規導入(フル展開)
 # ============================================================
-A=$(make_sandbox)
+make_sandbox; A=$SB
 (cd "$A" && bash claude-init.sh >init.log 2>&1)
 assert "init: 新規導入が exit 0 で完了" test "$?" -eq 0
 assert "init: .claude/agents が展開される" test -f "$A/.claude/agents/planner.md"
@@ -95,7 +96,7 @@ fi
 # ============================================================
 # claude-init.sh: 独自ファイルの保持
 # ============================================================
-B=$(make_sandbox)
+make_sandbox; B=$SB
 echo "CUSTOM_DOCTOR" > "$B/doctor.sh"
 echo "# my own agents doc" > "$B/AGENTS.md"
 echo "MY_CLAUDE_MD" > "$B/CLAUDE.md"
@@ -104,6 +105,7 @@ echo "MY_TEMPLATE" > "$B/templates/ADR.md.template"
 echo "MY_CI" > "$B/.github/workflows/spec-gate.yml"
 printf '# 旧テンプレート版 %s\nOLD_VERSION\n' "$MARKER" > "$B/claude-update.ps1"
 (cd "$B" && bash claude-init.sh >init.log 2>&1)
+assert "init(保持): 導入が exit 0 で完了" test "$?" -eq 0
 assert "init(保持): 独自 doctor.sh(マーカー無し)が保持される" grep -q "CUSTOM_DOCTOR" "$B/doctor.sh"
 assert "init(保持): doctor.sh 保持の警告が出る" grep -q "doctor.sh は独自ファイルのため保持しました" "$B/init.log"
 assert "init(保持): 独自 AGENTS.md(マーカー無し)が保持される" grep -q "my own agents doc" "$B/AGENTS.md"
@@ -116,7 +118,7 @@ assert "init(上書き): 上書き後もテンプレート版マーカーを含�
 # ============================================================
 # claude-init.sh: symlink 対策
 # ============================================================
-C=$(make_sandbox)
+make_sandbox; C=$SB
 # リンク先にマーカーを持たせる(マーカー無しだと「独自ファイル保持」の判定が
 # 先に効いてリンクごと保持されるため、置換経路のテストにならない)
 printf '# %s\nVICTIM\n' "$MARKER" > "$C/victim.txt"
@@ -125,6 +127,7 @@ mkdir -p "$C/target_dir"
 ln -s target_dir "$C/doctor.ps1"
 mkdir -p "$C/claude-remote.sh"
 (cd "$C" && bash claude-init.sh >init.log 2>&1)
+assert "init(symlink): 導入が exit 0 で完了" test "$?" -eq 0
 assert "init(symlink): ファイルへのリンクは実体ファイルに置き換わる" test -f "$C/doctor.sh" -a ! -L "$C/doctor.sh"
 assert "init(symlink): リンク先のファイルは無傷" grep -q "VICTIM" "$C/victim.txt"
 assert "init(symlink): ディレクトリへのリンクも除去して実体ファイルを配置" test -f "$C/doctor.ps1" -a ! -L "$C/doctor.ps1"
@@ -135,7 +138,7 @@ assert "init(symlink): ディレクトリスキップの警告が出る" grep -q
 # ============================================================
 # claude-update.sh: 前提チェックと更新・保持
 # ============================================================
-E=$(make_sandbox)
+make_sandbox; E=$SB
 (cd "$E" && bash claude-update.sh >update.log 2>&1)
 rc=$?
 if [ "$rc" -eq 1 ] && grep -q "claude-init.sh で初回展開" "$E/update.log"; then
@@ -144,8 +147,9 @@ else
   ng "update: .claude が無ければ中止する (exit $rc)"
 fi
 
-D=$(make_sandbox)
+make_sandbox; D=$SB
 (cd "$D" && bash claude-init.sh >init.log 2>&1)
+assert "update前提: init が exit 0 で完了" test "$?" -eq 0
 # init が claude-update.sh をテンプレート版(GitHub参照)で上書きするため、
 # テスト用のローカル参照版を再配置してから update を検査する
 place_installers "$D"
@@ -179,6 +183,7 @@ assert "update(自己更新): 実行中の claude-update.sh がテンプレー�
 # .gitignore の冪等性: 2回目の update で重複追加されない
 place_installers "$D"
 (cd "$D" && bash claude-update.sh >update2.log 2>&1)
+assert "update: 2回目の更新も exit 0 で完了" test "$?" -eq 0
 n=$(grep -cF ".claude/checkpoints/" "$D/.gitignore")
 if [ "$n" -eq 1 ]; then
   ok "update: .gitignore への追加は冪等(重複しない)"
@@ -189,8 +194,9 @@ fi
 # ============================================================
 # claude-update.sh: symlink 対策
 # ============================================================
-F=$(make_sandbox)
+make_sandbox; F=$SB
 (cd "$F" && bash claude-init.sh >init.log 2>&1)
+assert "update(symlink)前提: init が exit 0 で完了" test "$?" -eq 0
 place_installers "$F"
 printf '# %s\nVICTIM\n' "$MARKER" > "$F/victim.txt"
 rm -f "$F/claude-remote.sh"
@@ -201,6 +207,7 @@ ln -s target_dir "$F/claude-remote.ps1"
 rm -f "$F/doctor.ps1"
 mkdir -p "$F/doctor.ps1"
 (cd "$F" && bash claude-update.sh >update.log 2>&1)
+assert "update(symlink): 更新が exit 0 で完了" test "$?" -eq 0
 assert "update(symlink): ファイルへのリンクは実体ファイルに置き換わる" test -f "$F/claude-remote.sh" -a ! -L "$F/claude-remote.sh"
 assert "update(symlink): リンク先のファイルは無傷" grep -q "VICTIM" "$F/victim.txt"
 assert "update(symlink): ディレクトリへのリンクも除去して実体ファイルを配置" test -f "$F/claude-remote.ps1" -a ! -L "$F/claude-remote.ps1"
