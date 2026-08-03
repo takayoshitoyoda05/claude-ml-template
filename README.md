@@ -1258,7 +1258,9 @@ docs/reports/ はローカル成果物(git 管理外。リポジトリには含�
 | HITL 必須操作 | 実行前承認 | 30分超の学習・データ削除・invariants 変更・外部公開は、どのレベルでも実行内容/コスト/不可逆性の3点提示つきで承認を取る |
 | CLAUDE_CONTROL_LEVEL | 一括切替 | L1/L2/L3 で自律度を1つの値で制御 |
 
-注: プロジェクトのデータディレクトリ名が data/ 以外の場合(例: datasets/)、claude-init 時に settings.local.json の permissions.deny に追加できる。
+注: プロジェクトのデータディレクトリ名が data/ 以外の場合(例: datasets/)、claude-init 後に
+`.claude/settings.local.json` の permissions.deny へ手動で追加する(インストーラは permissions を
+扱わない。config-set スキルに下書きを作らせて手動保存するとよい)。
 
 #### 自律度レベル
 
