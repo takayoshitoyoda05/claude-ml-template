@@ -95,13 +95,24 @@ if [ ! -f ".codex/config.toml" ] && [ -f "$CODEX_TEMPLATE" ]; then
   echo "OK: .codex/config.toml を生成しました"
 fi
 
-# .gitignore に除外エントリを追加(冪等)
-for IGNORE_ENTRY in ".claude/checkpoints/" ".claude/settings.local.json" "**/.claude/spec/" "/.worktrees/"; do
+# .gitignore に除外エントリを追加(冪等。既存の .gitignore は上書きせず追記のみ)
+IGNORE_ENTRIES=(".claude/checkpoints/" ".claude/settings.local.json" "**/.claude/spec/" "/.worktrees/")
+# CLAUDE_TEMPLATE_GITIGNORE_ALL=1 なら、テンプレートが配布・生成する一式を
+# 導入先の git 管理外にする(テンプレートのファイルをリポジトリに載せたくない場合)
+if [ "${CLAUDE_TEMPLATE_GITIGNORE_ALL:-0}" = "1" ]; then
+  IGNORE_ENTRIES+=(".claude/" ".codex/" "agents/shared/" "templates/*.template"
+    "AGENTS.md" "CLAUDE.md" ".github/workflows/spec-gate.yml"
+    "claude-update.sh" "claude-update.ps1" "claude-remote.sh" "claude-remote.ps1"
+    "doctor.sh" "doctor.ps1")
+fi
+for IGNORE_ENTRY in "${IGNORE_ENTRIES[@]}"; do
   if [ ! -f ".gitignore" ]; then
     echo "$IGNORE_ENTRY" > .gitignore
     echo "OK: .gitignore を作成しました($IGNORE_ENTRY)"
   else
-    if ! grep -qF "$IGNORE_ENTRY" .gitignore; then
+    # 行全体の一致で判定する(部分一致だと .claude/checkpoints/ の存在だけで
+    # .claude/ が「既にある」と誤判定されて追記されない)
+    if ! grep -qxF "$IGNORE_ENTRY" .gitignore; then
       printf "\n%s\n" "$IGNORE_ENTRY" >> .gitignore
       echo "OK: .gitignore に $IGNORE_ENTRY を追加しました"
     else

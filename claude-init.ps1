@@ -86,15 +86,26 @@ try {
         Copy-Item $codexTemplate $codexConfig
         Write-Host "OK: .codex/config.toml を生成しました"
     }
-    # .gitignore に除外エントリを追加(冪等)
+    # .gitignore に除外エントリを追加(冪等。既存の .gitignore は上書きせず追記のみ)
     $gitignorePath = ".gitignore"
-    foreach ($ignoreEntry in @(".claude/checkpoints/", ".claude/settings.local.json", "**/.claude/spec/", "/.worktrees/")) {
+    $ignoreEntries = @(".claude/checkpoints/", ".claude/settings.local.json", "**/.claude/spec/", "/.worktrees/")
+    # CLAUDE_TEMPLATE_GITIGNORE_ALL=1 なら、テンプレートが配布・生成する一式を
+    # 導入先の git 管理外にする(テンプレートのファイルをリポジトリに載せたくない場合)
+    if ($env:CLAUDE_TEMPLATE_GITIGNORE_ALL -eq "1") {
+        $ignoreEntries += @(".claude/", ".codex/", "agents/shared/", "templates/*.template",
+            "AGENTS.md", "CLAUDE.md", ".github/workflows/spec-gate.yml",
+            "claude-update.sh", "claude-update.ps1", "claude-remote.sh", "claude-remote.ps1",
+            "doctor.sh", "doctor.ps1")
+    }
+    foreach ($ignoreEntry in $ignoreEntries) {
         if (-not (Test-Path $gitignorePath)) {
             $ignoreEntry | Out-File -FilePath $gitignorePath -Encoding utf8
             Write-Host "OK: .gitignore を作成しました($ignoreEntry)"
         } else {
             $existing = Get-Content $gitignorePath -Raw -ErrorAction SilentlyContinue
-            if ($existing -notmatch [regex]::Escape($ignoreEntry)) {
+            # 行全体の一致で判定する(部分一致だと .claude/checkpoints/ の存在だけで
+            # .claude/ が「既にある」と誤判定されて追記されない)
+            if ($existing -notmatch ("(?m)^" + [regex]::Escape($ignoreEntry) + "\r?$")) {
                 Add-Content $gitignorePath "`n$ignoreEntry"
                 Write-Host "OK: .gitignore に $ignoreEntry を追加しました"
             } else {

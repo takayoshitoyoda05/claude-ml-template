@@ -107,7 +107,12 @@ Codex CLI 連携用に `agents/shared/` の配置・`AGENTS.md` の生成・`.co
 (`claude-update` / `doctor` は同名の独自ファイルがあれば保持して警告する。
 自動生成マーカーの無い独自の `AGENTS.md` も保持される)。`.gitignore` に
 `.claude/checkpoints/` / `.claude/settings.local.json` / `**/.claude/spec/` / `/.worktrees/`
-が自動追加される。対話質問は無い(既存の `.claude` があるプロジェクトで再実行した
+が自動追加される。テンプレートの配布物一式を導入先の git に載せたくない場合は
+`CLAUDE_TEMPLATE_GITIGNORE_ALL=1` を付けて実行する(`.claude/` / `.codex/` /
+`agents/shared/` / `templates/*.template` / `AGENTS.md` / `CLAUDE.md` /
+運用スクリプト / `spec-gate.yml` を `.gitignore` にまとめて追記する。
+既存の `.gitignore` は上書きせず追記のみ・冪等で、claude-update も同じフラグを
+受け付ける)。対話質問は無い(既存の `.claude` があるプロジェクトで再実行した
 場合のみ上書き確認が出る。確認は端末から受け付けるため `curl | bash` でも機能し、
 CI 等の非対話環境では上書きせず安全に中止する)。
 

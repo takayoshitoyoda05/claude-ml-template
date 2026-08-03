@@ -82,6 +82,7 @@ done
 for e in ".claude/checkpoints/" ".claude/settings.local.json" "**/.claude/spec/" "/.worktrees/"; do
   assert "init: .gitignore に $e が追加される" grep -qF "$e" "$A/.gitignore"
 done
+assert_not "init: 既定では包括除外(.claude/)は追記されない" grep -qxF ".claude/" "$A/.gitignore"
 
 # 再実行(非対話): 端末が無ければ上書きせず中止する
 if command -v setsid >/dev/null 2>&1; then
@@ -142,6 +143,40 @@ assert "init(symlink): ディレクトリへのリンクも除去して実体フ
 assert "init(symlink): リンク先ディレクトリの中に書き込まれない" test ! -e "$C/target_dir/claude-update.sh"
 assert "init(symlink): 実ディレクトリはスキップして保持" test -d "$C/claude-remote.sh"
 assert "init(symlink): ディレクトリスキップの警告が出る" grep -q "claude-remote.sh はディレクトリのため" "$C/init.log"
+
+# ============================================================
+# CLAUDE_TEMPLATE_GITIGNORE_ALL=1: テンプレート一式を導入先の git 管理外にする
+# (既存 .gitignore は上書きせず追記のみ・冪等)
+# ============================================================
+make_sandbox; H=$SB
+printf 'MY_IGNORE\n.claude/checkpoints/\n' > "$H/.gitignore"
+(cd "$H" && CLAUDE_TEMPLATE_GITIGNORE_ALL=1 bash claude-init.sh >init.log 2>&1)
+assert "init(ignore-all): 導入が exit 0 で完了" test "$?" -eq 0
+assert "init(ignore-all): 既存 .gitignore の内容は保持される(追記のみ)" grep -qxF "MY_IGNORE" "$H/.gitignore"
+for e in ".claude/" ".codex/" "agents/shared/" "templates/*.template" "AGENTS.md" "CLAUDE.md" \
+         ".github/workflows/spec-gate.yml" "claude-update.sh" "doctor.ps1"; do
+  assert "init(ignore-all): $e が .gitignore に追記される" grep -qxF "$e" "$H/.gitignore"
+done
+n=$(grep -cxF ".claude/checkpoints/" "$H/.gitignore")
+if [ "$n" -eq 1 ]; then
+  ok "init(ignore-all): 既存エントリは重複追加されない"
+else
+  ng "init(ignore-all): 既存エントリは重複追加されない(.claude/checkpoints/ が ${n}件)"
+fi
+# git が実際に無視するかを check-ignore で確認する
+git -C "$H" init -q
+assert "init(ignore-all): git が .claude/settings.json を無視する" git -C "$H" check-ignore -q .claude/settings.json
+assert "init(ignore-all): git が CLAUDE.md を無視する" git -C "$H" check-ignore -q CLAUDE.md
+# update も同じ集合を冪等に維持する
+place_installers "$H"
+(cd "$H" && CLAUDE_TEMPLATE_GITIGNORE_ALL=1 bash claude-update.sh >update.log 2>&1)
+assert "update(ignore-all): 更新が exit 0 で完了" test "$?" -eq 0
+n=$(grep -cxF ".claude/" "$H/.gitignore")
+if [ "$n" -eq 1 ]; then
+  ok "update(ignore-all): 包括除外エントリの追記は冪等(重複しない)"
+else
+  ng "update(ignore-all): 包括除外エントリの追記は冪等(.claude/ が ${n}件)"
+fi
 
 # ============================================================
 # claude-update.sh: 前提チェックと更新・保持

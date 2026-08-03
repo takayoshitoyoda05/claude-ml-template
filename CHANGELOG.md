@@ -100,6 +100,15 @@
   `$CLAUDE_PROJECT_DIR` 基準の絶対パスに変更(サブディレクトリを cwd とする
   実行でもフックが確実に解決される)
 
+### Added(2026-08-03)
+- **配布物の git 除外オプション**: `CLAUDE_TEMPLATE_GITIGNORE_ALL=1` を付けて
+  claude-init/update を実行すると、テンプレートが配布・生成する一式(`.claude/` /
+  `.codex/` / `agents/shared/` / `templates/*.template` / `AGENTS.md` / `CLAUDE.md` /
+  運用スクリプト / `spec-gate.yml`)を導入先の `.gitignore` に追記する。
+  既存の `.gitignore` は上書きせず追記のみ・冪等。あわせて既存判定を行全体一致に
+  修正(部分一致だと `.claude/checkpoints/` の存在で `.claude/` の追記が
+  スキップされる)
+
 ### Changed(2026-08-03)
 - **運用スクリプトの配布をプラットフォーム別に**: claude-init/update は実行した
   インストーラと同じ形式の運用スクリプトだけを配置する(sh 版インストーラは
