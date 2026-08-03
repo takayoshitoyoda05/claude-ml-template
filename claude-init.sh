@@ -140,12 +140,14 @@ else
   echo "OK: .github/workflows/spec-gate.yml を配置しました"
 fi
 
-# 運用スクリプト(claude-remote.* / claude-update.* / doctor.*)を配置
-# (テンプレート由来のファイルだけを上書きし、同名の独自ファイルは保持する。
-# 配布元にマーカーが無いファイル(claude-remote.*)は識別できないため従来どおり
+# 運用スクリプト(claude-remote.sh / claude-update.sh / doctor.sh)を配置
+# (この環境で使う sh 版のみ。Windows(PowerShell)へは claude-init.ps1 が
+# ps1 版を配置するため、使わない側の形式は持ち込まない。
+# テンプレート由来のファイルだけを上書きし、同名の独自ファイルは保持する。
+# 配布元にマーカーが無いファイル(claude-remote.sh)は識別できないため従来どおり
 # 常に上書き。claude- 接頭辞のため独自ファイルとの衝突リスクは低い)
 MARKER="takayoshitoyoda05/claude-ml-template"
-for f in claude-remote.ps1 claude-remote.sh claude-update.ps1 claude-update.sh doctor.ps1 doctor.sh; do
+for f in claude-remote.sh claude-update.sh doctor.sh; do
   if [ -f "$TMP/$f" ]; then
     if grep -q "$MARKER" "$TMP/$f" && [ -f "$f" ] && ! grep -q "$MARKER" "$f"; then
       echo "警告: $f は独自ファイルのため保持しました(テンプレート版が必要なら $f を退避してから再実行してください)"

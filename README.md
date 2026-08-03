@@ -101,8 +101,10 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/clau
 `CLAUDE.md`(共通ルール)、フック設定の雛形 `.claude/settings.local.json` が作られ、
 Codex CLI 連携用に `agents/shared/` の配置・`AGENTS.md` の生成・`.codex/`
 (config.toml と skills のコピー)も行われる。運用スクリプト
-(`claude-remote.*` / `claude-update.*` / `doctor.*`)も配置される
-(`claude-update.*` / `doctor.*` は同名の独自ファイルがあれば保持して警告する。
+(`claude-remote` / `claude-update` / `doctor`)は実行したインストーラと同じ形式だけが
+配置される(`claude-init.sh` なら sh 版のみ、`claude-init.ps1` なら ps1 版のみ。
+使わない側の形式は持ち込まれない)
+(`claude-update` / `doctor` は同名の独自ファイルがあれば保持して警告する。
 自動生成マーカーの無い独自の `AGENTS.md` も保持される)。`.gitignore` に
 `.claude/checkpoints/` / `.claude/settings.local.json` / `**/.claude/spec/` / `/.worktrees/`
 が自動追加される。対話質問は無い(既存の `.claude` があるプロジェクトで再実行した
@@ -171,8 +173,9 @@ chmod +x claude-update.sh && ./claude-update.sh
 
 主な更新対象は `agents` / `commands` / `hooks` / `skills` / `output-styles` / `rules` /
 `settings.json` と、Codex CLI 連携分(`agents/shared/` の配布ファイル・`AGENTS.md` の再生成・
-`.codex/skills/` のコピー)、運用スクリプト(`claude-remote.*` / `claude-update.*` /
-`doctor.*`)。実行中の claude-update 自身も最新版に置き換わる。`.claude/plans/`(実行履歴)と
+`.codex/skills/` のコピー)、運用スクリプト(`claude-remote` / `claude-update` / `doctor`。
+実行した claude-update と同じ形式のみ更新され、他形式の既存ファイルには触らない)。
+実行中の claude-update 自身も最新版に置き換わる。`.claude/plans/`(実行履歴)と
 プロジェクト固有の `CLAUDE.md` は
 保持され、`agents/shared/` や `.codex/skills/` にユーザーが独自に置いたファイルも残る。
 `claude-update.*` / `doctor.*` と同名の独自ファイル、自動生成マーカーの無い独自の

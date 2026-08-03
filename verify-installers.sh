@@ -76,6 +76,9 @@ assert "init: CLAUDE.md が生成される" test -f "$A/CLAUDE.md"
 assert "init: claude-update.sh が配布される" grep -q "$MARKER" "$A/claude-update.sh"
 assert "init: doctor.sh が配布される" grep -q "$MARKER" "$A/doctor.sh"
 assert "init: 配布された claude-update.sh に実行権限がある" test -x "$A/claude-update.sh"
+for f in claude-remote.ps1 claude-update.ps1 doctor.ps1; do
+  assert "init: ps1 版($f)は配置されない" test ! -e "$A/$f"
+done
 for e in ".claude/checkpoints/" ".claude/settings.local.json" "**/.claude/spec/" "/.worktrees/"; do
   assert "init: .gitignore に $e が追加される" grep -qF "$e" "$A/.gitignore"
 done
@@ -103,7 +106,10 @@ echo "MY_CLAUDE_MD" > "$B/CLAUDE.md"
 mkdir -p "$B/templates" "$B/.github/workflows"
 echo "MY_TEMPLATE" > "$B/templates/ADR.md.template"
 echo "MY_CI" > "$B/.github/workflows/spec-gate.yml"
-printf '# 旧テンプレート版 %s\nOLD_VERSION\n' "$MARKER" > "$B/claude-update.ps1"
+# place_installers が置いたローカル参照版を旧テンプレート版に見立てて上書きし、
+# マーカー付きファイルの上書き経路を検査する(B では update は実行しない)
+printf '# 旧テンプレート版 %s\nOLD_VERSION\n' "$MARKER" > "$B/claude-update.sh"
+printf '# 旧テンプレート版 %s\nOLD_PS1\n' "$MARKER" > "$B/claude-update.ps1"
 (cd "$B" && bash claude-init.sh >init.log 2>&1)
 assert "init(保持): 導入が exit 0 で完了" test "$?" -eq 0
 assert "init(保持): 独自 doctor.sh(マーカー無し)が保持される" grep -q "CUSTOM_DOCTOR" "$B/doctor.sh"
@@ -112,8 +118,9 @@ assert "init(保持): 独自 AGENTS.md(マーカー無し)が保持される" gr
 assert "init(保持): 既存 CLAUDE.md が保持される" grep -q "MY_CLAUDE_MD" "$B/CLAUDE.md"
 assert "init(保持): 既存 templates/*.template が保持される" grep -q "MY_TEMPLATE" "$B/templates/ADR.md.template"
 assert "init(保持): 既存 spec-gate.yml が保持される" grep -q "MY_CI" "$B/.github/workflows/spec-gate.yml"
-assert_not "init(上書き): マーカー付き旧 claude-update.ps1 は上書きされる" grep -q "OLD_VERSION" "$B/claude-update.ps1"
-assert "init(上書き): 上書き後もテンプレート版マーカーを含む" grep -q "$MARKER" "$B/claude-update.ps1"
+assert_not "init(上書き): マーカー付き旧 claude-update.sh は上書きされる" grep -q "OLD_VERSION" "$B/claude-update.sh"
+assert "init(上書き): 上書き後もテンプレート版マーカーを含む" grep -q "$MARKER" "$B/claude-update.sh"
+assert "init(ps1): 既存の claude-update.ps1(マーカー付き)にも触らない" grep -q "OLD_PS1" "$B/claude-update.ps1"
 
 # ============================================================
 # claude-init.sh: symlink 対策
@@ -124,14 +131,15 @@ make_sandbox; C=$SB
 printf '# %s\nVICTIM\n' "$MARKER" > "$C/victim.txt"
 ln -s victim.txt "$C/doctor.sh"
 mkdir -p "$C/target_dir"
-ln -s target_dir "$C/doctor.ps1"
+rm -f "$C/claude-update.sh"
+ln -s target_dir "$C/claude-update.sh"
 mkdir -p "$C/claude-remote.sh"
 (cd "$C" && bash claude-init.sh >init.log 2>&1)
 assert "init(symlink): 導入が exit 0 で完了" test "$?" -eq 0
 assert "init(symlink): ファイルへのリンクは実体ファイルに置き換わる" test -f "$C/doctor.sh" -a ! -L "$C/doctor.sh"
 assert "init(symlink): リンク先のファイルは無傷" grep -q "VICTIM" "$C/victim.txt"
-assert "init(symlink): ディレクトリへのリンクも除去して実体ファイルを配置" test -f "$C/doctor.ps1" -a ! -L "$C/doctor.ps1"
-assert "init(symlink): リンク先ディレクトリの中に書き込まれない" test ! -e "$C/target_dir/doctor.ps1"
+assert "init(symlink): ディレクトリへのリンクも除去して実体ファイルを配置" test -f "$C/claude-update.sh" -a ! -L "$C/claude-update.sh"
+assert "init(symlink): リンク先ディレクトリの中に書き込まれない" test ! -e "$C/target_dir/claude-update.sh"
 assert "init(symlink): 実ディレクトリはスキップして保持" test -d "$C/claude-remote.sh"
 assert "init(symlink): ディレクトリスキップの警告が出る" grep -q "claude-remote.sh はディレクトリのため" "$C/init.log"
 
@@ -165,6 +173,8 @@ echo "MY_SHARED" > "$D/agents/shared/my-rules.md"
 echo "BROKEN_SHARED" > "$D/agents/shared/coding-rules.md"
 printf '# AGENTS.md\n<!-- claude-ml-template -->\nSTALE_CONTENT\n' > "$D/AGENTS.md"
 echo "CUSTOM_DOCTOR" > "$D/doctor.sh"
+# 過去に配置された ps1 版が残っているプロジェクトを想定(update は触らない)
+printf '# 旧テンプレート版 %s\nOLD_PS1\n' "$MARKER" > "$D/doctor.ps1"
 (cd "$D" && bash claude-update.sh >update.log 2>&1)
 assert "update: 更新が exit 0 で完了" test "$?" -eq 0
 assert_not "update: .claude/hooks がテンプレート版に更新される" grep -q "BROKEN_HOOK" "$D/.claude/hooks/guard_scope.py"
@@ -178,6 +188,8 @@ assert_not "update: agents/shared の配布ファイルは更新される" grep 
 assert_not "update: マーカー付き AGENTS.md は再生成される" grep -q "STALE_CONTENT" "$D/AGENTS.md"
 assert "update(保持): 独自 doctor.sh(マーカー無し)が保持される" grep -q "CUSTOM_DOCTOR" "$D/doctor.sh"
 assert "update(保持): doctor.sh 保持の警告が出る" grep -q "doctor.sh は独自ファイルのため保持しました" "$D/update.log"
+assert "update(ps1): 既存の doctor.ps1(マーカー付き)にも触らない" grep -q "OLD_PS1" "$D/doctor.ps1"
+assert "update(ps1): ps1 版(claude-remote.ps1)は新たに配布されない" test ! -e "$D/claude-remote.ps1"
 # 自己更新: 実行中の claude-update.sh 自身がテンプレート版に置き換わる
 assert "update(自己更新): 実行中の claude-update.sh がテンプレート版に置き換わる" grep -q "https://github.com" "$D/claude-update.sh"
 # .gitignore の冪等性: 2回目の update で重複追加されない
@@ -202,18 +214,23 @@ printf '# %s\nVICTIM\n' "$MARKER" > "$F/victim.txt"
 rm -f "$F/claude-remote.sh"
 ln -s victim.txt "$F/claude-remote.sh"
 mkdir -p "$F/target_dir"
-rm -f "$F/claude-remote.ps1"
-ln -s target_dir "$F/claude-remote.ps1"
-rm -f "$F/doctor.ps1"
-mkdir -p "$F/doctor.ps1"
+rm -f "$F/doctor.sh"
+ln -s target_dir "$F/doctor.sh"
 (cd "$F" && bash claude-update.sh >update.log 2>&1)
 assert "update(symlink): 更新が exit 0 で完了" test "$?" -eq 0
 assert "update(symlink): ファイルへのリンクは実体ファイルに置き換わる" test -f "$F/claude-remote.sh" -a ! -L "$F/claude-remote.sh"
 assert "update(symlink): リンク先のファイルは無傷" grep -q "VICTIM" "$F/victim.txt"
-assert "update(symlink): ディレクトリへのリンクも除去して実体ファイルを配置" test -f "$F/claude-remote.ps1" -a ! -L "$F/claude-remote.ps1"
-assert "update(symlink): リンク先ディレクトリの中に書き込まれない" test ! -e "$F/target_dir/claude-remote.ps1"
-assert "update(symlink): 実ディレクトリはスキップして保持" test -d "$F/doctor.ps1"
-assert "update(symlink): ディレクトリスキップの警告が出る" grep -q "doctor.ps1 はディレクトリのため" "$F/update.log"
+assert "update(symlink): ディレクトリへのリンクも除去して実体ファイルを配置" test -f "$F/doctor.sh" -a ! -L "$F/doctor.sh"
+assert "update(symlink): リンク先ディレクトリの中に書き込まれない" test ! -e "$F/target_dir/doctor.sh"
+# 実ディレクトリのスキップ(1回目の update で claude-remote.sh は実体ファイルに
+# 戻っているため、ディレクトリに差し替えて2回目の update で検査する)
+place_installers "$F"
+rm -f "$F/claude-remote.sh"
+mkdir -p "$F/claude-remote.sh"
+(cd "$F" && bash claude-update.sh >update2.log 2>&1)
+assert "update(symlink): 実ディレクトリ検査の更新が exit 0 で完了" test "$?" -eq 0
+assert "update(symlink): 実ディレクトリはスキップして保持" test -d "$F/claude-remote.sh"
+assert "update(symlink): ディレクトリスキップの警告が出る" grep -q "claude-remote.sh はディレクトリのため" "$F/update2.log"
 
 echo ""
 if [ "$failed" -eq 0 ]; then

@@ -129,12 +129,14 @@ try {
         Write-Host "OK: .github/workflows/spec-gate.yml を配置しました"
     }
 
-    # 運用スクリプト(claude-remote.* / claude-update.* / doctor.*)を配置
-    # (テンプレート由来のファイルだけを上書きし、同名の独自ファイルは保持する。
-    # 配布元にマーカーが無いファイル(claude-remote.*)は識別できないため従来どおり
+    # 運用スクリプト(claude-remote.ps1 / claude-update.ps1 / doctor.ps1)を配置
+    # (この環境で使う ps1 版のみ。Linux / macOS / WSL へは claude-init.sh が
+    # sh 版を配置するため、使わない側の形式は持ち込まない。
+    # テンプレート由来のファイルだけを上書きし、同名の独自ファイルは保持する。
+    # 配布元にマーカーが無いファイル(claude-remote.ps1)は識別できないため従来どおり
     # 常に上書き。claude- 接頭辞のため独自ファイルとの衝突リスクは低い)
     $marker = "takayoshitoyoda05/claude-ml-template"
-    foreach ($f in @("claude-remote.ps1", "claude-remote.sh", "claude-update.ps1", "claude-update.sh", "doctor.ps1", "doctor.sh")) {
+    foreach ($f in @("claude-remote.ps1", "claude-update.ps1", "doctor.ps1")) {
         $src = Join-Path $Tmp $f
         if (Test-Path $src) {
             # ディレクトリは独自ファイル判定(Select-String)がエラーになるため先に
