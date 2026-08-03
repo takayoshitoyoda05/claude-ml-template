@@ -57,6 +57,10 @@ make_sandbox() {
 
 MARKER="takayoshitoyoda05/claude-ml-template"
 
+# 端末付きで実行しても init の任意機能質問に入らないよう既定値で固定する
+# (機能セットアップ自体の検査は専用サンドボックスで env を上書きして行う)
+export CLAUDE_TEMPLATE_FEATURES=none
+
 # ============================================================
 # claude-init.sh: 新規導入(フル展開)
 # ============================================================
@@ -83,6 +87,7 @@ for e in ".claude/checkpoints/" ".claude/settings.local.json" "**/.claude/spec/"
   assert "init: .gitignore に $e が追加される" grep -qF "$e" "$A/.gitignore"
 done
 assert_not "init: 既定では包括除外(.claude/)は追記されない" grep -qxF ".claude/" "$A/.gitignore"
+assert "init: 任意機能は既定では無効のまま" grep -q '"CLAUDE_CROSS_REVIEW": "0"' "$A/.claude/settings.local.json"
 
 # 再実行(非対話): 端末が無ければ上書きせず中止する
 if command -v setsid >/dev/null 2>&1; then
@@ -176,6 +181,34 @@ if [ "$n" -eq 1 ]; then
   ok "update(ignore-all): 包括除外エントリの追記は冪等(重複しない)"
 else
   ng "update(ignore-all): 包括除外エントリの追記は冪等(.claude/ が ${n}件)"
+fi
+
+# ============================================================
+# claude-init.sh: 任意機能の初期セットアップ(CLAUDE_TEMPLATE_FEATURES)
+# ============================================================
+make_sandbox; I=$SB
+(cd "$I" && CLAUDE_TEMPLATE_FEATURES="CLAUDE_CROSS_REVIEW,CLAUDE_REFACTOR_SWARM,BOGUS_FLAG" \
+  bash claude-init.sh >init.log 2>&1)
+assert "init(features): 導入が exit 0 で完了" test "$?" -eq 0
+assert "init(features): CLAUDE_CROSS_REVIEW が有効化される" grep -q '"CLAUDE_CROSS_REVIEW": "1"' "$I/.claude/settings.local.json"
+assert "init(features): CLAUDE_REFACTOR_SWARM が有効化される" grep -q '"CLAUDE_REFACTOR_SWARM": "1"' "$I/.claude/settings.local.json"
+assert "init(features): 指定しない機能は無効のまま" grep -q '"CLAUDE_QUALITY_GATE": "0"' "$I/.claude/settings.local.json"
+assert "init(features): 不明なフラグは警告して無視する" grep -q "不明な機能フラグ BOGUS_FLAG" "$I/init.log"
+if command -v python3 >/dev/null 2>&1; then
+  assert "init(features): 書き換え後も妥当な JSON" python3 -c "import json; json.load(open('$I/.claude/settings.local.json'))"
+else
+  echo "SKIP: python3 が無いため JSON 妥当性の検査をスキップします"
+fi
+
+# 非対話環境(端末なし・CLAUDE_TEMPLATE_FEATURES 未指定)では既定値のまま進む
+if command -v setsid >/dev/null 2>&1; then
+  make_sandbox; J=$SB
+  (cd "$J" && setsid -w env -u CLAUDE_TEMPLATE_FEATURES bash claude-init.sh </dev/null >init.log 2>&1)
+  assert "init(features): 非対話では質問せず exit 0 で完了" test "$?" -eq 0
+  assert "init(features): 非対話では既定値のまま" grep -q '"CLAUDE_CROSS_REVIEW": "0"' "$J/.claude/settings.local.json"
+  assert "init(features): 既定値のままにした旨を表示する" grep -q "対話端末が無いため任意機能" "$J/init.log"
+else
+  echo "SKIP: setsid が無いため非対話の任意機能検査をスキップします"
 fi
 
 # ============================================================

@@ -121,12 +121,75 @@ for IGNORE_ENTRY in "${IGNORE_ENTRIES[@]}"; do
   fi
 done
 
+# 任意機能(既定では無効)の一覧。「変数名|質問に添える説明」の形式
+OPTIONAL_FEATURES=(
+  "CLAUDE_CROSS_REVIEW|Codex クロスレビュー(要 Codex CLI。実装を別モデル視点で必須レビュー)"
+  "CLAUDE_REFACTOR_SWARM|haiku スカウト隊(ml-pipeline のリファクタリング偵察を並列実行)"
+  "CLAUDE_QUALITY_GATE|機械的品質ゲート(ruff / radon / mypy を停止時に強制)"
+  "CLAUDE_AUTO_APPROVE|計画の自動承認(plan-reviewer が安全な計画を人手なしで通す)"
+  "CLAUDE_NOTIFY|完了時のデスクトップ通知"
+  "CLAUDE_FINAL_GATE|マージ前の最終判定(final-gate)"
+  "CLAUDE_SECURITY_SCAN|パイプライン実行内のセキュリティスキャン"
+)
+
+# settings.local.json の該当フラグを "1" に書き換える(sed -i は BSD/GNU で
+# 挙動が違うため一時ファイル+mv で置き換える)
+enable_feature() {
+  local var="$1" tmpjson
+  tmpjson=$(mktemp)
+  sed "s|\"$var\": \"[^\"]*\"|\"$var\": \"1\"|" .claude/settings.local.json > "$tmpjson"
+  mv "$tmpjson" .claude/settings.local.json
+  if grep -q "\"$var\": \"1\"" .claude/settings.local.json; then
+    echo "OK: $var=1 を設定しました"
+  else
+    echo "警告: $var を設定できませんでした(settings.local.json に項目がありません)"
+  fi
+  if [ "$var" = "CLAUDE_CROSS_REVIEW" ] && ! command -v codex >/dev/null 2>&1; then
+    echo "警告: Codex CLI が見つかりません。クロスレビューには codex のインストールと codex login が必要です"
+  fi
+}
+
 # フック用環境変数の雛形(既存なら保持)
 if [ -f ".claude/settings.local.json" ]; then
   echo "OK: .claude/settings.local.json は既存のものを保持します"
 else
   cp "$TMP/templates/settings.local.json.template" .claude/settings.local.json
   echo "OK: .claude/settings.local.json を生成しました(env の値を記入するとフックが有効になります)"
+  # 任意機能の初期セットアップ(雛形を新規生成したときだけ)。優先順:
+  #   1) CLAUDE_TEMPLATE_FEATURES(非対話用。"none" か、有効化するフラグ名の
+  #      カンマ区切り。例: CLAUDE_TEMPLATE_FEATURES=CLAUDE_CROSS_REVIEW,CLAUDE_NOTIFY)
+  #   2) 対話端末があれば1機能ずつ質問する(curl | bash でも /dev/tty から受ける)
+  #   3) どちらも無い非対話環境では既定値(すべて無効)のまま進む
+  if [ -n "${CLAUDE_TEMPLATE_FEATURES:-}" ]; then
+    if [ "$CLAUDE_TEMPLATE_FEATURES" != "none" ]; then
+      IFS=',' read -ra REQUESTED <<< "$CLAUDE_TEMPLATE_FEATURES"
+      for req in "${REQUESTED[@]}"; do
+        found=0
+        for entry in "${OPTIONAL_FEATURES[@]}"; do
+          if [ "$req" = "${entry%%|*}" ]; then
+            enable_feature "$req"
+            found=1
+          fi
+        done
+        [ "$found" -eq 0 ] && echo "警告: 不明な機能フラグ $req は無視しました"
+      done
+    fi
+  elif { : < /dev/tty; } 2>/dev/null; then
+    echo ""
+    echo "任意機能の初期セットアップを行います(後から .claude/settings.local.json で変更できます)"
+    for entry in "${OPTIONAL_FEATURES[@]}"; do
+      var="${entry%%|*}"
+      desc="${entry#*|}"
+      if read -r -p "  $desc を有効にしますか? [y/N] " ans < /dev/tty; then
+        [[ "$ans" =~ ^[Yy]$ ]] && enable_feature "$var"
+      else
+        echo "情報: 入力が中断されたため残りの任意機能は既定(無効)のままにします"
+        break
+      fi
+    done
+  else
+    echo "情報: 対話端末が無いため任意機能はすべて既定(無効)のままにしました"
+  fi
 fi
 
 # 参照専用テンプレ(templates/*.template)を配布(既存ファイルは保持)

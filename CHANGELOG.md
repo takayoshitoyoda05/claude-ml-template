@@ -100,6 +100,15 @@
   `$CLAUDE_PROJECT_DIR` 基準の絶対パスに変更(サブディレクトリを cwd とする
   実行でもフックが確実に解決される)
 
+### Added(2026-08-04)
+- **導入時の任意機能セットアップ**: claude-init が settings.local.json を新規生成する
+  とき、任意機能(Codex クロスレビュー / haiku スカウト隊 / 品質ゲート / 計画の
+  自動承認 / 通知 / final-gate / セキュリティスキャン)を有効にするか1機能ずつ質問し、
+  回答どおりにフラグを書き換える。非対話用に `CLAUDE_TEMPLATE_FEATURES`
+  (フラグ名のカンマ区切り、または `none`)も受け付ける。端末が無い環境では
+  既定(すべて無効)のまま進む。CLAUDE_CROSS_REVIEW 有効化時に Codex CLI が
+  見つからなければ警告する
+
 ### Added(2026-08-03)
 - **配布物の git 除外オプション**: `CLAUDE_TEMPLATE_GITIGNORE_ALL=1` を付けて
   claude-init/update を実行すると、テンプレートが配布・生成する一式(`.claude/` /

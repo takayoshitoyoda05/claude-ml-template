@@ -113,12 +113,66 @@ try {
             }
         }
     }
+    # 任意機能(既定では無効)の一覧: 変数名 → 質問に添える説明
+    $OptionalFeatures = [ordered]@{
+        "CLAUDE_CROSS_REVIEW"   = "Codex クロスレビュー(要 Codex CLI。実装を別モデル視点で必須レビュー)"
+        "CLAUDE_REFACTOR_SWARM" = "haiku スカウト隊(ml-pipeline のリファクタリング偵察を並列実行)"
+        "CLAUDE_QUALITY_GATE"   = "機械的品質ゲート(ruff / radon / mypy を停止時に強制)"
+        "CLAUDE_AUTO_APPROVE"   = "計画の自動承認(plan-reviewer が安全な計画を人手なしで通す)"
+        "CLAUDE_NOTIFY"         = "完了時のデスクトップ通知"
+        "CLAUDE_FINAL_GATE"     = "マージ前の最終判定(final-gate)"
+        "CLAUDE_SECURITY_SCAN"  = "パイプライン実行内のセキュリティスキャン"
+    }
+
+    # settings.local.json の該当フラグを "1" に書き換える
+    function Enable-Feature([string]$var) {
+        $path = ".claude\settings.local.json"
+        $json = Get-Content $path -Raw -Encoding UTF8
+        $json = $json -replace ('"' + $var + '": "[^"]*"'), ('"' + $var + '": "1"')
+        $json | Out-File -FilePath $path -Encoding utf8 -NoNewline
+        if (Select-String -Path $path -Pattern ('"' + $var + '": "1"') -SimpleMatch -Quiet) {
+            Write-Host "OK: $var=1 を設定しました"
+        } else {
+            Write-Host "警告: $var を設定できませんでした(settings.local.json に項目がありません)"
+        }
+        if ($var -eq "CLAUDE_CROSS_REVIEW" -and -not (Get-Command codex -ErrorAction SilentlyContinue)) {
+            Write-Host "警告: Codex CLI が見つかりません。クロスレビューには codex のインストールと codex login が必要です"
+        }
+    }
+
     # フック用環境変数の雛形(既存なら保持)
     if (Test-Path ".claude\settings.local.json") {
         Write-Host "OK: .claude/settings.local.json は既存のものを保持します"
     } else {
         Copy-Item (Join-Path $Tmp "templates\settings.local.json.template") ".claude\settings.local.json"
         Write-Host "OK: .claude/settings.local.json を生成しました(env の値を記入するとフックが有効になります)"
+        # 任意機能の初期セットアップ(雛形を新規生成したときだけ)。優先順:
+        #   1) CLAUDE_TEMPLATE_FEATURES(非対話用。"none" か、有効化するフラグ名の
+        #      カンマ区切り。例: CLAUDE_TEMPLATE_FEATURES=CLAUDE_CROSS_REVIEW,CLAUDE_NOTIFY)
+        #   2) 対話で1機能ずつ質問する(入力できない環境では既定値のまま進む)
+        if ($env:CLAUDE_TEMPLATE_FEATURES) {
+            if ($env:CLAUDE_TEMPLATE_FEATURES -ne "none") {
+                foreach ($req in ($env:CLAUDE_TEMPLATE_FEATURES -split ",")) {
+                    if ($OptionalFeatures.Contains($req)) {
+                        Enable-Feature $req
+                    } else {
+                        Write-Host "警告: 不明な機能フラグ $req は無視しました"
+                    }
+                }
+            }
+        } else {
+            Write-Host ""
+            Write-Host "任意機能の初期セットアップを行います(後から .claude/settings.local.json で変更できます)"
+            foreach ($var in @($OptionalFeatures.Keys)) {
+                try {
+                    $ans = Read-Host "  $($OptionalFeatures[$var]) を有効にしますか? [y/N]"
+                    if ($ans -match "^[Yy]$") { Enable-Feature $var }
+                } catch {
+                    Write-Host "情報: 対話入力できないため残りの任意機能は既定(無効)のままにします"
+                    break
+                }
+            }
+        }
     }
     # 参照専用テンプレ(templates/*.template)を配布(既存ファイルは保持)
     New-Item -ItemType Directory -Path "templates" -Force | Out-Null

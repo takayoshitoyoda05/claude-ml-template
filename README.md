@@ -112,7 +112,19 @@ Codex CLI 連携用に `agents/shared/` の配置・`AGENTS.md` の生成・`.co
 `agents/shared/` / `templates/*.template` / `AGENTS.md` / `CLAUDE.md` /
 運用スクリプト / `spec-gate.yml` を `.gitignore` にまとめて追記する。
 既存の `.gitignore` は上書きせず追記のみ・冪等で、claude-update も同じフラグを
-受け付ける)。対話質問は無い(既存の `.claude` があるプロジェクトで再実行した
+受け付ける)。
+
+導入時、任意機能(Codex クロスレビュー・haiku スカウト隊・品質ゲート・計画の
+自動承認・デスクトップ通知・final-gate・セキュリティスキャン)を有効にするかを
+1機能ずつ質問し、回答どおりに `.claude/settings.local.json` を書き換える
+(質問は `.claude/settings.local.json` を新規生成した初回導入時だけ。既存があれば
+保持して質問しない)。非対話で導入したい場合は `CLAUDE_TEMPLATE_FEATURES` に
+有効化するフラグ名をカンマ区切りで渡す(例:
+`CLAUDE_TEMPLATE_FEATURES=CLAUDE_CROSS_REVIEW,CLAUDE_NOTIFY`。既定のまま質問を
+省略するなら `none`)。端末が無い非対話環境では質問を省略してすべて既定
+(無効)のままにする。
+
+その他の対話質問は無い(既存の `.claude` があるプロジェクトで再実行した
 場合のみ上書き確認が出る。確認は端末から受け付けるため `curl | bash` でも機能し、
 CI 等の非対話環境では上書きせず安全に中止する)。
 
