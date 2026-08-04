@@ -100,7 +100,7 @@ def _check_diff_coverage(scope: str) -> list[str]:
     xml_fd, xml_path = tempfile.mkstemp(suffix=".xml")
     os.close(xml_fd)
     try:
-        code, out, err = run(
+        code, _, err = run(
             [
                 "uv",
                 "run",
@@ -129,7 +129,10 @@ def _check_diff_coverage(scope: str) -> list[str]:
                 f"--fail-under={threshold}",
             ]
         )
-        if tool_missing(err):
+        # 1回目の run()(pytest --cov)と同じ判定にする。timeout もツール不在と
+        # 同様にスキップ扱いにしないと、`(-1, "", "timeout")` が
+        # 「カバレッジ0%未満」の誤った違反になる
+        if code == -1 or tool_missing(err):
             return []
         if code != 0:
             combined = (out + "\n" + err).strip()
