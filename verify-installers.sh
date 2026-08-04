@@ -88,6 +88,7 @@ for e in ".claude/checkpoints/" ".claude/settings.local.json" "**/.claude/spec/"
 done
 assert_not "init: 既定では包括除外(.claude/)は追記されない" grep -qxF ".claude/" "$A/.gitignore"
 assert "init: 任意機能は既定では無効のまま" grep -q '"CLAUDE_CROSS_REVIEW": "0"' "$A/.claude/settings.local.json"
+assert "init: CLAUDE_REFUTE_PASS が雛形に含まれる(既定無効)" grep -q '"CLAUDE_REFUTE_PASS": "0"' "$A/.claude/settings.local.json"
 
 # 再実行(非対話): 端末が無ければ上書きせず中止する
 if command -v setsid >/dev/null 2>&1; then

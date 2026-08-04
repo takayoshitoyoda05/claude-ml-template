@@ -382,3 +382,27 @@ cost_estimate:
   dataset_gb: 0
   parallel_jobs: 0
 ```
+
+## 作業ログ(並列グループC: Step 16〜17)
+
+計画ステップ対応表:
+
+| 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
+|---|---|---|---|---|
+| 16 | サンドボックスA のアサーション群に `CLAUDE_REFUTE_PASS` 雛形回帰アサーションを1件追加(テストファースト)。コミット前に `bash verify-installers.sh` を実行し、新規1件のみ NG(RED)・既存94件は OK であることを確認 | `verify-installers.sh` | `bash verify-installers.sh` → RED: `OK:` 94件 / `NG:` 1件(`NG: init: CLAUDE_REFUTE_PASS が雛形に含まれる(既定無効)`のみ) | 71debf5 |
+| 17 | `templates/settings.local.json.template` の `CLAUDE_FINAL_GATE` 直後に `"CLAUDE_REFUTE_PASS": "0"` を追加、`claude-init.sh` の `OPTIONAL_FEATURES` と `claude-init.ps1` の `$OptionalFeatures` に同一説明文で1件追加。コミット後に `bash verify-installers.sh` を再実行し GREEN を確認 | `templates/settings.local.json.template`, `claude-init.sh`, `claude-init.ps1` | `bash verify-installers.sh` → GREEN: `OK:` 95件 / `NG:` 0件(新規アサーションも `OK:`) | 9a1deb7 |
+
+実行順序: Step16 のアサーション追加 → `bash verify-installers.sh`(RED確認、コミット前)→ コミット71debf5 → Step17 の3ファイル編集 → コミット9a1deb7 → `bash verify-installers.sh`(GREEN確認、コミット後。`verify-installers.sh` は HEAD から clone するためコミット前の再実行では反映されない)。
+
+sh/ps1 の1対1対応(`.claude/rules/consistency.md` 標準形):
+```
+diff <(grep -oE 'CLAUDE_[A-Z_]+' claude-init.sh | sort -u) \
+     <(grep -oE 'CLAUDE_[A-Z_]+' claude-init.ps1 | sort -u)
+```
+→ sh: raw 20件 / unique 12件、ps1: raw 20件 / unique 12件、diff 差分なし(exit 0)。
+
+閾値変数は導入せず二値フラグ(`"0"`/`"1"`)のみとした(`enable_feature()` / `Enable-Feature` が `"1"` を書き込む既存規約に従う)。手順6.3 本体(`CLAUDE_REFUTE_PASS` を参照するロジック)はグループAの担当のため未実装。
+
+変更ファイル一覧: `verify-installers.sh`, `templates/settings.local.json.template`, `claude-init.sh`, `claude-init.ps1`
+
+コミット: 71debf5(test, Step16), 9a1deb7(feat, Step17)
