@@ -50,9 +50,10 @@
 | `.claude/commands/ml-pipeline.md` | 手順5 | 計画ステップ対応表の要求とリーダーの照合(P10) |
 | `.claude/commands/ml-pipeline.md` | 手順6.2(新設) | レビュー指摘の接地検証(必須・軽量)(R3) |
 | `.claude/commands/ml-pipeline.md` | 手順6.3(新設) | 反証濾過パス(opt-in)(R1) |
-| `.claude/commands/ml-pipeline.md` | 手順7・失敗遷移表 | HUMAN_REVIEW 出口と遷移表1行(R9) |
+| `.claude/commands/ml-pipeline.md` | 手順7の既存分岐(502-505行)・失敗遷移表 | 既存 NEEDS_REVISION 分岐の書き換え、HUMAN_REVIEW 出口と遷移表1行(R9) |
 | `.claude/agents/refuter.md` | 新規 | 反証専任エージェント(sonnet)(R1) |
 | `.claude/agents/evaluator.md` / `evaluator-standards.md` | レポート形式 | HIGH/MEDIUM 指摘への証拠添付を必須化(R3) |
+| `.claude/skills/cross-review/SKILL.md` | 手順3 の Codex 指示文(2箇所) | HIGH/MEDIUM 指摘への証拠添付を要求(R3) |
 | `.claude/agents/evaluator-standards.md` | 評価基準「型安全性」 | shape 注釈の有無を観点に追加(V6) |
 | `.claude/skills/python-standards/SKILL.md` | 型ヒント節の直後 | テンソル shape 注釈の規約節を新設(V6) |
 | `.claude/agents/planner.md` | 計画フォーマット表 | 「事後条件」欄の追加(V10) |
@@ -69,14 +70,16 @@
 
 本計画はコード変更を含まない定義ファイルの変更だが、導入する書式を自ら守る。
 
-| # | 対象 | 入力 | 満たすべき条件 |
+| ID | 対象 | 入力 | 満たすべき条件 |
 |---|---|---|---|
-| 1 | `bash verify-installers.sh` | 引数なし(フラグ追加のコミット後) | 標準出力に `NG:` が0件、新規アサーション `CLAUDE_REFUTE_PASS` が `OK:` で出る |
-| 2 | `bash verify-hooks.sh` | 引数なし | 全テスト PASS(フック未変更なので既存と同一結果) |
-| 3 | `uv run --with pytest python -m pytest tests/ -q` | 引数なし | 118件が全 PASS(件数が減っていない) |
-| 4 | `diff <(grep -oE 'CLAUDE_[A-Z_]+' claude-init.sh \| sort -u) <(grep -oE 'CLAUDE_[A-Z_]+' claude-init.ps1 \| sort -u)` | — | 差分0行 |
+| PC-1 | `bash verify-installers.sh` | 引数なし(フラグ追加のコミット後) | 標準出力に `NG:` が0件、新規アサーション `CLAUDE_REFUTE_PASS` が `OK:` で出る |
+| PC-2 | `bash verify-hooks.sh` | 引数なし | 全テスト PASS(フック未変更なので既存と同一結果) |
+| PC-3 | `uv run --with pytest python -m pytest tests/ -q` | 引数なし | 118件が全 PASS(件数が減っていない) |
+| PC-4 | `diff <(grep -oE 'CLAUDE_[A-Z_]+' claude-init.sh \| sort -u) <(grep -oE 'CLAUDE_[A-Z_]+' claude-init.ps1 \| sort -u)` | — | 差分0行 |
 
 期待値はいずれも既存の検証手段の出力形式から導いており、実装後の出力を写したものではない。
+行 ID を素の連番にしないのは、手順5 の計画遵守の照合(`grep -cE '^\| [0-9]+ \|'`)が
+実装手順の行だけを数えられるようにするため(Step 12 で planner.md に規定する)。
 
 ## 実装手順
 
@@ -87,18 +90,19 @@
 | 3 | 反証専任エージェント refuter を新設(R1 対応) | `.claude/agents/refuter.md` | なし | A |
 | 4 | 手順6.2「レビュー指摘の接地検証」を新設(R3 対応) | `.claude/commands/ml-pipeline.md` | Step 2(同一ファイル) | A |
 | 5 | 手順6.3「反証濾過パス」を新設(R1 対応) | `.claude/commands/ml-pipeline.md` | Step 3, 4 | A |
-| 6 | 手順7 に HUMAN_REVIEW 出口を追加し失敗遷移表に1行足す(R9 対応) | `.claude/commands/ml-pipeline.md` | Step 4, 5 | A |
+| 6 | 手順7 の既存 NEEDS_REVISION 分岐を書き換え、HUMAN_REVIEW 出口と失敗遷移表1行を追加(R9 対応) | `.claude/commands/ml-pipeline.md` | Step 4, 5 | A |
 | 7 | 手順5 に「計画遵守の照合」と generator への共通指示を追加(P10 対応) | `.claude/commands/ml-pipeline.md` | Step 2(同一ファイル) | A |
 | 8 | 両 evaluator の指摘に証拠添付を必須化(R3 対応) | `.claude/agents/evaluator.md`, `.claude/agents/evaluator-standards.md` | なし | B |
-| 9 | evaluator-standards の「型安全性」に shape 注釈観点を追加(V6 対応) | `.claude/agents/evaluator-standards.md` | Step 8(同一ファイル) | B |
-| 10 | python-standards にテンソル shape 注釈の規約節を新設(V6 対応) | `.claude/skills/python-standards/SKILL.md` | なし | B |
-| 11 | planner の計画フォーマットに「事後条件」欄を追加(V10 対応) | `.claude/agents/planner.md` | なし | B |
-| 12 | tdd スキルに「事後条件は実装より先に固定する」節を追加(V10 対応) | `.claude/skills/tdd/SKILL.md` | なし | B |
-| 13 | spec-checklist の測定可能性に事後条件の検査を追加(V10 対応) | `.claude/skills/spec-checklist/SKILL.md` | Step 11 | B |
-| 14 | generator に事後条件のテストファースト・shape 自己チェック・計画ステップ対応表を追加(V10 / V6 / P10 対応) | `.claude/agents/generator.md` | Step 10, 11 | B |
-| 15 | `CLAUDE_REFUTE_PASS` の回帰アサーションを**実装前に**書き RED を確認(R1 対応) | `verify-installers.sh` | なし | C |
-| 16 | 雛形とインストーラ sh/ps1 に `CLAUDE_REFUTE_PASS` を追加しコミット後に GREEN を確認(R1 対応) | `templates/settings.local.json.template`, `claude-init.sh`, `claude-init.ps1` | Step 15 | C |
-| 17 | README / CHANGELOG を**実装済みの実物を grep で確認してから**更新(全ID 対応) | `README.md`, `CHANGELOG.md` | Step 1〜16 すべて + A〜C の統合ブランチへのマージ完了 | D(逐次・worktree を作らない) |
+| 9 | cross-review の Codex 指示文2箇所に HIGH/MEDIUM 指摘の証拠添付を要求(R3 対応) | `.claude/skills/cross-review/SKILL.md` | なし | B |
+| 10 | evaluator-standards の「型安全性」に shape 注釈観点を追加(V6 対応) | `.claude/agents/evaluator-standards.md` | Step 8(同一ファイル) | B |
+| 11 | python-standards にテンソル shape 注釈の規約節を新設(V6 対応) | `.claude/skills/python-standards/SKILL.md` | なし | B |
+| 12 | planner の計画フォーマットに「事後条件」欄(`PC-n` 形式)を追加(V10 対応) | `.claude/agents/planner.md` | なし | B |
+| 13 | tdd スキルに「事後条件は実装より先に固定する」節を追加(V10 対応) | `.claude/skills/tdd/SKILL.md` | なし | B |
+| 14 | spec-checklist の測定可能性に事後条件の検査を追加(V10 対応) | `.claude/skills/spec-checklist/SKILL.md` | Step 12 | B |
+| 15 | generator に事後条件のテストファースト・shape 自己チェック・計画ステップ対応表を追加(V10 / V6 / P10 対応) | `.claude/agents/generator.md` | Step 11, 12 | B |
+| 16 | `CLAUDE_REFUTE_PASS` の回帰アサーションを**実装前に**書き RED を確認(R1 対応) | `verify-installers.sh` | なし | C |
+| 17 | 雛形とインストーラ sh/ps1 に `CLAUDE_REFUTE_PASS` を追加しコミット後に GREEN を確認(R1 対応) | `templates/settings.local.json.template`, `claude-init.sh`, `claude-init.ps1` | Step 16 | C |
+| 18 | README / CHANGELOG を**実装済みの実物を grep で確認してから**更新(全ID 対応) | `README.md`, `CHANGELOG.md` | Step 1〜17 すべて + A〜C の統合ブランチへのマージ完了 | D(逐次・worktree を作らない) |
 
 ### 各ステップの補足
 
@@ -138,6 +142,7 @@ S/M/L の3項目の直後に小節を1つ足す(30行以内)。
 - 結果の反映(表): 接地 → 従来どおり根拠にする / 未接地・検証不能の **MEDIUM** → 根拠にせず手順8.5 のレポートに「未接地の指摘」として記載 / 未接地・検証不能の **HIGH** → **破棄せず**手順7 の HUMAN_REVIEW 条件1に該当させる。
 - 「**判定そのもの(PASS / NEEDS_REVISION / FAIL)は書き換えない**。この工程が絞るのは差し戻しに使う指摘の集合だけ」と明記する(2軸独立レビューの判定をリーダーが上書きしないため)。
 - 並列実装ではグループごとに実施する。
+- **適用範囲**: 手順6(2軸レビュー)を通る全経路に適用する。手順0 の **M 短縮経路**(planner を省略し generator → evaluator で回す経路)でも evaluator の指摘は差し戻しに使われるため、同じく適用する。**S 経路は evaluator を省略する**ため対象外。
 
 **Step 5**(`ml-pipeline.md` 手順6.3 新設、R1)
 既存の条件分岐節(手順5.5・6.6・6.8)と同じ書式にする。
@@ -151,6 +156,10 @@ S/M/L の3項目の直後に小節を1つ足す(30行以内)。
 **Step 6**(`ml-pipeline.md` 手順7、R9・abstract のみ)
 文献は「verbalized confidence は過信で較正が要る」としか言えないため、**自己申告の確信度を一切使わない設計に縮退する**。リーダーが機械的に観測できる条件だけを列挙する。
 
+- **既存の即時分岐を先に書き換える**(これを忘れると新設した HUMAN_REVIEW 条件1・2 が参照されずに終わる)。ml-pipeline.md 502-505行の3項目のうち2つ目を、次のように改める。
+  before: `- どちらかが NEEDS_REVISION: 指摘をまとめて generator に差し戻す(手順5に戻る)`
+  after : `- どちらかが NEEDS_REVISION: 手順6.2・6.3 を経て残った差し戻し根拠を確認し、下記 HUMAN_REVIEW の条件に該当しなければ、その根拠だけをまとめて generator に差し戻す(手順5に戻る)`
+  1つ目(両 PASS → 手順7.5)と3つ目(FAIL 3回連続 → planner)は変更しない。
 - 「**HUMAN_REVIEW(判定不確実の出口)**」小節を手順7 の失敗遷移表の直前に置き、条件を表で3件固定する。(1) HIGH 指摘が手順6.2 で未接地・検証不能のまま残った(観測: 手順6.2 の結果表)/ (2) 軸の判定が NEEDS_REVISION なのに手順6.2・6.3 を経て残った差し戻し根拠が0件(観測: 指摘集合の件数)/ (3) 指摘の根拠と手順6.3 の反証が同じ file:line・同じコマンドについて正面から矛盾(観測: 両者の実行ログ)。
 - 提示するもの: 該当条件 / 当該指摘の全文 / 接地・反証で実行したコマンドと出力 / 選択肢(差し戻す・この指摘を採用せず進む・計画に戻る)。
 - 失敗遷移表に1行追加: `| 判定不確実(上記3条件のいずれか) | 0回 | 停止・人間へ(HUMAN_REVIEW) |`。
@@ -174,27 +183,36 @@ S/M/L の3項目の直後に小節を1つ足す(30行以内)。
   2. 再現コマンドとその出力(「実装が存在しない」等、行を指せない指摘の場合)
 ```
 
-**Step 9**(`evaluator-standards.md`、V6・abstract のみ)
+**Step 9**(`cross-review/SKILL.md`、R3)
+手順6.2 の接地検証は Codex の指摘も対象にするため、Codex 側に証拠を要求していないと「行を指せない指摘」が系統的に未接地に落ちる。手順3 の Codex 指示文に1文を足す。
+
+- 対象は **CODEX_MODEL 設定時と未設定時の2箇所**(現行 41-51行)。**両方に同一の文面で追記する**(片方だけの追記は `.claude/rules/consistency.md` の対になる記述の違反であり、どちらの経路を通ったかで指摘の質が変わる)。
+- 追記する文面: 「HIGH / MEDIUM の指摘には、ファイルパスと行番号、またはその指摘を再現するコマンドを必ず添えてください。」既存の「ファイルパスと行番号を含めてください。」の直後に続ける形にし、既存文は消さない(最小diff)。
+- 手順4(レポート整形)には手を入れない(Codex の出力をそのまま整形する既存方針を維持する)。
+
+**Step 10**(`evaluator-standards.md`、V6・abstract のみ)
 評価基準テーブルの「型安全性」行に「テンソルを受け渡す公開関数に shape/dtype 注釈(jaxtyping 等)、または docstring の Shape 節 + shape assert があるか」を追記する。既存セルの記述は消さない(最小diff)。
 
-**Step 10**(`python-standards/SKILL.md`、V6)
+**Step 11**(`python-standards/SKILL.md`、V6)
 「## 型ヒント」節(23-28行)の直後に「## テンソルの shape 注釈(ML コードのみ)」を新設する。**文献は abstract のみ確認**なので、ライブラリの具体的な API 名・有効化関数名を断定して書かない。
 
 - 動機を1文: mypy は `Tensor` の中身(次元・dtype)を検査できないため、shape の食い違いは型チェックを素通りする。
 - 対象: テンソルを受け渡す**公開関数**(モデルの forward、collate_fn、前処理、損失、評価指標)。
 - 手段1: jaxtyping の注釈(`Float[Tensor, "batch instance dim"]` のように次元名まで書き、次元名は関数をまたいで一貫させ CONTEXT.md の用語に合わせる)。導入は `uv add --dev jaxtyping beartype`。**実行時検査はテスト実行時にだけ有効化し、有効化の具体的な記述は jaxtyping の公式ドキュメントに従う**(conftest.py に置き、本番実行のオーバーヘッドを増やさない)。
 - 手段2(依存を増やせない場合の代替): docstring に Shape 節(入力・出力の次元)を書き、テストで `assert x.shape == (...)` を1つ以上置く。
-- どちらも無いテンソル受け渡し関数は evaluator-standards の「型安全性」で指摘対象になる、と締める(Step 9 との対応)。
+- どちらも無いテンソル受け渡し関数は evaluator-standards の「型安全性」で指摘対象になる、と締める(Step 10 との対応)。
 - **注意**: テンプレート本体に対象コードは無い(確認済み)ので、この節は導入先プロジェクト向けの規約である旨を1行添える。
 
-**Step 11**(`planner.md`、V10・abstract のみ)
+**Step 12**(`planner.md`、V10・abstract のみ)
 「## 計画フォーマット」の表に行を1つ足す。
 
-| 事後条件(postconditions) | 実装を見る前に固定できる、機械照合可能な条件を列挙する。1件ごとに「対象(関数・スクリプト・コマンド)/ 入力 / 満たすべき条件」を書く。期待値は設計書の受け入れ条件・計画の目的から導き、**既存実装の出力を写さない**。設計書がある場合は R-ID と対応づける。コード変更を含まない計画では「なし(理由)」と明記する |
+| 事後条件(postconditions) | 実装を見る前に固定できる、機械照合可能な条件を列挙する。**表の行 ID は `PC-1` `PC-2` … の形式にし、素の連番を使わない**(手順5 の計画遵守の照合 `grep -cE '^\| [0-9]+ \|'` が実装手順の行だけを数えられるようにするため)。1件ごとに「対象(関数・スクリプト・コマンド)/ 入力 / 満たすべき条件」を書く。期待値は設計書の受け入れ条件・計画の目的から導き、**既存実装の出力を写さない**。設計書がある場合は R-ID と対応づける。コード変更を含まない計画では「なし(理由)」と明記する |
 
-制約の箇条書きに1行: 「事後条件は Generator が実装前にテスト化する(generator.md の作業手順)。実装後に書くと実装の挙動をなぞるだけのテストになり検出力が無くなる」。
+制約の箇条書きに2行:
+- 「事後条件は Generator が実装前にテスト化する(generator.md の作業手順)。実装後に書くと実装の挙動をなぞるだけのテストになり検出力が無くなる」。
+- 「**実装手順テーブル以外の表で、行頭セルを素の連番(`| 1 |` 等)にしない**。手順5 の計画遵守の照合が実装手順の行数を誤って数える」。事後条件表だけでなく将来追加される表にも効かせるため、planner.md 側の一般規約として書く。
 
-**Step 12**(`tdd/SKILL.md`、V10)
+**Step 13**(`tdd/SKILL.md`、V10)
 「## 進め方(1振る舞いにつき)」の直後に「## 事後条件は実装より先に固定する」を新設する(既存の「## 適用範囲の判断」「## 注意」の粒度・文体に合わせる)。
 
 - テストの期待値は**仕様**から取る。実装や実行結果から逆算した期待値(現在の出力をそのまま assert する)はバグを固定化するだけで検出力にならない。
@@ -202,17 +220,20 @@ S/M/L の3項目の直後に小節を1つ足す(30行以内)。
 - バグ修正では修正前の出力を期待値にしない。「本来どうあるべきか」を設計書・計画から決めてから Red を書く。
 - 期待値の出所(設計書の R-ID、計画の事後条件、仕様の該当箇所)をテストの docstring かコメントに1行書く。
 
-**Step 13**(`spec-checklist/SKILL.md`、V10)
+**Step 14**(`spec-checklist/SKILL.md`、V10)
 検査の5次元テーブルの「測定可能性」行の検査内容に「計画に『事後条件』欄があり、各事後条件が実行コマンドで機械照合できる形か(実装を見る前に固定できる内容になっているか)」を追記し、例セルに1件足す。**次元は増やさない**(5次元の構造は README・ml-pipeline 手順3.3 の記述と結びついているため)。
 
-**Step 14**(`generator.md`、V10 / V6 / P10)
-1ファイルに3候補ぶんを追加する。既存の番号付き作業手順の連番を壊さないよう注意する。
+**Step 15**(`generator.md`、V10 / V6 / P10)
+1ファイルに3候補ぶんを追加する。**挿入で番号がずれるため、編集対象は番号でなく内容で特定し、下記の順序で編集する**(先に末尾側を編集し、最後に番号がずれる挿入を行う)。
 
-- 作業手順3と4の間に1項目: 「計画に『事後条件』がある場合、実装より先に事後条件をテストとして書き、実装前に実行して FAIL することを確認する。期待値は計画・設計書の仕様から取り、既存実装の出力を写さない」(V10)。既存の ml-pipeline 手順5「テストは修正前の実装で FAIL することを確認」規律と接続する旨を1行。
-- 自己チェック項目に1行: 「テンソルを受け渡す公開関数に shape 注釈(または Shape 節 + shape assert)を付けたか」(V6)。
-- 作業手順7(完了報告)に「計画ステップ対応表」の要求を追記し、各ステップ着手前に計画の該当行を読み直す規律を足す(P10)。列は Step 7 と**同一**にする。
+編集順序:
+1. **自己チェック項目**(「## 自己チェック項目」節)に1行追加: 「テンソルを受け渡す公開関数に shape 注釈(または Shape 節 + shape assert)を付けたか」(V6)。番号なしのチェックリストなのでずれの影響を受けない。
+2. **完了報告を規定する項目**(現行の作業手順7番。本文が「完了したら作業ログを計画ファイル末尾に追記し、完了報告に変更したファイルの一覧を含める」で始まる項目)に、「計画ステップ対応表」の要求と、各ステップ着手前に計画の該当行を読み直す規律を追記する(P10)。**表の列は Step 7 と同一にする**。
+3. **最後に**、作業手順の「計画の各ステップを順番に実装する」項目(現行4番)の**直前**に新項目を挿入する: 「計画に『事後条件』がある場合、実装より先に事後条件をテストとして書き、実装前に実行して FAIL することを確認する。期待値は計画・設計書の仕様から取り、既存実装の出力を写さない」(V10)。挿入後、以降の項目番号を1つずつ繰り下げる。
 
-**Step 15**(`verify-installers.sh`、テストファースト)
+**注意**: 挿入を先に行うと、上記2で「作業手順7」を番号で探した場合に別項目(ログ保存の項目)を書き換えてしまう。番号での参照は避け、必ず本文の書き出しで特定する。編集後、`grep -n "^[0-9]\." .claude/agents/generator.md` で番号が連番になっていること(飛び・重複が無いこと)を確認する。
+
+**Step 16**(`verify-installers.sh`、テストファースト)
 サンドボックス A(新規導入)のアサーション群(90行付近の「任意機能は既定では無効のまま」の隣)に既存の `assert` 書式で1件追加する。
 
 ```
@@ -221,18 +242,18 @@ assert "init: CLAUDE_REFUTE_PASS が雛形に含まれる(既定無効)" grep -q
 
 **この時点で `bash verify-installers.sh` を実行し、この1件が NG になること(RED)を確認して報告に含める**。既存アサーションが NG になっていないことも同時に確認する。
 
-**Step 16**(雛形とインストーラ)
+**Step 17**(雛形とインストーラ)
 - `templates/settings.local.json.template` の `CLAUDE_FINAL_GATE` の直後に `"CLAUDE_REFUTE_PASS": "0"` を追加する(`enable_feature()` は雛形にキーが無いと警告して失敗するため必須)。
 - `claude-init.sh` の `OPTIONAL_FEATURES`(125-133行)と `claude-init.ps1` の `$OptionalFeatures`(117-126行)に同一の説明文で1件追加する。説明文は「レビュー指摘の反証濾過(HIGH 指摘を refuter が潰し、生き残った指摘だけ差し戻しに使う)」。
-- **注意**: `verify-installers.sh` は配布ペイロードを HEAD から clone するため、**この変更をコミットするまで Step 15 のアサーションは GREEN にならない**。コミット後に再実行して GREEN を確認し、その順序を報告に書く。
+- **注意**: `verify-installers.sh` は配布ペイロードを HEAD から clone するため、**この変更をコミットするまで Step 16 のアサーションは GREEN にならない**。コミット後に再実行して GREEN を確認し、その順序を報告に書く。
 - 閾値変数は導入しない(二値フラグのみ。`enable_feature()` が `"1"` を書き込むため閾値変数を質問リストに載せてはならない、という既存規約に従う)。
 
-**Step 17**(README / CHANGELOG、逐次・最後。worktree を作らない)
+**Step 18**(README / CHANGELOG、逐次・最後。worktree を作らない)
 **このステップは A〜C の並列グループが統合ブランチへマージされ、統合テストが
 通った後に、統合ブランチ上で単独の generator を起動して実行する**。
 D のための worktree・サブブランチは作らない(マージ前の状態から分岐すると
 以下の現物確認が成立しないため)。
-**このステップの最初に、Step 1〜16 で実際に書かれた内容を Read と grep で現物確認してから書く**(README を実装と別グループで書いたことが `patterns.md` パターン1・21件の主因)。行番号は実装でずれるので grep で再特定する。更新箇所:
+**このステップの最初に、Step 1〜17 で実際に書かれた内容を Read と grep で現物確認してから書く**(README を実装と別グループで書いたことが `patterns.md` パターン1・21件の主因)。行番号は実装でずれるので grep で再特定する。更新箇所:
 
 - mermaid 図: 手順6.2(接地検証)と HUMAN_REVIEW 出口を反映(**増やすノードは2つまで**。図の可読性を優先する)
 - 環境変数表: `CLAUDE_REFUTE_PASS` を1行(既存行の書式・語調に合わせる)
@@ -250,7 +271,9 @@ D のための worktree・サブブランチは作らない(マージ前の状�
 **並列化可能(グループ A / B / C の3つ。D は並列グループではない)**。
 
 - **A / B / C**: 対象ファイルが完全に分離し依存も無いため、手順5 の規約どおり
-  worktree 分離付きのサブブランチで並列実装する。
+  worktree 分離付きのサブブランチで並列実装する。**グループ B は8ファイル・8ステップ
+  (Step 8〜15)と最も大きい**が、V6 / V10 は複数ファイルにまたがるため同一グループに
+  置く必要がある(分割すると文面の食い違いが出る)。
 - **D(README / CHANGELOG)**: **並列グループとして worktree を作らない**。
   A〜C のサブブランチを統合ブランチへマージし(手順6.5)、統合テストが通った後に、
   リーダーが**統合ブランチ上で逐次 generator を起動する後続ステップ**として実行する。
@@ -278,13 +301,15 @@ D のための worktree・サブブランチは作らない(マージ前の状�
    - `grep -rln "jaxtyping" .claude/skills/python-standards/SKILL.md .claude/agents/generator.md .claude/agents/evaluator-standards.md` → **3ファイル全て**
    - `grep -rln "計画ステップ対応表" .claude/agents/generator.md .claude/commands/ml-pipeline.md` → **2ファイル全て**
    - `grep -c "再現コマンド" .claude/agents/evaluator.md .claude/agents/evaluator-standards.md` → **両方1以上**(片側だけの追加を検出)
+   - `grep -c "再現" .claude/skills/cross-review/SKILL.md` → **2以上**(CODEX_MODEL 設定時・未設定時の両プロンプトに証拠要求が入っていること)
+   - `grep -n "残った差し戻し根拠" .claude/commands/ml-pipeline.md` → **1件以上**(手順7 の既存分岐が書き換わっていること)
 2. **インストーラ sh / ps1 の1対1対応**(`.claude/rules/consistency.md` の標準形)
    ```
    diff <(grep -oE 'CLAUDE_[A-Z_]+' claude-init.sh | sort -u) \
         <(grep -oE 'CLAUDE_[A-Z_]+' claude-init.ps1 | sort -u)
    ```
    → 差分なし。**件数(生・一意)と diff の3点**を報告する。
-3. **インストーラ回帰**: `bash verify-installers.sh` → `NG:` 0件。新規アサーションが `OK:` で出る。**Step 15 の時点では NG(RED)、Step 16 のコミット後に OK(GREEN)** の両方を報告する。
+3. **インストーラ回帰**: `bash verify-installers.sh` → `NG:` 0件。新規アサーションが `OK:` で出る。**Step 16 の時点では NG(RED)、Step 17 のコミット後に OK(GREEN)** の両方を報告する。
 4. **フック回帰**: `bash verify-hooks.sh` → 全テスト PASS(本計画はフックを変更しないため、既存と同一の結果になることの確認)。
 5. **単体テスト**: `uv run --with pytest python -m pytest tests/ -q` → **118 passed**(件数が減っていないこと)。
    このリポジトリには pyproject.toml が無く pytest も未導入のため、`--with pytest` を
@@ -299,7 +324,7 @@ D のための worktree・サブブランチは作らない(マージ前の状�
    確認後、一時ファイルを削除する。
 7. **反証濾過の実挙動**: `@refuter` を手作りの HIGH 指摘3件で起動する。(a) 実在する明白な問題 → 反証失敗(昇格)/ (b) 実在しない関数を名指しした主張 → 反証成功(棄却、根拠に grep 出力がある)/ (c) 事実は正しいが「軽微だから問題ない」としか反証できないもの → **反証失敗**(価値判断は反証と認めない)。出力が定義した形式(判定 + 根拠)を守り、新しい指摘・改善案が含まれていないこと。
 8. **リスク階層の判定**: `@router` に3パターンを渡す。(a) `.claude/hooks/` を触る依頼 → 高 / (b) 単一モジュールのロジック変更 → 中 / (c) README の typo 修正 → 低。手順0 の格上げ規則どおりの経路が導かれること(高では1段格上げされ、低でも工程が省略されないこと)。
-9. **計画遵守の照合(複数・入れ子)**: 本計画の実装後、generator の完了報告が計画ステップ対応表を含み、`grep -cE '^\| [0-9]+ \|' .claude/plans/20260804-survey7-robustness.md`(= 17)と対応表の行数が一致すること。**並列実装した場合はグループごとの表を合算して17ステップ全てを覆うこと**(入れ子ケース)。
+9. **計画遵守の照合(複数・入れ子)**: 本計画の実装後、generator の完了報告が計画ステップ対応表を含み、`grep -cE '^\| [0-9]+ \|' .claude/plans/20260804-survey7-robustness.md` が **18** を返し、対応表の行数と一致すること。**事後条件表を `PC-n` 形式にしたことで実装手順の行だけが数えられる**(素の連番のままだと 18 + 4 = 22 と誤カウントする。修正前の本計画で実測 21)。**並列実装した場合はグループごとの表を合算して18ステップ全てを覆うこと**(入れ子ケース)。
 10. **ml-pipeline の肥大化の確認**: `wc -l .claude/commands/ml-pipeline.md` → 実装後に **800行未満**(新設4箇所の合計増分が約150行に収まっていること)。
 
 ## リスク
@@ -330,15 +355,15 @@ D のための worktree・サブブランチは作らない(マージ前の状�
 
 | ID | 候補 | 文献の確認状態 | 対応ステップ | 検証方法 |
 |---|---|---|---|---|
-| V6 | jaxtyping + beartype による shape 検査 | abstract のみ | Step 9, 10, 14, 17 | 検証方法1の `jaxtyping` grep が3ファイル全てヒット |
-| R3 | レビュー指摘の接地検証 | 本文確認済み | Step 4, 8, 17 | 検証方法6(0件/混在/ズレ/未接地HIGH の4ケース)+ 検証方法1の `手順6.2` / `再現コマンド` grep |
-| P10 | 計画遵守の検証 | 本文確認済み | Step 7, 14, 17 | 検証方法9(ステップ数一致・並列合算)+ 検証方法1の `計画ステップ対応表` grep |
-| R9 | HUMAN_REVIEW 出口 | abstract のみ | Step 6, 17 | 検証方法1の `HUMAN_REVIEW` grep が3箇所以上 + 検証方法6の未接地HIGHケース |
-| I5 | リスク階層ゲート | abstract のみ | Step 1, 2, 17 | 検証方法8(高/中/低の3パターン)+ 検証方法1の `リスク階層` grep |
-| V10 | 事後条件の事前固定 | abstract のみ | Step 11, 12, 13, 14, 17 | 検証方法1の `事後条件` grep が4ファイル全てヒット |
-| R1 | 反証濾過パス | 本文確認済み | Step 3, 5, 15, 16, 17 | 検証方法7(反証成功/失敗/価値判断の3ケース)+ 検証方法2, 3 |
+| V6 | jaxtyping + beartype による shape 検査 | abstract のみ | Step 10, 11, 15, 18 | 検証方法1の `jaxtyping` grep が3ファイル全てヒット |
+| R3 | レビュー指摘の接地検証 | 本文確認済み | Step 4, 8, 9, 18 | 検証方法6(0件/混在/ズレ/未接地HIGH の4ケース)+ 検証方法1の `手順6.2` / `再現コマンド` grep(cross-review 2箇所を含む) |
+| P10 | 計画遵守の検証 | 本文確認済み | Step 7, 15, 18 | 検証方法9(ステップ数18・並列合算)+ 検証方法1の `計画ステップ対応表` grep |
+| R9 | HUMAN_REVIEW 出口 | abstract のみ | Step 6, 18 | 検証方法1の `HUMAN_REVIEW` grep が3箇所以上、`残った差し戻し根拠` grep が1件以上 + 検証方法6の未接地HIGHケース |
+| I5 | リスク階層ゲート | abstract のみ | Step 1, 2, 18 | 検証方法8(高/中/低の3パターン)+ 検証方法1の `リスク階層` grep |
+| V10 | 事後条件の事前固定 | abstract のみ | Step 12, 13, 14, 15, 18 | 検証方法1の `事後条件` grep が4ファイル全てヒット + 検証方法9(`PC-n` 化により18が返る) |
+| R1 | 反証濾過パス | 本文確認済み | Step 3, 5, 16, 17, 18 | 検証方法7(反証成功/失敗/価値判断の3ケース)+ 検証方法2, 3 |
 
-対応ステップの無い ID は無い。Step 17 は単独ではどの ID にも属さないが、`.claude/rules/consistency.md` の「記述と実装の整合」を満たすため全 ID に対応する。
+対応ステップの無い ID は無い。Step 18 は単独ではどの ID にも属さないが、`.claude/rules/consistency.md` の「記述と実装の整合」を満たすため全 ID に対応する。
 
 ## コスト見積もり(cost_estimate)
 
