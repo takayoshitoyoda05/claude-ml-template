@@ -27,6 +27,25 @@ description: このプロジェクトのPythonコーディング規約(パッケ
 - Python 3.10+ の型構文(`list[str]`, `X | None`)を使う。
   `typing.List`, `typing.Optional` は使わない
 
+## テンソルの shape/dtype 注釈(ML コードのみ)
+- 動機: mypy は `Tensor` の中身(次元・dtype)を検査できないため、
+  shape/dtype の食い違いは型チェックを素通りする。
+- 対象: テンソルを受け渡す**公開関数**(モデルの forward、collate_fn、
+  前処理、損失、評価指標)。
+- 手段1: jaxtyping の注釈(`Float[Tensor, "batch instance dim"]` のように
+  dtype(`Float` 等)と次元名まで書き、次元名は関数をまたいで一貫させ
+  CONTEXT.md の用語に合わせる)。
+  導入は `uv add --dev jaxtyping beartype`。**実行時検査はテスト実行時にだけ
+  有効化し**、有効化の具体的な記述は jaxtyping の公式ドキュメントに従う
+  (conftest.py に置き、本番実行のオーバーヘッドを増やさない)。
+- 手段2(依存を増やせない場合の代替): docstring に Shape/dtype 節(入力・出力の
+  次元・dtype)を書き、テストで `assert x.shape == (...)` と dtype の assert を
+  1つ以上置く。
+- どちらも無いテンソル受け渡し関数は evaluator-standards の「型安全性」で
+  指摘対象になる。
+- **注意**: このテンプレート本体に対象コードは無い。この節は導入先
+  プロジェクト向けの規約である。
+
 ## docstring
 - スタイル: Google スタイル
 - 公開する関数・クラスには必ず付ける。Args / Returns / Raises を書く

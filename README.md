@@ -20,10 +20,12 @@ flowchart TD
     D -.->|CLAUDE_CROSS_REVIEW無効時| F
     X --> E[evaluator: Spec軸 数値で判定]
     X --> F[evaluator-standards: Standards軸 品質レビュー]
-    E & F -->|両方PASS| AD[セキュリティスキャン<br>※CLAUDE_SECURITY_SCAN=1時のみ]
-    E & F -->|NEEDS_REVISION| D
+    E & F --> GV{接地検証 手順6.2<br>+反証濾過 手順6.3<br>※CLAUDE_REFUTE_PASS=1時}
+    GV -->|両方PASS| AD[セキュリティスキャン<br>※CLAUDE_SECURITY_SCAN=1時のみ]
+    GV -->|差し戻し根拠が残る| D
+    GV -->|判定不確実| HR[HUMAN_REVIEW<br>停止・人間の判断]
     E -->|FAIL 3回| B
-    E & F -.->|両方PASSかつSECURITY_SCAN無効時| P
+    GV -.->|両方PASSかつSECURITY_SCAN無効時| P
     AD -->|verifiedな指摘なし| P[リファクタリング・パス<br>動作を変えない磨き1周]
     AD -->|verifiedな指摘あり| D
     P --> FG[final-gate fable: マージ可否の三択判断<br>※CLAUDE_FINAL_GATE=1時のみ]
@@ -248,6 +250,7 @@ config-set スキルが貼り付け用のJSONを提示するので、それを�
 | CLAUDE_NOTIFY | `1` でセッション停止時にデスクトップ通知を出す。空文字列なら CLAUDE_CONTROL_LEVEL に委ねる(L3 で有効) | 空(レベルに委ねる) |
 | CLAUDE_SECURITY_SCAN | `1` でclaude-securityプラグインによる差分スキャンを2軸レビュー後に実行(起動にはユーザー本人のコスト承諾明記が別途必要。3.17節参照) | 無効(0) |
 | CLAUDE_FINAL_GATE | `1` でFableによる最終ゲート判断をリファクタパス後に実行 | 無効(0) |
+| CLAUDE_REFUTE_PASS | `1` で接地済みHIGH指摘をrefuterが反証する反証濾過パスを有効にする(手順6.3。リスク階層が高の依頼では実行しない) | 無効(0) |
 | CLAUDE_ACTION_LOG | `1`(または未設定)で全ツール実行・エージェントの自動記録を有効化、`0` で無効化 | 有効(1) |
 | CLAUDE_REFACTOR_SWARM | `1` でリファクタパスの検出を Haiku 7体の並列スカウトで行う(エージェントチーム機能が必要) | 無効(0) |
 | CLAUDE_CONTROL_LEVEL | 自律度の一括切替。L1(手動運転)/ L2(監督運転・既定)/ L3(自律運転) | L2 |
@@ -529,41 +532,54 @@ outputs/に出る画像が真っ黒になる問題を解消したい
 パイプラインの内部では、次のエージェントがこの順序で自動的に呼ばれる
 (各エージェントの詳細は 2.3 節を参照)。
 
-1. 作業ブランチ `pipeline/YYYYMMDD-<トピック>` を作成する。以降の全コミットはこの上で行い、
+1. **router(haiku)** が依頼内容から規模(S/M/L)とリスク階層(高/中/低)を判定する(手順0)。
+   リスク階層が「高」なら規模判定を1段上げ(S→M、M→L)、手順6.3(反証濾過パス)を
+   実行しない(リスク階層は強める方向にのみ作用する)
+2. 作業ブランチ `pipeline/YYYYMMDD-<トピック>` を作成する。以降の全コミットはこの上で行い、
    main は一切変更されない(「作業ブランチと原子性」の節を参照)
-2. 作業スコープ直下の `CONTEXT.md` をメイン会話が一度だけ読み、要点を各エージェントに渡す。
+3. 作業スコープ直下の `CONTEXT.md` をメイン会話が一度だけ読み、要点を各エージェントに渡す。
    調査範囲が広ければ **Planner(opus)** の前に Explore(haiku)で安価に下調べする
-3. **Planner(opus)** が計画を `.claude/plans/` に保存する
-4. spec-checklist の品質ゲート(手順3.3)を READY で通過した計画に対し、
+4. **Planner(opus)** が計画を `.claude/plans/` に保存する
+5. spec-checklist の品質ゲート(手順3.3)を READY で通過した計画に対し、
    **plan-premortem(sonnet)** が計画ファイルのパスと作業スコープだけを渡された
    独立コンテキストで敵対的にレビューする(手順3.4)。HIGH指摘が1件以上あれば
    planner に差し戻して手順3.3からやり直す(最大1回。2回目はユーザー判断)
-5. 計画を承認する。`CLAUDE_AUTO_APPROVE=1` なら **plan-reviewer(sonnet)** が8条件で審査し、
+6. 計画を承認する。`CLAUDE_AUTO_APPROVE=1` なら **plan-reviewer(sonnet)** が8条件で審査し、
    全て満たせばユーザー承認をスキップする。デフォルト(0)ではユーザーが承認するまで進まない
    (「計画の自動承認」の節を参照)
-6. **Generator(sonnet)** が計画通りに実装・コミット。変更ファイル一覧を両 Evaluator に渡す。
+7. **Generator(sonnet)** が計画通りに実装・コミット。変更ファイル一覧を両 Evaluator に渡す。
    計画が「並列化可能」なら、worktree 分離したチームメイトがグループごとの
    サブブランチで並列実装する(「並列実装」の節を参照。tmux は表示用で必須ではない)
-7. `CLAUDE_CROSS_REVIEW=1` なら cross-review スキルが Codex CLI に別モデル視点の
+8. `CLAUDE_CROSS_REVIEW=1` なら cross-review スキルが Codex CLI に別モデル視点の
    レビューをさせ、その結果を Evaluator への追加情報として渡す
-8. **evaluator(sonnet)** と **evaluator-standards(sonnet)** が並行して2軸レビュー
+9. **evaluator(sonnet)** と **evaluator-standards(sonnet)** が並行して2軸レビュー
    (Spec軸: 動作の正しさ / Standards軸: コード品質)。evaluator は評価コマンドが
    1つでも失敗した場合のみ、分岐元の worktree で同じコマンドを再実行して
    既存の失敗・flaky を差し戻しの根拠から除外する(手順4.5「ベースライン比較実行」)
-9. 両方 PASS なら次へ。片方でも NEEDS_REVISION なら Generator に差し戻し、
-   evaluator が FAIL を3回出したら Planner まで巻き戻る。最大3イテレーションで打ち切り。
-   並列実装では全グループ PASS のときだけ統合する(原子性の保証)
-10. `CLAUDE_SECURITY_SCAN=1` なら **claude-security プラグイン**が差分(main...HEAD)を
+10. HIGH/MEDIUM 指摘を**接地検証**する(手順6.2、必須)。file:line 形式は該当行の実在を
+    Read で確認し、再現コマンド形式は実行して再現を確認する。未接地・検証不能の
+    指摘は根拠から外す(MEDIUM)か HUMAN_REVIEW 対象にする(HIGH)。判定そのもの
+    (PASS/NEEDS_REVISION/FAIL)は書き換えない
+11. `CLAUDE_REFUTE_PASS=1` かつリスク階層が「高」でなければ、接地済み HIGH 指摘を
+    **refuter(sonnet)** が独立コンテキストで反証する(手順6.3)。反証成功した指摘は
+    差し戻し根拠から外れ、反証失敗した指摘は差し戻し根拠に昇格する
+12. 両方 PASS なら次へ。片方でも NEEDS_REVISION なら、手順6.2・6.3を経て残った
+    差し戻し根拠だけを Generator に差し戻す。差し戻し根拠が0件、未接地HIGHが残る等
+    判定が不確実な場合は差し戻さずパイプラインを一時停止し人間の判断を仰ぐ
+    (HUMAN_REVIEW)。evaluator が FAIL を3回出したら Planner まで巻き戻る。
+    最大3イテレーションで打ち切り。並列実装では全グループ PASS のときだけ統合する
+    (原子性の保証)
+13. `CLAUDE_SECURITY_SCAN=1` なら **claude-security プラグイン**が差分(main...HEAD)を
     スキャンし、verification.status が verified の指摘のみを採用する
     (unverified は参考情報に留め差し戻しには使わない)。
     verified な指摘が残れば Generator に差し戻す(手順6.6)
-11. 両方 PASS 後、Generator が動作を一切変えずにコードを磨く「リファクタリング・パス」を
+14. 両方 PASS 後、Generator が動作を一切変えずにコードを磨く「リファクタリング・パス」を
     1周行う(手順6.7)。テストか品質再確認が1つでも壊れたら磨き分だけ破棄して先へ進む
-12. `CLAUDE_FINAL_GATE=1` なら **final-gate(fable)** が最終形を俯瞰し、
+15. `CLAUDE_FINAL_GATE=1` なら **final-gate(fable)** が最終形を俯瞰し、
     APPROVE / SEND_BACK / NEEDS_HUMAN の三択でマージ承認の最終判断を行う(手順6.8)
-13. `CLAUDE_SPEC_CHECK=1` で受け入れ条件テーブルがある設計書を扱っている場合、
+16. `CLAUDE_SPEC_CHECK=1` で受け入れ条件テーブルがある設計書を扱っている場合、
     **spec-auditor(sonnet)** が verdict の証拠を独立コンテキストで再検証する
-14. 全工程の完了後、変更の要約とともに「main にマージしますか?」と確認される
+17. 全工程の完了後、変更の要約とともに「main にマージしますか?」と確認される
 
 ### 設計書を通すかどうかの目安(推奨)
 
@@ -656,6 +672,26 @@ planner → (ユーザー承認) → generator → evaluator / evaluator-standar
   動作の正しさは判定しない(evaluator と独立した視点を保つため)
 - **出力**: PASS / NEEDS_REVISION。HIGH / MEDIUM の指摘が無ければ PASS
 - **単体で呼ぶ場面**: 動作確認は済んでいて、品質観点のレビューだけ欲しいとき
+
+#### @refuter — レビュー指摘の反証(sonnet)
+
+```
+@refuter この指摘を反証して: evaluator-standards の指摘「foo.py:42 で型注釈が無い」
+```
+
+`CLAUDE_REFUTE_PASS=1` かつリスク階層が「高」でなく、手順6.2 の接地検証を通過した
+HIGH 指摘が1件以上あるとき `/ml-pipeline` から自動的に呼ばれる(手順6.3)。単体呼び出しは、
+差し戻す前に特定の指摘だけ反証できないか確認したいときに使う。
+
+- **渡すもの**: 接地済み HIGH 指摘の全文と変更ファイル一覧
+- **すること**: 各指摘について「成り立たない」ことだけを示そうとする(擁護・改善案・
+  新しい指摘は書かない)。事実の不在・経路の不成立・既存の防御・反例の実行のいずれかを
+  実行コマンドの出力か file:line の引用で示せた場合のみ反証成功とし、「軽微だ」等の
+  価値判断しか出せない場合は反証失敗とする(fail-closed。潰せなければ指摘は生き残る)
+- **出力**: 指摘ごとに `判定: 反証成功 / 反証失敗` + `根拠`。反証成功は差し戻し根拠から
+  外れ、反証失敗は差し戻し根拠に昇格する。PASS/NEEDS_REVISION などの判定は出さない
+- **単体で呼ぶ場面**: 手順7で差し戻す前に、特定の HIGH 指摘が本当に成り立つか
+  独立視点で確認したいとき
 
 #### spec-auditor — spec-compliance の独立監査(sonnet)
 
@@ -806,11 +842,12 @@ spec-checklist ゲートは設計書の有無に関わらず毎回動く(設計�
 | generator | sonnet | 計画に沿った実装と git commit |
 | evaluator | sonnet | Spec軸: 計画通りに動くか。評価コマンドを実行し数値で判定 |
 | evaluator-standards | sonnet | Standards軸: 規約・可読性・型安全性・コードスメル |
+| refuter | sonnet | 接地済みHIGH指摘を反証専任でレビュー。反証成功で差し戻し根拠から除外(手順6.3、CLAUDE_REFUTE_PASS=1時のみ。リスク階層が高の依頼では実行しない) |
 | spec-auditor | sonnet | spec-compliance の独立監査: verdict の証拠検証・スコープ外変更の列挙 |
 | improvement-reviewer | opus | retrospectiveの改善案を不変条件に基づいて審査・適用(テスト失敗時は自動revert) |
 | final-gate | fable | 最終形を俯瞰しマージ承認の三択判断のみ(第3層。CLAUDE_FINAL_GATE=1で有効、APPROVE/SEND_BACK/NEEDS_HUMAN) |
 | scout-*(7体) | haiku | リファクタ偵察係。命名/重複/複雑度/コメント/対称性/docstring/デッドコードの各観点で提案のみ。CLAUDE_REFACTOR_SWARM=1 で手順6.7から並列起動。コード変更不可 |
-| router | haiku | タスク規模(S/M/L)を判定し経路を振り分ける軽量ルータ。手順0で自動実行。迷ったらL |
+| router | haiku | タスク規模(S/M/L)とリスク階層(高/中/低)を判定し経路を振り分ける軽量ルータ。手順0で自動実行。リスク階層が高なら規模判定を1段上げる。規模は迷ったらL、リスク階層は迷ったら中 |
 
 ### 3.2 スキル(.claude/skills/)
 
@@ -820,9 +857,9 @@ spec-checklist ゲートは設計書の有無に関わらず毎回動く(設計�
 |---|---|---|---|
 | brainstorm | 方向性が定まっていない(発散) | 「ブレストして」「アイディア出しして」 | `ideas/` にアイデア一覧 |
 | design-interview | ラフな設計書を一問一答で固める(収束)。曖昧性タクソノミーで聞き尽くし、要件を EARS 記法で記述 | 「詰めて」「grillして」「深掘りして」 | `docs/drafts/` の設計書を更新 + 受け入れ条件テーブル |
-| spec-checklist | 設計書の品質(完全性・明確性・一貫性・測定可能性・カバレッジ)を実装前に検査 | 「設計書をチェックして」「spec-checklistして」 | READY / NEEDS_WORK のレポート |
+| spec-checklist | 設計書・計画の品質(完全性・明確性・一貫性・測定可能性・カバレッジ)を実装前に検査。測定可能性は計画の事後条件欄も検査対象 | 「設計書をチェックして」「spec-checklistして」 | READY / NEEDS_WORK のレポート |
 | diagnosing-bugs | 原因不明のバグを再現→仮説→計測で診断 | 「原因を調べて」「なぜこうなるか分からない」 | 診断ログ、原因の特定 |
-| tdd | 入出力が明確な新機能を red-green-refactor で | 「テスト駆動で実装して」「red-green-refactorで」 | テストファーストの実装 |
+| tdd | 入出力が明確な新機能を、事後条件を先に固定してから red-green-refactor で | 「テスト駆動で実装して」「red-green-refactorで」 | テストファーストの実装 |
 | adr | トレードオフを伴う設計判断の記録 | 「この決定をADRに残して」 | `docs/adr/` に ADR |
 | handoff | セッションを区切って引き継ぐ | 「handoffして」「引き継ぎを作って」 | `.claude/handoffs/` に引き継ぎ文書 |
 | architecture-check | 設計負債(重複・肥大化)の定期チェック | 「アーキテクチャを見直して」「設計負債をチェックして」 | レポートのみ(コード変更なし) |
@@ -832,7 +869,7 @@ spec-checklist ゲートは設計書の有無に関わらず毎回動く(設計�
 | security-review | コードの脆弱性チェック、サードパーティ製スキルの安全性監査 | 「セキュリティをチェックして」「このスキルは安全か」 | レポートのみ(コード変更なし) |
 | pre-mortem | 動いているコードの「将来壊れそうな箇所」を予測 | 「pre-mortemして」「壊れそうな箇所を洗い出して」 | レポートのみ(コード変更なし) |
 | leakage-check | 学習/評価データ間の情報漏洩(リーケージ)を確認 | 「リーケージチェックして」「分割は正しいか確認して」 | レポートのみ(コード変更なし) |
-| python-standards | Python コーディング規約(uv/pytest/型ヒント等)の固定 | 明示呼び出し不要(`.claude/rules/` が自動適用。参照用) | 参照用(generator/evaluator-standards が基準にする) |
+| python-standards | Python コーディング規約(uv/pytest/型ヒント・テンソル shape/dtype 注釈等)の固定 | 明示呼び出し不要(`.claude/rules/` が自動適用。参照用) | 参照用(generator/evaluator-standards が基準にする) |
 | property-test | ランダム入力で不変条件を網羅的に検証(Hypothesis) | 「プロパティテストして」「hypothesisでテストして」 | tests/ にプロパティテストを生成 |
 | cross-review | Codex CLI で別モデル視点のレビュー | 「クロスレビューして」(CLAUDE_CROSS_REVIEW=1 時は自動要求) | レポート + センチネル |
 | fix-ci | CI失敗の修正ガイド | 「CIを直して」「テストが落ちている」 | 修正実装 |
@@ -1200,6 +1237,9 @@ CLAUDE_SECURITY_SCAN=1 と CLAUDE_FINAL_GATE=1 を設定すると、
 (編集の都度、security-guidance が自動レビュー ← 常時安全層)
 
 【第1層】evaluator(Spec) + evaluator-standards(Standards)
+  ↓ 判定(PASS/NEEDS_REVISION)によらず実行
+接地検証(必須、手順6.2)
+  ↓ 反証濾過(opt-in、手順6.3。CLAUDE_REFUTE_PASS=1時。リスク階層「高」では実行しない)
   ↓ 両方PASS
 【第2層】claude-security 差分スキャン
   6フェーズ: Inventory → Threat model → Research → Sweep → Panel → Adversarial
@@ -1340,14 +1380,21 @@ guard_metrics 違反(例: train_val_gap > 0.05)なら fail。
 #### 失敗遷移表
 
 失敗時の再試行回数と遷移先は事前定義されている(構文エラー3回→generator、
-目標未達1回→planner、リソース超過0回→人間、等)。エージェントが勝手に
-リトライし続けたり、勝手に計画を変えたりしない。
+目標未達1回→planner、リソース超過0回→人間、判定不確実0回→人間(HUMAN_REVIEW)、等)。
+エージェントが勝手にリトライし続けたり、勝手に計画を変えたりしない。
+
+判定不確実(HUMAN_REVIEW)は、手順6.2の接地検証でHIGH指摘が未接地・検証不能のまま
+残った/差し戻し根拠が0件になった/指摘の根拠と手順6.3の反証が正面から矛盾する、
+のいずれかで発生する。evaluator の判定語彙(PASS/NEEDS_REVISION/FAIL)自体は変えない。
 
 #### ルーティング(手順0)
 
-router(Haiku)がタスク規模を判定し、S(typo 等)は generator 直行、
+router(Haiku)がタスク規模とリスク階層(高/中/低。`.claude/hooks/` やデータ分割・
+依存追加等の該当条件に基づく)を判定し、S(typo 等)は generator 直行、
 M(単一モジュール)は planner 省略の短縮経路、L はフルパイプラインに
-振り分ける。軽微な修正に重いパイプラインを強制しない。迷ったら L。
+振り分ける。軽微な修正に重いパイプラインを強制しない。リスク階層が「高」なら
+規模判定を1段上げ(S→M、M→L)、反証濾過パス(手順6.3)を実行しない
+(リスク軸は強める方向にのみ作用する)。規模は迷ったら L、リスク階層は迷ったら中。
 
 ---
 
@@ -1477,6 +1524,7 @@ claude-ml-template/
       generator.md                  Sonnet / 実装専任、acceptEdits
       evaluator.md                  Sonnet / Spec軸レビュー、実験ログ記録
       evaluator-standards.md        Sonnet / Standards軸(コード品質)レビュー
+      refuter.md                    Sonnet / レビュー指摘の反証専任(手順6.3、CLAUDE_REFUTE_PASS=1時)
       spec-auditor.md               Sonnet / spec-compliance独立監査(証拠検証・スコープ外変更列挙)
       plan-premortem.md             Sonnet / 計画の敵対的レビュー(独立コンテキスト、手順3.4)
       plan-reviewer.md              Sonnet / 計画の自動承認判定(CLAUDE_AUTO_APPROVE=1 時)
