@@ -392,3 +392,66 @@ cost_estimate:
   dataset_gb: 0
   parallel_jobs: 0
 ```
+
+## 作業ログ(グループC・差し戻し修正: evaluator/evaluator-standards 指摘対応)
+
+evaluator / evaluator-standards から4件の指摘を受け、以下を対応した(README/CHANGELOG は
+グループE=Step 10 の担当のため対象外)。
+
+- **指摘1(HIGH)**: `_check_diff_coverage()` の2回目の run()(diff-cover 実行)が
+  `code == -1`(timeout)を判定せず `tool_missing(err)` のみで判定していた。
+  1回目の run()(pytest --cov)と同じ `if code == -1 or tool_missing(err): return []`
+  に揃えた。
+- **指摘2(MEDIUM)**: 1回目の run() の戻り値 `out` が未使用だったため
+  `code, out, err = run(...)` を `code, _, err = run(...)` に修正した。
+- **指摘3(テスト不足)**: `tests/test_quality_gate.py` に
+  `test_diff_coverage_run_timeout_is_skipped_not_a_failure` を追加(テストファースト)。
+  修正前の `quality_gate.py` に対して実行し、RED(1件FAIL、他11件は既存どおりPASS)を
+  確認済み。
+- **指摘4(MEDIUM)**: `verify-hooks.ps1` の diff coverage 新規ブロックが
+  `$env:CLAUDE_QUALITY_GATE` / `CLAUDE_DIFF_COVERAGE` を保存せず上書きし、無条件
+  `Remove-Item` していた。直前ブロック(202-215行)と同じ save→restore パターンに揃え、
+  `$savedQualityGate` / `$savedDiffCoverage` の保存→復元を追加した。
+
+`quality_gate.py` 自体は guard により Edit/Write 不可のため、完成版全文を
+`quality_gate.py.fix2`(worktree 直下、未コミット)に Write した。現行ファイルとの diff は
+2箇所のみ(指摘1・2の該当行):
+
+```diff
+103c103
+<         code, out, err = run(
+---
+>         code, _, err = run(
+132c132,135
+<         if tool_missing(err):
+---
+>         # 1回目の run()(pytest --cov)と同じ判定にする。timeout もツール不在と
+>         # 同様にスキップ扱いにしないと、`(-1, "", "timeout")` が
+>         # 「カバレッジ0%未満」の誤った違反になる
+>         if code == -1 or tool_missing(err):
+```
+
+適用コマンド(ユーザー実行):
+```
+cp quality_gate.py.fix2 .claude/hooks/quality_gate.py
+```
+
+事前確認(`importlib.machinery.SourceFileLoader` で `quality_gate.py.fix2` を直接ロードし、
+`tests/test_quality_gate.py` 相当の12ケース全てを実行): 12 passed。適用後に
+`uv run python -m pytest tests/test_quality_gate.py -q` で同じ結果になることを、
+適用作業を行うユーザー側で再確認すること。
+
+変更ファイル:
+- `tests/test_quality_gate.py`(新規テスト1件追加。コミット済み)
+- `verify-hooks.ps1`(save→restore パターンへの修正。コミット済み)
+- `quality_gate.py.fix2`(worktree 直下、新規・未コミット。ユーザーが
+  `.claude/hooks/quality_gate.py` に適用する完成版全文)
+
+コミット:
+- `9422155` test(step 6): diff-cover timeout をスキップ扱いにする回帰テストを追加(RED)
+- `a21c048` fix(step 8): verify-hooks.ps1 の diff coverage ブロックで env を save→restore する
+
+`verify-hooks.sh` 側は変更不要と確認した(`env -u ... command` をサブシェル
+`(cd "$QG_TMP" && ...)` 内で使っており、単一コマンドの実行にのみ環境変数を渡すため
+親シェルの環境を汚染しない。save→restore が要るのは PowerShell が `$env:` への代入で
+プロセス環境を直接書き換えるため)。
