@@ -300,7 +300,7 @@ cost_estimate:
 ## 作業ログ(Step 1〜6)
 
 - 2026-08-05: Step 1〜6を逐次実装。Step 1でPC-1〜13・PC-15の受け入れテスト
-  (`tests/test_session_resume.py`、41件)を先に書き、`.claude/hooks/` に
+  (`tests/test_session_resume.py`、29件)を先に書き、`.claude/hooks/` に
   対象フックが無いことに起因するFileNotFoundError/AssertionErrorのみで
   全FAILすること(28 failed, 1 passed。1件はPC-12=既存reinject_after_compact.py
   の回帰確認で、これは実装前から成立する正常系のためPASS)をRED確認した。
