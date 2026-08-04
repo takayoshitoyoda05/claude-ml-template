@@ -56,6 +56,7 @@ flowchart TD
 | 原因不明のバグ・性能劣化 | diagnosing-bugs スキル(「原因を調べて」)→ 原因が分かったら `/ml-pipeline` へ |
 | 単発リファクタ・ドキュメント編集・軽い調査 | 何も挟まずメインセッションで直接(2.5節) |
 | セッションを区切って引き継ぐ | handoff スキル(「handoffして」) |
+| セッション上限で作業が中断された | 何もしなくてよい(次回起動時に自動再開。3.4節) |
 | 関連研究を調べたい・サーベイをまとめたい | literature-review スキル(「サーベイして」)(3.16節) |
 | 論文原稿のチェック・査読対応・推敲 | paper-writing スキル(「論文をチェックして」)(3.16節) |
 | 実験結果の記録・過去実験との比較 | mlflow-log スキル(「実験を記録して」「実験AとBを比較して」)(3.16節) |
@@ -252,6 +253,7 @@ config-set スキルが貼り付け用のJSONを提示するので、それを�
 | CLAUDE_FINAL_GATE | `1` でFableによる最終ゲート判断をリファクタパス後に実行 | 無効(0) |
 | CLAUDE_REFUTE_PASS | `1` で接地済みHIGH指摘をrefuterが反証する反証濾過パスを有効にする(手順6.3。リスク階層が高の依頼では実行しない) | 無効(0) |
 | CLAUDE_ACTION_LOG | `1`(または未設定)で全ツール実行・エージェントの自動記録を有効化、`0` で無効化 | 有効(1) |
+| CLAUDE_SESSION_RESUME | `1`(または未設定)でセッション上限からの自動再開(Stopでの記録+起動時の注入)を有効化、`0` で無効化 | 有効(1) |
 | CLAUDE_REFACTOR_SWARM | `1` でリファクタパスの検出を Haiku 7体の並列スカウトで行う(エージェントチーム機能が必要) | 無効(0) |
 | CLAUDE_CONTROL_LEVEL | 自律度の一括切替。L1(手動運転)/ L2(監督運転・既定)/ L3(自律運転) | L2 |
 
@@ -912,6 +914,7 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5�
 | auto_format.py | PostToolUse (Edit/Write/NotebookEdit) | `.py` 編集後に `ruff format`(ruff が無ければスルー) |
 | action_log.py | PostToolUse | 全ツール実行を logs/actions/ に JSONL 自動記録(マスキング済み、duration付き) |
 | agent_log.py | SubagentStop | サブエージェントの委譲チェーンを logs/agents/ に記録(モデル・使用量) |
+| record_session_state.py | Stop | 各ターン終了時にブランチ・git status・対応する計画の手順表・直近の会話末尾を `.claude/checkpoints/session_state.md` へ上書き記録(世代管理なし、会話由来テキストはマスキング済み)。`CLAUDE_SESSION_RESUME=0` で無効化 |
 | enforce_eval.py | Stop | 評価コマンドを実行し失敗なら続行を促す(フラグON時のみ)。前回PASSから状態が変わっていなければ再実行をスキップ |
 | spec_gate.py | Stop | `CLAUDE_SPEC_CHECK=1` のとき、設計書の受け入れ条件テーブルを全要件PASS・承認・監査OK・設計書ハッシュ一致(計画承認時点からの改変検知)で検査し、欠けがあればブロック(`--ci` でCIモード: auto再実行+coverageのみ) |
 | codex_gate.py | Stop | CLAUDE_CROSS_REVIEW=1 のとき Codexレビュー未完了ならブロック。センチネル(`.claude/checkpoints/codex_review_done.txt`)の HEAD ハッシュを現在の HEAD と照合し、レビュー後にコミットが進んだ場合と未コミット変更(未追跡含む)が残っている場合は再レビューを要求する(詳細は 3.10 節) |
@@ -920,6 +923,7 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5�
 | plan_gate.py | Stop | 現在のブランチ名に対応する計画のリソース超過(invariants の resources 比)・goal 未定義・読めない見積もりをブロック |
 | checkpoint_before_compact.py | PreCompact | 圧縮直前に git 状態・トランスクリプトを `.claude/checkpoints/` にバックアップ(直近10世代のみ保持) |
 | reinject_after_compact.py | SessionStart (compact) | 圧縮直後にチェックポイントと注意事項を会話に再注入 |
+| resume_session_state.py | SessionStart (startup) | 起動時、記録されたブランチが現在と一致し72時間以内なら状態と再開指示を会話に注入(自動続行はしない)。`source=compact` では何もしない(reinject_after_compact.py と二重注入しない)。`CLAUDE_SESSION_RESUME=0` で無効化 |
 
 `spec_approve.py` はフックとして配線されず、ユーザーが `!` で手動実行する
 専用スクリプト(manual要件の承認記録と設計書ハッシュの計画承認記録用)。
@@ -1587,6 +1591,7 @@ claude-ml-template/
       agent_log.py                  サブエージェント委譲チェーンの記録(logs/agents/)
       plan_gate.py                  Stop: 計画のリソース超過・goal未定義をブロック
       report_gen.py                 完全レポートの evidence/ 機械集約(手順8.5で手動実行)
+      record_session_state.py       Stop: 各ターン終了時に進行状態を .claude/checkpoints/session_state.md へ上書き記録
       enforce_eval.py               評価コマンド実行強制(状態不変ならスキップ)
       spec_gate.py                  Stop: 設計書の受け入れ条件を機械検査(--ci でCIモード)
       spec_approve.py               manual要件の承認・設計書ハッシュの計画承認記録(ユーザーの`!`実行専用。エージェント経由の実行はguard_bashがブロック)
@@ -1595,6 +1600,7 @@ claude-ml-template/
       notify.py                     Stop: CLAUDE_NOTIFY=1 のときセッション停止時にデスクトップ通知(Windows/macOS/Linux対応)
       checkpoint_before_compact.py  圧縮前バックアップ(直近10世代のみ保持)
       reinject_after_compact.py     圧縮後の再注入
+      resume_session_state.py       SessionStart(startup): 記録があれば起動時に注入し再開を促す
     settings.json                   フックの配線・許可コマンド・エージェントチーム設定
   .github/workflows/
     verify-hooks.yml                CI: push/PR時のフック・インストーラ自動テスト
