@@ -6,6 +6,7 @@
 1. ruff check  — lint 違反ゼロ
 2. radon cc    — 循環的複雑度 C 以上(11+)の関数ゼロ
 3. mypy        — 型エラーゼロ(mypy がインストールされている場合のみ)
+4. diff-cover  — 変更行カバレッジが閾値以上(CLAUDE_DIFF_COVERAGE=1 のときのみ)
 
 ツールが見つからない場合、そのチェックはスキップする(uv 環境に無ければ強制しない)。
 欠落判定は uv の実際のエラー文言(Failed to spawn / No module named 等)を
@@ -20,8 +21,10 @@ _common.repo_state_signature を使う。Stopのたびに全スコープの静�
 """
 
 import os
+import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from _common import repo_state_signature
@@ -63,6 +66,84 @@ def tool_missing(stderr: str) -> bool:
     return any(p in low for p in TOOL_MISSING_PATTERNS)
 
 
+def _diff_coverage_min() -> int:
+    """CLAUDE_DIFF_COVERAGE_MIN を1〜100の整数として読む。読めなければ既定80。
+
+    行末を固定した正規表現で読む(`1e3` から `1` だけを拾う誤読を防ぐため。
+    python-style.md の規約)。範囲外(0 や 101 以上)も既定にフォールバックする
+    (読めない値で緩めない fail-safe側の判断)。
+    """
+    raw = os.environ.get("CLAUDE_DIFF_COVERAGE_MIN", "").strip()
+    if not re.fullmatch(r"[0-9]+", raw):
+        return 80
+    value = int(raw)
+    if not (1 <= value <= 100):
+        return 80
+    return value
+
+
+def _check_diff_coverage(scope: str) -> list[str]:
+    """変更行カバレッジが閾値未満なら違反メッセージを返す(opt-in)。
+
+    main に直接書くと radon の複雑度 C 閾値を自分で踏むため、plan_gate の
+    _validate_goal_ranges と同じ理由でヘルパーに分離する。
+    """
+    if os.environ.get("CLAUDE_DIFF_COVERAGE", "") != "1":
+        return []
+
+    # main ブランチが解決できない環境で diff-cover を「違反」と誤判定しないよう、
+    # 比較先ブランチの有無を先に確認してからスキップする
+    code, _, _ = run(["git", "rev-parse", "--verify", "main"], timeout=5)
+    if code != 0:
+        return []
+
+    xml_fd, xml_path = tempfile.mkstemp(suffix=".xml")
+    os.close(xml_fd)
+    try:
+        code, out, err = run(
+            [
+                "uv",
+                "run",
+                "pytest",
+                scope,
+                f"--cov={scope}",
+                f"--cov-report=xml:{xml_path}",
+                "-q",
+            ],
+            timeout=600,  # 既定120秒ではカバレッジ付き実行が高確率でタイムアウトする
+        )
+        # run() 自体が失敗(ツール不在)/タイムアウトのいずれもスキップ扱い
+        # (誤ブロック防止。テスト自体の失敗はここではブロックしない —
+        # enforce_eval / evaluator の責務。二重ブロックは差し戻しの原因を曖昧にする)
+        if code == -1 or tool_missing(err):
+            return []
+
+        threshold = _diff_coverage_min()
+        code, out, err = run(
+            [
+                "uv",
+                "run",
+                "diff-cover",
+                xml_path,
+                "--compare-branch=main",
+                f"--fail-under={threshold}",
+            ]
+        )
+        if tool_missing(err):
+            return []
+        if code != 0:
+            combined = (out + "\n" + err).strip()
+            return [
+                f"[diff-cover] 変更行カバレッジが{threshold}%未満です:\n{combined[:2000]}"
+            ]
+        return []
+    finally:
+        try:
+            os.remove(xml_path)
+        except OSError:
+            pass
+
+
 def main():
     if os.environ.get("CLAUDE_QUALITY_GATE", "") != "1":
         sys.exit(0)
@@ -100,6 +181,9 @@ def main():
     combined = (out + "\n" + err).strip()
     if code > 0 and combined and not tool_missing(err):
         failures.append(f"[mypy] 型エラーがあります:\n{combined[:2000]}")
+
+    # 4. diff-cover(変更行カバレッジ。CLAUDE_DIFF_COVERAGE=1 のときのみ)
+    failures.extend(_check_diff_coverage(scope))
 
     if failures:
         print(
