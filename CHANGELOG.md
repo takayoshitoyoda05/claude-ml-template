@@ -123,6 +123,25 @@
   (フラグ名のカンマ区切り、または `none`)も受け付ける。端末が無い環境では
   既定(すべて無効)のまま進む。CLAUDE_CROSS_REVIEW 有効化時に Codex CLI が
   見つからなければ警告する
+- **リスク階層ゲート**: router(Haiku)が規模(S/M/L)と同時にリスク階層(高/中/低。
+  `.claude/hooks/` やデータ分割・依存追加等の該当条件で判定)を返し、「高」なら
+  規模判定を1段上げ、反証濾過パス(手順6.3)を実行しない(強める方向にのみ作用)
+- **レビュー指摘の接地検証と反証濾過、判定不確実の出口**: 手順6.2でevaluator /
+  evaluator-standards / cross-review のHIGH・MEDIUM指摘をfile:line形式(Read確認、
+  行ズレ時はgrepフォールバック)または再現コマンド形式で機械的に接地確認し、
+  未接地・検証不能の指摘は根拠にしない(HIGHは破棄せずHUMAN_REVIEWへ)。
+  `CLAUDE_REFUTE_PASS=1`(既定無効)かつリスク階層が高でない場合、接地済みHIGH指摘を
+  新設エージェント refuter(sonnet)が独立コンテキストで反証し、反証成功した指摘を
+  差し戻し根拠から除外する。両評価軸の指摘には証拠添付を必須化(evaluator /
+  evaluator-standards / cross-reviewのCodex指示文)。判定不確実な場合は手順7に
+  新設したHUMAN_REVIEW出口でパイプラインを一時停止し人間の判断を仰ぐ(失敗遷移表に
+  1行追加。evaluatorの判定語彙PASS/NEEDS_REVISION/FAILは変更しない)
+- **テンソル shape/dtype 注釈規約と事後条件の事前固定**: python-standardsスキルに
+  テンソルを受け渡す公開関数向けのshape/dtype注釈規約(jaxtyping等、または
+  docstringのShape/dtype節+assert)を追加し、evaluator-standardsの型安全性観点・
+  generatorの自己チェックに反映。plannerの計画フォーマットに「事後条件」欄
+  (`PC-n`形式)を追加し、tdd/spec-checklistスキルと整合させ、Generatorが実装前に
+  事後条件をテストとしてRed確認するよう規定
 
 ### Added(2026-08-03)
 - **配布物の git 除外オプション**: `CLAUDE_TEMPLATE_GITIGNORE_ALL=1` を付けて
