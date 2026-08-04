@@ -198,6 +198,27 @@ else
   echo "NG: quality_gate: off when flag not set (expected 0)"
   failed=$((failed+1))
 fi
+# --- quality_gate: diff カバレッジ検査(一時 git リポジトリを CLAUDE_WORK_SCOPE に向けて検証。
+#     リポジトリ本体を対象にすると既存コードの lint 結果でテストが揺れるため) ---
+ABS_QUALITY_GATE="$(pwd)/.claude/hooks/quality_gate.py"
+QG_TMP=$(mktemp -d)
+git -C "$QG_TMP" init -q -b main
+git -C "$QG_TMP" -c user.email=test@test -c user.name=test commit -q --allow-empty -m init
+(cd "$QG_TMP" && echo '{}' | env -u CLAUDE_DIFF_COVERAGE -u CLAUDE_DIFF_COVERAGE_MIN CLAUDE_QUALITY_GATE=1 CLAUDE_WORK_SCOPE="$QG_TMP" uv run python "$ABS_QUALITY_GATE") >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+  echo "OK: quality_gate: diff coverage off when CLAUDE_DIFF_COVERAGE is unset (exit 0)"
+else
+  echo "NG: quality_gate: diff coverage off when CLAUDE_DIFF_COVERAGE is unset (expected 0)"
+  failed=$((failed+1))
+fi
+(cd "$QG_TMP" && echo '{}' | env -u CLAUDE_DIFF_COVERAGE_MIN CLAUDE_QUALITY_GATE=1 CLAUDE_DIFF_COVERAGE=1 CLAUDE_WORK_SCOPE="$QG_TMP" uv run python "$ABS_QUALITY_GATE") >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+  echo "OK: quality_gate: diff coverage skips when tools are missing (exit 0)"
+else
+  echo "NG: quality_gate: diff coverage skips when tools are missing (expected 0)"
+  failed=$((failed+1))
+fi
+rm -rf "$QG_TMP"
 # セッションが CLAUDE_NOTIFY=1 を注入していても素の状態をテストできるよう明示的に外す
 # (CLAUDE_CONTROL_LEVEL=L3 も通知ONと解釈されるため同様に外す)
 echo '{}' | env -u CLAUDE_NOTIFY -u CLAUDE_CONTROL_LEVEL uv run python ".claude/hooks/notify.py" >/dev/null 2>&1

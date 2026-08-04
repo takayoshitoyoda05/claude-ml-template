@@ -213,6 +213,61 @@ if ($LASTEXITCODE -eq 0) {
     $script:failed++
 }
 if ($null -ne $savedQualityGate) { $env:CLAUDE_QUALITY_GATE = $savedQualityGate }
+# --- quality_gate: diff カバレッジ検査(一時 git リポジトリを CLAUDE_WORK_SCOPE に向けて検証。
+#     リポジトリ本体を対象にすると既存コードの lint 結果でテストが揺れるため) ---
+$AbsQualityGate = (Resolve-Path ".claude\hooks\quality_gate.py").Path
+$QgTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("quality-gate-test-" + [Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $QgTmp | Out-Null
+Push-Location $QgTmp
+git init -q -b main .
+git config user.email test@test
+git config user.name test
+git commit -q --allow-empty -m init
+Pop-Location
+$OrigWorkScope = $env:CLAUDE_WORK_SCOPE
+$env:CLAUDE_WORK_SCOPE = $QgTmp
+
+# セッションが CLAUDE_QUALITY_GATE=1 / CLAUDE_DIFF_COVERAGE=1 を注入していても
+# 素の状態からテストできるよう、直前ブロック(202-215行)と同じ save→restore パターンで退避する
+$savedQualityGate = $env:CLAUDE_QUALITY_GATE
+$savedDiffCoverage = $env:CLAUDE_DIFF_COVERAGE
+$env:CLAUDE_QUALITY_GATE = "1"
+Remove-Item Env:CLAUDE_DIFF_COVERAGE -ErrorAction SilentlyContinue
+Remove-Item Env:CLAUDE_DIFF_COVERAGE_MIN -ErrorAction SilentlyContinue
+Push-Location $QgTmp
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+'{}' | uv run python $AbsQualityGate *> $null
+$ErrorActionPreference = $prevEAP
+$actual = $LASTEXITCODE
+Pop-Location
+if ($actual -eq 0) {
+    Write-Host "OK: quality_gate: diff coverage off when CLAUDE_DIFF_COVERAGE is unset (exit 0)"
+} else {
+    Write-Host "NG: quality_gate: diff coverage off when CLAUDE_DIFF_COVERAGE is unset (expected 0)"
+    $script:failed++
+}
+
+$env:CLAUDE_DIFF_COVERAGE = "1"
+Remove-Item Env:CLAUDE_DIFF_COVERAGE_MIN -ErrorAction SilentlyContinue
+Push-Location $QgTmp
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+'{}' | uv run python $AbsQualityGate *> $null
+$ErrorActionPreference = $prevEAP
+$actual = $LASTEXITCODE
+Pop-Location
+if ($actual -eq 0) {
+    Write-Host "OK: quality_gate: diff coverage skips when tools are missing (exit 0)"
+} else {
+    Write-Host "NG: quality_gate: diff coverage skips when tools are missing (expected 0)"
+    $script:failed++
+}
+
+$env:CLAUDE_WORK_SCOPE = $OrigWorkScope
+$env:CLAUDE_QUALITY_GATE = $savedQualityGate
+$env:CLAUDE_DIFF_COVERAGE = $savedDiffCoverage
+Remove-Item -Recurse -Force $QgTmp
 # セッションが CLAUDE_NOTIFY=1 を注入していても素の状態をテストできるよう明示的に外す
 # (CLAUDE_CONTROL_LEVEL=L3 も通知ONと解釈されるため同様に外す)
 $savedNotify = $env:CLAUDE_NOTIFY

@@ -126,6 +126,7 @@ OPTIONAL_FEATURES=(
   "CLAUDE_CROSS_REVIEW|Codex クロスレビュー(要 Codex CLI。実装を別モデル視点で必須レビュー)"
   "CLAUDE_REFACTOR_SWARM|haiku スカウト隊(ml-pipeline のリファクタリング偵察を並列実行)"
   "CLAUDE_QUALITY_GATE|機械的品質ゲート(ruff / radon / mypy を停止時に強制)"
+  "CLAUDE_DIFF_COVERAGE|変更行カバレッジゲート(pytest-cov + diff-cover。既定閾値80%、CLAUDE_DIFF_COVERAGE_MIN で変更可)"
   "CLAUDE_AUTO_APPROVE|計画の自動承認(plan-reviewer が安全な計画を人手なしで通す)"
   "CLAUDE_NOTIFY|完了時のデスクトップ通知"
   "CLAUDE_FINAL_GATE|マージ前の最終判定(final-gate)"
