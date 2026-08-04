@@ -74,7 +74,7 @@ PC-1〜PC-13 と PC-15 は `tests/test_session_resume.py` で、PC-14・PC-16・
 | PC-4 | record | 同一リポジトリで2回実行(間に1秒以上) | `.claude/checkpoints/` 内の `session_state*` は1ファイルのみ(世代が増えない)。2回目の記録時刻が1回目と異なる | R-1 |
 | PC-5 | record | transcript に `sk-` で始まる 40 文字級のキー様文字列を含む会話 | 状態ファイルに原文字列が含まれず `[MASKED]` を含む | R-3 |
 | PC-6 | record | ブランチ `pipeline/20260805-foo-group-A`、`.claude/plans/20260805-foo.md`(実装手順表つき) | 状態ファイルに `20260805-foo.md` のパスと実装手順表の行(先頭20行以内)が含まれる | R-1 |
-| PC-7 | record | 20 MB のダミー transcript | exit 0 かつ実行時間 5 秒未満(全読みしない設計の強制) | R-1 |
+| PC-7 | record | (a) 記録フックのソース、(b) 20 MB のダミー transcript | (a) ソースに `.seek(` が含まれる(末尾シーク設計の直接検査)。(b) exit 0 かつ実行時間 5 秒未満。**時間だけでは検出力が無い**(実測: 20 MB の素朴な全読み+正規表現マスクでも 0.06〜0.09 秒で、閾値 5 秒を余裕で通る)ため、(a) を主検査、(b) を退行検知として併用する | R-1 |
 | PC-8 | resume | `source="startup"`、同一ブランチ・mtime 現在の状態ファイル | exit 0。stdout に状態ファイル本文と「自動で続行せずユーザーに確認する」旨の再開指示を含む | R-2 |
 | PC-9 | resume | `source="compact"` | stdout 空・exit 0(既存 reinject との二重注入なし) | R-4 |
 | PC-10 | resume | 状態ファイルなし / 空 / 不正 UTF-8 バイト列 | stdout 空・exit 0、トレースバックなし | R-5 |
@@ -96,7 +96,7 @@ PC-1〜PC-13 と PC-15 は `tests/test_session_resume.py` で、PC-14・PC-16・
 | 4 | `.gitignore` 17行目を `/_staging_*` に広げ、**現行 `settings.json` を読み込んで2要素をプログラム的に挿入する生成スクリプトを書き、実行して** `_staging_settings.json` を出力する(R-1/R-2/R-4)。全文の手書き写しは禁止 | `.gitignore`, `_staging_gen_settings.py`, `_staging_settings.json` | Step 2, 3 | A |
 | 5 | フック表(908-922行)・ディレクトリツリー(1596行付近)・`## 0. 迷ったら` の表(50-62行)・env 表(254行付近)を更新し、env フラグをテンプレートに登録(R-2/R-5)。既存の `checkpoint_before_compact.py` / `CLAUDE_ACTION_LOG` の行の書式に倣う | `README.md`, `templates/settings.local.json.template` | Step 2, 3 | A |
 | 6 | handoff と自動記録の責務境界を追記、変更点を1項目記録(R-6) | `.claude/skills/handoff/SKILL.md`, `CHANGELOG.md` | Step 5 | A |
-| 7 | ユーザーが下記3コマンドで適用し、`_staging_*` を削除する(保護パスのため Claude は実行不可)。適用後に新フック2本を `git add <パス>` して通常どおりコミットする | `.claude/hooks/record_session_state.py`, `.claude/hooks/resume_session_state.py`, `.claude/settings.json` | Step 4, 6 | A |
+| 7 | ユーザーが下記3コマンドで適用し、`_staging_*` を削除する(保護パスのため Claude は実行不可)。適用後に**新フック2本と `.claude/settings.json` の3ファイルを** `git add <パス>` してコミットする(settings.json は追跡ファイルなので、add し忘れると modified のまま残り `codex_gate.worktree_clean()` に恒常的に抵触する) | `.claude/hooks/record_session_state.py`, `.claude/hooks/resume_session_state.py`, `.claude/settings.json` | Step 4, 6 | A |
 
 Step 7 で提示する適用コマンド(完了報告にそのまま載せる):
 
@@ -180,7 +180,7 @@ PASS 条件: `ok` が出力される(適用した JSON が壊れていない)。
 ```bash
 git check-ignore -v _staging_settings.json
 ```
-PASS 条件: `.gitignore:17:/_staging_*` を出力(Step 4 適用直後、削除前に実行する)。
+PASS 条件: `.gitignore:17:/_staging_*` を出力。`git check-ignore` はパス文字列に対するパターン判定なので、Step 7 で `_staging_settings.json` を削除した後に実行しても同じ結果を返す(実測確認済み)。
 
 ```bash
 git ls-files -i -c --exclude-standard; echo "exit=$?"
