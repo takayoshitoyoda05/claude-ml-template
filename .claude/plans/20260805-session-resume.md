@@ -296,3 +296,51 @@ cost_estimate:
   dataset_gb: 0
   parallel_jobs: 0
 ```
+
+## 作業ログ(Step 1〜6)
+
+- 2026-08-05: Step 1〜6を逐次実装。Step 1でPC-1〜13・PC-15の受け入れテスト
+  (`tests/test_session_resume.py`、41件)を先に書き、`.claude/hooks/` に
+  対象フックが無いことに起因するFileNotFoundError/AssertionErrorのみで
+  全FAILすること(28 failed, 1 passed。1件はPC-12=既存reinject_after_compact.py
+  の回帰確認で、これは実装前から成立する正常系のためPASS)をRED確認した。
+  postconditions節が「PC-1〜PC-13とPC-15はtests/test_session_resume.pyで」と
+  明記している一方、実装手順表Step1行は「PC-1〜PC-13」とだけ書かれていたため、
+  postconditions節を優先しPC-15も本ファイルに含めた(実装詳細の判断余地として
+  自己解釈。設計・外部挙動には影響しない)。
+- Step 2/3で記録フック(`_staging_record_session_state.py`)と注入フック
+  (`_staging_resume_session_state.py`)の完成版全文を作成。record側は
+  `plan_gate.py`の`_slug_from_branch`を正規表現の複製ではなくimportで再利用し、
+  将来のドリフトを構造的に防いだ(PC-13は同一関数の呼び出し元が2つあることを
+  確認する形になるが、import方式の方がparityをより強く保証するため採用)。
+  `.claude/hooks/`はguardで書込不可のため、`.claude/hooks`をPYTHONPATHに追加した
+  subprocess呼び出しでstaging版を実地確認した(PC-1〜PC-11・PC-15相当を手動で
+  網羅。cp不可のためpytest経由のGREEN確認はStep 8の担当外)。
+- Step 4で`.gitignore`17行目を`/_staging_*.py`→`/_staging_*`に拡張し、
+  `_staging_gen_settings.py`(4手順のみ、全文書き写しなし)を書いて実行し
+  `_staging_settings.json`を生成。生成物との差分が挿入行のみであること
+  (`diff <(json整形) <(json整形)`で削除行0、追加12行相当)を確認した。
+  `git check-ignore -v _staging_settings.json`→`.gitignore:17:/_staging_*`、
+  `git ls-files -i -c --exclude-standard`→空出力・exit 0(PC-14)を確認した。
+- Step 5でREADME.mdのフック表・ディレクトリツリー・「0.迷ったら」表・env表の
+  4箇所、`templates/settings.local.json.template`に`CLAUDE_SESSION_RESUME`を
+  追記。ディレクトリツリーの列位置(descstart=36)を既存行と機械的に照合した。
+- Step 6で`.claude/skills/handoff/SKILL.md`に自動記録との責務境界を3行で追記、
+  `CHANGELOG.md`の`[Unreleased]`に`### Added(2026-08-05)`を追加。
+- 全ステップ完了後、`uv run --with pytest python -m pytest tests/ -q`で
+  既存119件PASS・`test_session_resume.py`28件は引き続きRED(適用前として正しい)、
+  `bash verify-hooks.sh`で「全テストPASS」(NG:0件)、
+  `uv run python -c "import json...` で`.claude/settings.json`のJSON妥当性確認、
+  `git status --short`が空(staging系4ファイルは全て`.gitignore`で無視され
+  未追跡表示なし)を確認した。
+
+### 計画ステップ対応表
+
+| 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
+|---|---|---|---|---|
+| 1 | PC-1〜13・PC-15の受け入れテストを実装前に書く | `tests/test_session_resume.py` | `uv run --with pytest python -m pytest tests/test_session_resume.py -q` → 28 failed, 1 passed(RED。FileNotFoundError/`.exists()`起因のみ) | `74485d2` |
+| 2 | 記録フック完成版全文を作成(R-1/R-3/R-5) | `_staging_record_session_state.py`(非コミット) | `.claude/hooks`をPYTHONPATHに加えたsubprocess実地確認でPC-1〜7・PC-15相当が期待通り(手動、上記作業ログ参照) | なし(staging、`.gitignore`対象のため意図的に非コミット) |
+| 3 | 注入フック完成版全文を作成(R-2/R-4/R-5) | `_staging_resume_session_state.py`(非コミット) | 同上の実地確認でPC-8〜11相当が期待通り | なし(staging、同上) |
+| 4 | `.gitignore`拡張+生成スクリプトで`_staging_settings.json`を生成(R-1/R-2/R-4) | `.gitignore`, `_staging_gen_settings.py`(非コミット), `_staging_settings.json`(非コミット) | `diff <(...)`で挿入行のみ、`git check-ignore -v _staging_settings.json`→`.gitignore:17:/_staging_*`、`git ls-files -i -c --exclude-standard`→空・exit0(PC-14) | `c8b08ea`(`.gitignore`のみ) |
+| 5 | フック表・ツリー・「0.迷ったら」表・env表・テンプレートを更新(R-2/R-5) | `README.md`, `templates/settings.local.json.template` | `grep -c CLAUDE_SESSION_RESUME README.md templates/settings.local.json.template`→両方1以上、`uv run python -c "import json; json.load(open('templates/settings.local.json.template')); print('ok')"`→ok | `2a42e94` |
+| 6 | handoffとの責務境界・CHANGELOG追記(R-6) | `.claude/skills/handoff/SKILL.md`, `CHANGELOG.md` | 目視確認(3行以内)。`grep -n "自動記録との違い" .claude/skills/handoff/SKILL.md`→1件 | `64dbfb4` |
