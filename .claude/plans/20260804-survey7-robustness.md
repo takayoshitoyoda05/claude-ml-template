@@ -389,8 +389,8 @@ cost_estimate:
 
 | 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
 |---|---|---|---|---|
-| 16 | サンドボックスA のアサーション群に `CLAUDE_REFUTE_PASS` 雛形回帰アサーションを1件追加(テストファースト)。コミット前に `bash verify-installers.sh` を実行し、新規1件のみ NG(RED)・既存94件は OK であることを確認 | `verify-installers.sh` | `bash verify-installers.sh` → RED: `OK:` 94件 / `NG:` 1件(`NG: init: CLAUDE_REFUTE_PASS が雛形に含まれる(既定無効)`のみ) | 71debf5 |
-| 17 | `templates/settings.local.json.template` の `CLAUDE_FINAL_GATE` 直後に `"CLAUDE_REFUTE_PASS": "0"` を追加、`claude-init.sh` の `OPTIONAL_FEATURES` と `claude-init.ps1` の `$OptionalFeatures` に同一説明文で1件追加。コミット後に `bash verify-installers.sh` を再実行し GREEN を確認 | `templates/settings.local.json.template`, `claude-init.sh`, `claude-init.ps1` | `bash verify-installers.sh` → GREEN: `OK:` 95件 / `NG:` 0件(新規アサーションも `OK:`) | 9a1deb7 |
+| S-16 | サンドボックスA のアサーション群に `CLAUDE_REFUTE_PASS` 雛形回帰アサーションを1件追加(テストファースト)。コミット前に `bash verify-installers.sh` を実行し、新規1件のみ NG(RED)・既存94件は OK であることを確認 | `verify-installers.sh` | `bash verify-installers.sh` → RED: `OK:` 94件 / `NG:` 1件(`NG: init: CLAUDE_REFUTE_PASS が雛形に含まれる(既定無効)`のみ) | 71debf5 |
+| S-17 | `templates/settings.local.json.template` の `CLAUDE_FINAL_GATE` 直後に `"CLAUDE_REFUTE_PASS": "0"` を追加、`claude-init.sh` の `OPTIONAL_FEATURES` と `claude-init.ps1` の `$OptionalFeatures` に同一説明文で1件追加。コミット後に `bash verify-installers.sh` を再実行し GREEN を確認 | `templates/settings.local.json.template`, `claude-init.sh`, `claude-init.ps1` | `bash verify-installers.sh` → GREEN: `OK:` 95件 / `NG:` 0件(新規アサーションも `OK:`) | 9a1deb7 |
 
 実行順序: Step16 のアサーション追加 → `bash verify-installers.sh`(RED確認、コミット前)→ コミット71debf5 → Step17 の3ファイル編集 → コミット9a1deb7 → `bash verify-installers.sh`(GREEN確認、コミット後。`verify-installers.sh` は HEAD から clone するためコミット前の再実行では反映されない)。
 
@@ -414,24 +414,24 @@ diff <(grep -oE 'CLAUDE_[A-Z_]+' claude-init.sh | sort -u) \
 
 | 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
 |---|---|---|---|---|
-| 1 | router にリスク階層の判定基準と出力2行 | router.md | grep「リスク階層」ヒット | 375d88a |
-| 2 | 手順0 にリスク階層による経路強化 | ml-pipeline.md | 見出し構造維持を確認 | ddd5faa |
-| 3 | refuter 新設 | refuter.md | grep「反証」複数ヒット | 111b91b |
-| 4 | 手順6.2 接地検証を新設 | ml-pipeline.md | 6.2 が 6〜6.5 間に挿入 | dc84c30 |
-| 5 | 手順6.3 反証濾過を新設 | ml-pipeline.md | 6.3 が 6.2 直後 | 5758f90 |
-| 6 | 手順7 分岐書換+HUMAN_REVIEW+遷移表1行 | ml-pipeline.md | HUMAN_REVIEW 6箇所 | cd8e32a |
-| 7 | 手順5 に計画遵守の照合 | ml-pipeline.md | 対応表 grep ヒット・740行 | cd80c83 |
-| 8 | 両 evaluator に証拠添付必須化(同一文面) | evaluator.md, evaluator-standards.md | diff で完全一致 | 78727dc |
-| 9 | cross-review の Codex 指示文2箇所に証拠要求 | cross-review/SKILL.md | grep「再現」=2 | f1c9792 |
-| 10 | 型安全性行に shape/dtype 観点 | evaluator-standards.md | grep ヒット | 8b4c6e9 |
-| 11 | python-standards に shape 注釈節 | python-standards/SKILL.md | grep jaxtyping ヒット | cd1dfce |
-| 12 | planner に事後条件欄(PC-n)+制約2行 | planner.md | grep PC- ヒット | e248b35 |
-| 13 | tdd に事後条件節 | tdd/SKILL.md | grep ヒット | f054198 |
-| 14 | spec-checklist 測定可能性に事後条件検査 | spec-checklist/SKILL.md | 5次元構造不変 | e42a06a |
-| 15 | generator に3候補分の規律追加 | generator.md | 連番1〜9確認 | b9b20ee, c97e0de |
-| 16 | CLAUDE_REFUTE_PASS アサーション(RED) | verify-installers.sh | 94 OK / 1 NG(RED) | 71debf5 |
-| 17 | 雛形+init sh/ps1 に配線(GREEN) | template, claude-init.sh/.ps1 | 95 OK / 0 NG(GREEN) | 9a1deb7 |
-| 18 | README/CHANGELOG を実物確認後に更新 | README.md, CHANGELOG.md | 整合 grep 5系統全ヒット | 2023647 |
+| S-1 | router にリスク階層の判定基準と出力2行 | router.md | grep「リスク階層」ヒット | 375d88a |
+| S-2 | 手順0 にリスク階層による経路強化 | ml-pipeline.md | 見出し構造維持を確認 | ddd5faa |
+| S-3 | refuter 新設 | refuter.md | grep「反証」複数ヒット | 111b91b |
+| S-4 | 手順6.2 接地検証を新設 | ml-pipeline.md | 6.2 が 6〜6.5 間に挿入 | dc84c30 |
+| S-5 | 手順6.3 反証濾過を新設 | ml-pipeline.md | 6.3 が 6.2 直後 | 5758f90 |
+| S-6 | 手順7 分岐書換+HUMAN_REVIEW+遷移表1行 | ml-pipeline.md | HUMAN_REVIEW 6箇所 | cd8e32a |
+| S-7 | 手順5 に計画遵守の照合 | ml-pipeline.md | 対応表 grep ヒット・740行 | cd80c83 |
+| S-8 | 両 evaluator に証拠添付必須化(同一文面) | evaluator.md, evaluator-standards.md | diff で完全一致 | 78727dc |
+| S-9 | cross-review の Codex 指示文2箇所に証拠要求 | cross-review/SKILL.md | grep「再現」=2 | f1c9792 |
+| S-10 | 型安全性行に shape/dtype 観点 | evaluator-standards.md | grep ヒット | 8b4c6e9 |
+| S-11 | python-standards に shape 注釈節 | python-standards/SKILL.md | grep jaxtyping ヒット | cd1dfce |
+| S-12 | planner に事後条件欄(PC-n)+制約2行 | planner.md | grep PC- ヒット | e248b35 |
+| S-13 | tdd に事後条件節 | tdd/SKILL.md | grep ヒット | f054198 |
+| S-14 | spec-checklist 測定可能性に事後条件検査 | spec-checklist/SKILL.md | 5次元構造不変 | e42a06a |
+| S-15 | generator に3候補分の規律追加 | generator.md | 連番1〜9確認 | b9b20ee, c97e0de |
+| S-16 | CLAUDE_REFUTE_PASS アサーション(RED) | verify-installers.sh | 94 OK / 1 NG(RED) | 71debf5 |
+| S-17 | 雛形+init sh/ps1 に配線(GREEN) | template, claude-init.sh/.ps1 | 95 OK / 0 NG(GREEN) | 9a1deb7 |
+| S-18 | README/CHANGELOG を実物確認後に更新 | README.md, CHANGELOG.md | 整合 grep 5系統全ヒット | 2023647 |
 
 計画外(差し戻し修正): 01d6e7a(A: 6.3書式・並列時の計画ファイル追記緩和策・表順・重複文)、
 9346475/25732b7/e16f10d(B: shape/dtype 統一・項目8分割)、5594213(D: 両図の発火位置矛盾)。
