@@ -59,7 +59,7 @@ permissionMode: acceptEdits
 - [ ] 対象スクリプトが例外なく最後まで走るか
 - [ ] 計画の「検証方法」のコマンドを実行し、期待値と照合したか
 - [ ] 変更前後で意図しない挙動変化が出ていないか
-- [ ] テンソルを受け渡す公開関数に shape 注釈(jaxtyping 等、または Shape 節 + shape assert)を付けたか
+- [ ] テンソルを受け渡す公開関数に shape/dtype 注釈(jaxtyping 等、または Shape/dtype 節 + shape/dtype assert)を付けたか
 
 ## 行動規範(Fable-like)
 以下は行動規範。全て命令。
