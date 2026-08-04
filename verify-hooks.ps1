@@ -227,6 +227,10 @@ Pop-Location
 $OrigWorkScope = $env:CLAUDE_WORK_SCOPE
 $env:CLAUDE_WORK_SCOPE = $QgTmp
 
+# セッションが CLAUDE_QUALITY_GATE=1 / CLAUDE_DIFF_COVERAGE=1 を注入していても
+# 素の状態からテストできるよう、直前ブロック(202-215行)と同じ save→restore パターンで退避する
+$savedQualityGate = $env:CLAUDE_QUALITY_GATE
+$savedDiffCoverage = $env:CLAUDE_DIFF_COVERAGE
 $env:CLAUDE_QUALITY_GATE = "1"
 Remove-Item Env:CLAUDE_DIFF_COVERAGE -ErrorAction SilentlyContinue
 Remove-Item Env:CLAUDE_DIFF_COVERAGE_MIN -ErrorAction SilentlyContinue
@@ -261,8 +265,8 @@ if ($actual -eq 0) {
 }
 
 $env:CLAUDE_WORK_SCOPE = $OrigWorkScope
-Remove-Item Env:CLAUDE_QUALITY_GATE -ErrorAction SilentlyContinue
-Remove-Item Env:CLAUDE_DIFF_COVERAGE -ErrorAction SilentlyContinue
+$env:CLAUDE_QUALITY_GATE = $savedQualityGate
+$env:CLAUDE_DIFF_COVERAGE = $savedDiffCoverage
 Remove-Item -Recurse -Force $QgTmp
 # セッションが CLAUDE_NOTIFY=1 を注入していても素の状態をテストできるよう明示的に外す
 # (CLAUDE_CONTROL_LEVEL=L3 も通知ONと解釈されるため同様に外す)
