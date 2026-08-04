@@ -406,3 +406,33 @@ diff <(grep -oE 'CLAUDE_[A-Z_]+' claude-init.sh | sort -u) \
 変更ファイル一覧: `verify-installers.sh`, `templates/settings.local.json.template`, `claude-init.sh`, `claude-init.ps1`
 
 コミット: 71debf5(test, Step16), 9a1deb7(feat, Step17)
+
+## 作業ログ(リーダー統合: 計画ステップ対応表・全18ステップ合算)
+
+手順5の規約(並列実装では計画ファイルへの反映はリーダーがマージ後に一括)に従い、
+各グループの完了報告から合算。P10 照合: `grep -cE '^\| [0-9]+ \|'` = 18 と下表18行が一致。
+
+| 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
+|---|---|---|---|---|
+| 1 | router にリスク階層の判定基準と出力2行 | router.md | grep「リスク階層」ヒット | 375d88a |
+| 2 | 手順0 にリスク階層による経路強化 | ml-pipeline.md | 見出し構造維持を確認 | ddd5faa |
+| 3 | refuter 新設 | refuter.md | grep「反証」複数ヒット | 111b91b |
+| 4 | 手順6.2 接地検証を新設 | ml-pipeline.md | 6.2 が 6〜6.5 間に挿入 | dc84c30 |
+| 5 | 手順6.3 反証濾過を新設 | ml-pipeline.md | 6.3 が 6.2 直後 | 5758f90 |
+| 6 | 手順7 分岐書換+HUMAN_REVIEW+遷移表1行 | ml-pipeline.md | HUMAN_REVIEW 6箇所 | cd8e32a |
+| 7 | 手順5 に計画遵守の照合 | ml-pipeline.md | 対応表 grep ヒット・740行 | cd80c83 |
+| 8 | 両 evaluator に証拠添付必須化(同一文面) | evaluator.md, evaluator-standards.md | diff で完全一致 | 78727dc |
+| 9 | cross-review の Codex 指示文2箇所に証拠要求 | cross-review/SKILL.md | grep「再現」=2 | f1c9792 |
+| 10 | 型安全性行に shape/dtype 観点 | evaluator-standards.md | grep ヒット | 8b4c6e9 |
+| 11 | python-standards に shape 注釈節 | python-standards/SKILL.md | grep jaxtyping ヒット | cd1dfce |
+| 12 | planner に事後条件欄(PC-n)+制約2行 | planner.md | grep PC- ヒット | e248b35 |
+| 13 | tdd に事後条件節 | tdd/SKILL.md | grep ヒット | f054198 |
+| 14 | spec-checklist 測定可能性に事後条件検査 | spec-checklist/SKILL.md | 5次元構造不変 | e42a06a |
+| 15 | generator に3候補分の規律追加 | generator.md | 連番1〜9確認 | b9b20ee, c97e0de |
+| 16 | CLAUDE_REFUTE_PASS アサーション(RED) | verify-installers.sh | 94 OK / 1 NG(RED) | 71debf5 |
+| 17 | 雛形+init sh/ps1 に配線(GREEN) | template, claude-init.sh/.ps1 | 95 OK / 0 NG(GREEN) | 9a1deb7 |
+| 18 | README/CHANGELOG を実物確認後に更新 | README.md, CHANGELOG.md | 整合 grep 5系統全ヒット | 2023647 |
+
+計画外(差し戻し修正): 01d6e7a(A: 6.3書式・並列時の計画ファイル追記緩和策・表順・重複文)、
+9346475/25732b7/e16f10d(B: shape/dtype 統一・項目8分割)、5594213(D: 両図の発火位置矛盾)。
+いずれもレビュー指摘対応で、対応する接地確認をリーダーが実施済み。
