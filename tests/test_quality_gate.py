@@ -209,3 +209,34 @@ def test_multiple_failures_all_appear_in_message(
     captured = capsys.readouterr()
     assert "[ruff check]" in captured.err
     assert "[mypy]" in captured.err
+
+
+def test_diff_coverage_run_timeout_is_skipped_not_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """diff-cover の run() が timeout((-1, "", "timeout"))を返しても違反にしない。
+
+    計画 Step 6 の契約「timeout は failures に入れずスキップ扱いにする」の回帰防止。
+    1回目の run()(pytest --cov)と同じ `code == -1` 判定が2回目の run()(diff-cover)に
+    無いと、timeout が `[diff-cover] 変更行カバレッジが80%未満です:\ntimeout` という
+    誤った違反になる。
+    """
+    module = _load_quality_gate()
+
+    def fake_run(cmd: list[str], timeout: int = 120) -> tuple[int, str, str]:
+        if "diff-cover" in cmd:
+            return -1, "", "timeout"
+        return 0, "", ""
+
+    monkeypatch.setattr(module, "run", fake_run)
+    monkeypatch.setenv("CLAUDE_QUALITY_GATE", "1")
+    monkeypatch.setenv("CLAUDE_DIFF_COVERAGE", "1")
+    monkeypatch.delenv("CLAUDE_DIFF_COVERAGE_MIN", raising=False)
+    monkeypatch.setenv("CLAUDE_WORK_SCOPE", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(SystemExit) as exc_info:
+        module.main()
+
+    assert exc_info.value.code == 0
