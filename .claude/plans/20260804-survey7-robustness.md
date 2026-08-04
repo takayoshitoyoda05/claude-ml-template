@@ -25,6 +25,15 @@
 - **確認済み**: エージェント追加にインストーラ変更は不要(`agents` ディレクトリごとコピー)。**新しい環境変数だけ**が `templates/settings.local.json.template` と `claude-init.sh` 125-133行 / `claude-init.ps1` 117-126行の変更を要する。`enable_feature()` は該当キーを `"1"` に書き換える実装なので、雛形にキーが無いと警告して失敗する。
 - **確認済み**: `verify-installers.sh` は配布ペイロードを**リポジトリの HEAD から `file://` でローカル clone** する(6-9行のコメントと 39-46行 `place_installers`)。したがって雛形への新フラグ追加は**コミット後でないと検査に反映されない**。`.ps1` 版はこの環境(pwsh 無し)では実行できない(11行)。
 - **確認済み**: テンプレート本体にテンソルを受け渡す公開関数は無い(`grep -rn "Tensor" scripts tests` → 0件)。`scripts/env_fingerprint.py` の torch は版数取得の try-import のみ(80-84行)。よって V6 は**規約の追加**で完結し、テンプレート自身のテストに影響しない。
+- **確認済み**: このリポジトリに `pyproject.toml` は無く pytest も未導入。
+  `uv run python -m pytest tests/ -q` は `No module named pytest` で失敗し、
+  正しい起動形式は `uv run --with pytest python -m pytest tests/ -q`(実測 118 passed)。
+  README.md 1192行がこの形式を正としている。計画・報告に書くテストコマンドは
+  この形式で統一する。
+- **確認済み**: `.claude/settings.json` の `permissions.allow` に `sed` は無い
+  (`grep -c "sed" .claude/settings.json` → 0)。既存の定義ファイルにも `sed` の
+  使用実績が無いため、手順6.2 の証拠確認は**リーダーの Read ツールを第一手段**とし、
+  読み取り専用コマンド(`grep -n`)は行番号ズレ時の補助に限定する。
 - **確認済み**: `CLAUDE_REFUTE_PASS` / `refuter` は既存のどこにも存在しない(`grep -rn CLAUDE_REFUTE .claude templates claude-init.sh claude-init.ps1 README.md` → 0件、`ls .claude/agents/refuter.md` → 不在)。
 - **確認済み**: `plan-reviewer.md` の条件は8個で「上記8条件は固定」と明記(74行)。条件数を変える変更は README 含む複数箇所に波及する。
 - **確認済み**: `docs/` は `.gitignore` 対象(6行目 `docs/`)。要件ソースの TODO メモも本計画の実装成果もコミット対象にならない。
@@ -64,7 +73,7 @@
 |---|---|---|---|
 | 1 | `bash verify-installers.sh` | 引数なし(フラグ追加のコミット後) | 標準出力に `NG:` が0件、新規アサーション `CLAUDE_REFUTE_PASS` が `OK:` で出る |
 | 2 | `bash verify-hooks.sh` | 引数なし | 全テスト PASS(フック未変更なので既存と同一結果) |
-| 3 | `uv run python -m pytest tests/ -q` | 引数なし | 既存4ファイルが全 PASS(件数が減っていない) |
+| 3 | `uv run --with pytest python -m pytest tests/ -q` | 引数なし | 118件が全 PASS(件数が減っていない) |
 | 4 | `diff <(grep -oE 'CLAUDE_[A-Z_]+' claude-init.sh \| sort -u) <(grep -oE 'CLAUDE_[A-Z_]+' claude-init.ps1 \| sort -u)` | — | 差分0行 |
 
 期待値はいずれも既存の検証手段の出力形式から導いており、実装後の出力を写したものではない。
@@ -89,7 +98,7 @@
 | 14 | generator に事後条件のテストファースト・shape 自己チェック・計画ステップ対応表を追加(V10 / V6 / P10 対応) | `.claude/agents/generator.md` | Step 10, 11 | B |
 | 15 | `CLAUDE_REFUTE_PASS` の回帰アサーションを**実装前に**書き RED を確認(R1 対応) | `verify-installers.sh` | なし | C |
 | 16 | 雛形とインストーラ sh/ps1 に `CLAUDE_REFUTE_PASS` を追加しコミット後に GREEN を確認(R1 対応) | `templates/settings.local.json.template`, `claude-init.sh`, `claude-init.ps1` | Step 15 | C |
-| 17 | README / CHANGELOG を**実装済みの実物を grep で確認してから**更新(全ID 対応) | `README.md`, `CHANGELOG.md` | Step 1〜16 すべて | D |
+| 17 | README / CHANGELOG を**実装済みの実物を grep で確認してから**更新(全ID 対応) | `README.md`, `CHANGELOG.md` | Step 1〜16 すべて + A〜C の統合ブランチへのマージ完了 | D(逐次・worktree を作らない) |
 
 ### 各ステップの補足
 
@@ -125,7 +134,7 @@ S/M/L の3項目の直後に小節を1つ足す(30行以内)。
 手順6 と手順6.5 の間に挿入する(6.1〜6.4 は空き番であることを確認済み)。**必須・常時実行だが、実行されるのは読み取り専用の単発コマンド数本**なのでトークン増は小さい。
 
 - 対象は evaluator / evaluator-standards /(渡されていれば)cross-review の指摘のうち**重大度 HIGH と MEDIUM**(LOW は差し戻し根拠にならないので対象外。evaluator-standards の「HIGH/MEDIUM が無ければ基本 PASS」規約と整合)。
-- 証拠の型ごとに検証手順を書く。(1) **file:line 形式**: 該当行とその前後5行を読み取り専用コマンドで表示し(例 `sed -n '20,30p' <path>`)、指摘が名指ししたシンボルがその範囲に現れることを確認。**行番号がズレている場合は `grep -n '<シンボル>' <path>` にフォールバック**し、ヒットすれば接地とみなして行番号の相違をレポートに記録する(差し戻し修正後は行がずれるため、フォールバックが無いと正しい指摘を大量に落とす)。(2) **再現コマンド形式**(「実装が存在しない」等、行を指せない指摘): 添えられたコマンドを実行し、報告された出力・終了コードが再現するか確認。**副作用のあるコマンド(書き込み・削除・学習ジョブ)は実行せず「検証不能」**とする。
+- 証拠の型ごとに検証手順を書く。(1) **file:line 形式**: **リーダーの Read ツールで該当ファイルの当該行付近(前後5行)を読み**、指摘が名指ししたシンボルがその範囲に現れることを確認する。Read は許可プロンプトを伴わないため、必須・常時実行の工程を止めない(`.claude/settings.json` の allow に `sed` は無く〔実測0件〕、既存の定義ファイルにも `sed` の使用実績が無いので第一手段にしない)。行番号の範囲外・ファイル不在は Read の失敗で判別する。**行番号がズレている場合は補助手段として `grep -n '<シンボル>' <path>` にフォールバック**し(grep は手順6 の feedback.md 注入で既に使われている)、ヒットすれば接地とみなして行番号の相違をレポートに記録する(差し戻し修正後は行がずれるため、フォールバックが無いと正しい指摘を大量に落とす)。(2) **再現コマンド形式**(「実装が存在しない」等、行を指せない指摘): 添えられたコマンドを実行し、報告された出力・終了コードが再現するか確認。**副作用のあるコマンド(書き込み・削除・学習ジョブ)は実行せず「検証不能」**とする。
 - 結果の反映(表): 接地 → 従来どおり根拠にする / 未接地・検証不能の **MEDIUM** → 根拠にせず手順8.5 のレポートに「未接地の指摘」として記載 / 未接地・検証不能の **HIGH** → **破棄せず**手順7 の HUMAN_REVIEW 条件1に該当させる。
 - 「**判定そのもの(PASS / NEEDS_REVISION / FAIL)は書き換えない**。この工程が絞るのは差し戻しに使う指摘の集合だけ」と明記する(2軸独立レビューの判定をリーダーが上書きしないため)。
 - 並列実装ではグループごとに実施する。
@@ -218,7 +227,11 @@ assert "init: CLAUDE_REFUTE_PASS が雛形に含まれる(既定無効)" grep -q
 - **注意**: `verify-installers.sh` は配布ペイロードを HEAD から clone するため、**この変更をコミットするまで Step 15 のアサーションは GREEN にならない**。コミット後に再実行して GREEN を確認し、その順序を報告に書く。
 - 閾値変数は導入しない(二値フラグのみ。`enable_feature()` が `"1"` を書き込むため閾値変数を質問リストに載せてはならない、という既存規約に従う)。
 
-**Step 17**(README / CHANGELOG、逐次・最後)
+**Step 17**(README / CHANGELOG、逐次・最後。worktree を作らない)
+**このステップは A〜C の並列グループが統合ブランチへマージされ、統合テストが
+通った後に、統合ブランチ上で単独の generator を起動して実行する**。
+D のための worktree・サブブランチは作らない(マージ前の状態から分岐すると
+以下の現物確認が成立しないため)。
 **このステップの最初に、Step 1〜16 で実際に書かれた内容を Read と grep で現物確認してから書く**(README を実装と別グループで書いたことが `patterns.md` パターン1・21件の主因)。行番号は実装でずれるので grep で再特定する。更新箇所:
 
 - mermaid 図: 手順6.2(接地検証)と HUMAN_REVIEW 出口を反映(**増やすノードは2つまで**。図の可読性を優先する)
@@ -234,7 +247,21 @@ assert "init: CLAUDE_REFUTE_PASS が雛形に含まれる(既定無効)" grep -q
 
 ## 並列化判定
 
-**並列化可能**(グループ A / B / C は対象ファイルが完全に分離し、依存も無い。グループ D は README / CHANGELOG という共有ファイルだけを扱い、全グループ完了後に逐次実行する)。
+**並列化可能(グループ A / B / C の3つ。D は並列グループではない)**。
+
+- **A / B / C**: 対象ファイルが完全に分離し依存も無いため、手順5 の規約どおり
+  worktree 分離付きのサブブランチで並列実装する。
+- **D(README / CHANGELOG)**: **並列グループとして worktree を作らない**。
+  A〜C のサブブランチを統合ブランチへマージし(手順6.5)、統合テストが通った後に、
+  リーダーが**統合ブランチ上で逐次 generator を起動する後続ステップ**として実行する。
+  D の worktree を A〜C と同時に作ると、A〜C のマージ前状態から分岐するため
+  「実物を grep で確認してから README を書く」が原理的に成立せず、
+  防ごうとしている記述と実装の乖離(`patterns.md` パターン1・21件)が再発する。
+  この方式は前回計画 `.claude/plans/20260804-robustness-5proposals.md` のグループE で
+  実績がある。
+- 手順5 は全グループの worktree を一括作成し、手順6.5 は全 PASS 後の一括マージだけを
+  規定しているため、**この「D はマージ後に逐次」という運用はリーダーが明示的に守る**
+  (現行の ml-pipeline にはグループ間依存を表す語彙が無い)。
 
 グループをまたぐ候補(R3 は A と B、P10 は A と B、R1 は A と C)があるため、**両側が一致すべき文面はこの計画で固定してある**(証拠添付の2形式・計画ステップ対応表の列・環境変数名)。Generator は自グループの担当ファイルだけを触り、相手側の文面を勝手に言い換えないこと。食い違いは検証方法1の grep で検出する。
 
@@ -259,7 +286,10 @@ assert "init: CLAUDE_REFUTE_PASS が雛形に含まれる(既定無効)" grep -q
    → 差分なし。**件数(生・一意)と diff の3点**を報告する。
 3. **インストーラ回帰**: `bash verify-installers.sh` → `NG:` 0件。新規アサーションが `OK:` で出る。**Step 15 の時点では NG(RED)、Step 16 のコミット後に OK(GREEN)** の両方を報告する。
 4. **フック回帰**: `bash verify-hooks.sh` → 全テスト PASS(本計画はフックを変更しないため、既存と同一の結果になることの確認)。
-5. **単体テスト**: `uv run python -m pytest tests/ -q` → 全 PASS(既存4ファイル。件数が減っていないこと)。
+5. **単体テスト**: `uv run --with pytest python -m pytest tests/ -q` → **118 passed**(件数が減っていないこと)。
+   このリポジトリには pyproject.toml が無く pytest も未導入のため、`--with pytest` を
+   省略すると `No module named pytest` で実行できない(README.md 3.16節の
+   env_fingerprint 受け入れ検証と同じ起動形式に合わせる)。
 6. **接地検証の実挙動(複数・混在・0件・ズレを必ず含める)**: 一時ファイルに手作りの指摘リストを置き、手順6.2 の手順どおり実行して仕様どおりかを確認する。
    - 指摘0件 → 何も除外されず素通りする
    - HIGH×1(実在する file:line)+ MEDIUM×1(存在しない行番号) → 前者は根拠に残り、後者は「未接地」に落ちる
@@ -292,7 +322,6 @@ assert "init: CLAUDE_REFUTE_PASS が雛形に含まれる(既定無効)" grep -q
   - **P10 の「定期リマインド」を実行中の監視エージェント(R10 系)で行う案** — 不採用。常時監視は重く本計画の範囲を超える。ステップ着手前の計画再読と完了時の対応表照合で、承認後の空白の主要部分は埋まる。
 - 未確認の仮定:
   - 未確認の仮定: `claude-init.ps1` への変更はこの環境(pwsh 無し)では実行検証できず、sh 版との文字列一致でしか担保できない / 検証: `grep -n "pwsh" verify-installers.sh` / 期待: 1件ヒットし、ps1 は対象外である旨のコメントが表示される
-  - 未確認の仮定: 手順6.2 で使う `sed` は `.claude/settings.json` の allow リストに無いため、実行時にユーザーへの許可確認が出る可能性がある / 検証: `grep -c "sed" .claude/settings.json` / 期待: `0` が返る
   - 未確認の仮定: 新設4節を足しても `ml-pipeline.md` は1回で読み切れる長さに収まる / 検証: `wc -l .claude/commands/ml-pipeline.md` / 期待: 実装前の値が `644` で、増分150行を足しても800行未満に収まること
 
 ## トレーサビリティ
