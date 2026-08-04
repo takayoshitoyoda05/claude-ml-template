@@ -101,6 +101,21 @@
   実行でもフックが確実に解決される)
 
 ### Added(2026-08-04)
+- **計画・レビュー堅牢化**: planner が「未確認の仮定」に読み取り専用の検証コマンドを
+  固定書式(`未確認の仮定: 〜 / 検証: <コマンド> / 期待: 〜`)で明記するよう義務化し、
+  plan-reviewer が条件8としてそのコマンドを許可リスト(ls/cat/head/tail/wc/grep/rg/
+  find/test/git の log/show/diff/status/rev-parse/ls-files/branch のみ)方式で実行して
+  照合する(禁止構文・禁止フラグは fail-closed で実行不能扱い、条件が7個→8個に)。
+  計画専用の敵対的レビューエージェント plan-premortem(sonnet)を新設し、
+  planner の会話履歴を持たない独立コンテキストで spec-checklist 通過後の計画を
+  審査、HIGH指摘は1回まで planner に差し戻す(手順3.4)。quality_gate に
+  変更行カバレッジ検査(pytest-cov + diff-cover、main比較)を4番目のチェックとして
+  追加(`CLAUDE_DIFF_COVERAGE=1` で有効、既定閾値80%は `CLAUDE_DIFF_COVERAGE_MIN`
+  で変更可、ツール未導入・timeout・main未解決はスキップ)。evaluator に手順4.5
+  「ベースライン比較実行」を追加し、評価コマンド失敗時のみ分岐元の worktree で
+  同じコマンドを再実行して既存の失敗・flaky を差し戻し根拠から除外する。
+  手順6のレビュー直前に feedback.md の直近の失敗類型(上位3件まで)を
+  evaluator / evaluator-standards へ参考情報として注入する
 - **導入時の任意機能セットアップ**: claude-init が settings.local.json を新規生成する
   とき、任意機能(Codex クロスレビュー / haiku スカウト隊 / 品質ゲート / 計画の
   自動承認 / 通知 / final-gate / セキュリティスキャン)を有効にするか1機能ずつ質問し、
