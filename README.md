@@ -20,12 +20,12 @@ flowchart TD
     D -.->|CLAUDE_CROSS_REVIEW無効時| F
     X --> E[evaluator: Spec軸 数値で判定]
     X --> F[evaluator-standards: Standards軸 品質レビュー]
-    E & F -->|両方PASS| AD[セキュリティスキャン<br>※CLAUDE_SECURITY_SCAN=1時のみ]
-    E & F -->|NEEDS_REVISION| GV{接地検証 手順6.2<br>+反証濾過 手順6.3<br>※CLAUDE_REFUTE_PASS=1時}
+    E & F --> GV{接地検証 手順6.2<br>+反証濾過 手順6.3<br>※CLAUDE_REFUTE_PASS=1時}
+    GV -->|両方PASS| AD[セキュリティスキャン<br>※CLAUDE_SECURITY_SCAN=1時のみ]
     GV -->|差し戻し根拠が残る| D
     GV -->|判定不確実| HR[HUMAN_REVIEW<br>停止・人間の判断]
     E -->|FAIL 3回| B
-    E & F -.->|両方PASSかつSECURITY_SCAN無効時| P
+    GV -.->|両方PASSかつSECURITY_SCAN無効時| P
     AD -->|verifiedな指摘なし| P[リファクタリング・パス<br>動作を変えない磨き1周]
     AD -->|verifiedな指摘あり| D
     P --> FG[final-gate fable: マージ可否の三択判断<br>※CLAUDE_FINAL_GATE=1時のみ]
@@ -1237,9 +1237,10 @@ CLAUDE_SECURITY_SCAN=1 と CLAUDE_FINAL_GATE=1 を設定すると、
 (編集の都度、security-guidance が自動レビュー ← 常時安全層)
 
 【第1層】evaluator(Spec) + evaluator-standards(Standards)
+  ↓ 判定(PASS/NEEDS_REVISION)によらず実行
+接地検証(必須、手順6.2)
+  ↓ 反証濾過(opt-in、手順6.3。CLAUDE_REFUTE_PASS=1時。リスク階層「高」では実行しない)
   ↓ 両方PASS
-接地検証(必須、手順6.2)/ 反証濾過(opt-in、手順6.3。CLAUDE_REFUTE_PASS=1時)
-  ↓
 【第2層】claude-security 差分スキャン
   6フェーズ: Inventory → Threat model → Research → Sweep → Panel → Adversarial
   Panel: 3視点(REACHABILITY/IMPACT/DEFENSES)の独立検証者が
