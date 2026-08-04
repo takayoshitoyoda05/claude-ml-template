@@ -143,6 +143,15 @@
   (`PC-n`形式)を追加し、tdd/spec-checklistスキルと整合させ、Generatorが実装前に
   事後条件をテストとしてRed確認するよう規定
 
+### Added(2026-08-05)
+- **セッション上限からの自動再開**: Stopフック record_session_state.py が各ターン終了時に
+  ブランチ・git status・対応する計画の手順表・直近の会話末尾を
+  `.claude/checkpoints/session_state.md` へ上書き記録(会話由来テキストはマスキング済み、
+  世代管理なし)。新セッション起動時に resume_session_state.py(SessionStart,
+  matcher: startup)がブランチ一致・72時間以内の記録を会話へ注入し、自動続行せず
+  再開可否の確認を促す(既存のcompact用フックとは独立経路で二重注入しない)。
+  `CLAUDE_SESSION_RESUME=0` で無効化可能
+
 ### Added(2026-08-03)
 - **配布物の git 除外オプション**: `CLAUDE_TEMPLATE_GITIGNORE_ALL=1` を付けて
   claude-init/update を実行すると、テンプレートが配布・生成する一式(`.claude/` /
