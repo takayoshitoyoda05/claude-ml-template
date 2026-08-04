@@ -15,7 +15,7 @@ experiment: false
 | R-1 | パイプライン進行状態(ブランチ・作業ツリー・対応する計画の手順表・直近の会話の末尾)を工程の節目ごとに機械的に記録し、常に最新1件が存在する |
 | R-2 | 記録が残っていればセッション開始時に自動的に文脈へ注入し、再開を促す(自動続行はしない) |
 | R-3 | 記録内容に秘密情報を平文で残さない(既存 `_mask.mask()` に準拠) |
-| R-4 | 既存の compact 用フック2本(`checkpoint_before_compact.py` / `reinject_after_compact.py`)の挙動を変えない・二重注入しない |
+| R-4 | 既存フックの配線と挙動を変えない。compact 用フック2本(`checkpoint_before_compact.py` / `reinject_after_compact.py`)は二重注入せず、`settings.json` の既存 Stop 6件・PreCompact・SessionStart(compact)エントリも順序・内容とも保存される |
 | R-5 | 記録が無い・古い・壊れていてもセッション開始を妨げない(この機能に限り fail-open) |
 | R-6 | 手動の handoff スキルと自動記録の責務境界をドキュメントで明示する |
 
@@ -51,9 +51,10 @@ experiment: false
 | `tests/test_session_resume.py` | 新規 | PC-1〜PC-13 の受け入れテスト(`tests/test_plan_gate.py` の subprocess CLI 起動形式に倣う) |
 | `_staging_record_session_state.py` | 新規(一時) | Stop 用記録フックの完成版全文。ユーザーが `.claude/hooks/record_session_state.py` へ `cp` |
 | `_staging_resume_session_state.py` | 新規(一時) | SessionStart(startup)用注入フックの完成版全文。ユーザーが `.claude/hooks/resume_session_state.py` へ `cp` |
-| `_staging_settings.json` | 新規(一時) | 2ブロック挿入後の `settings.json` 全文。ユーザーが `cp` で適用後に削除 |
+| `_staging_gen_settings.py` | 新規(一時) | `settings.json` を読み込んで2要素を挿入し `_staging_settings.json` を出力する使い捨てスクリプト。Step 7 で削除 |
+| `_staging_settings.json` | 新規(一時) | 2ブロック挿入後の `settings.json` 全文(プログラム生成)。ユーザーが `cp` で適用後に削除 |
 | `.gitignore` | 変更 | 17行目 `/_staging_*.py` → `/_staging_*`(拡張子限定を外し、JSON の staging を同じ仕組みに乗せる) |
-| `README.md` | 変更 | フック表に2行、ディレクトリツリーに2行、冒頭の早見表に1行、env 表に `CLAUDE_SESSION_RESUME` 1行 |
+| `README.md` | 変更 | フック表(908-922行)に2行、ディレクトリツリー(1596-1597行付近)に2行、`## 0. 迷ったら(エントリーポイントの選び方)`(47行)配下の表(50-62行)に1行、env 表(254行付近)に `CLAUDE_SESSION_RESUME` 1行 |
 | `templates/settings.local.json.template` | 変更 | `"CLAUDE_SESSION_RESUME": "1"` を1行追加 |
 | `.claude/skills/handoff/SKILL.md` | 変更 | 自動記録との責務境界を3行以内で追記 |
 | `CHANGELOG.md` | 変更 | `[Unreleased]` に項目1件 |
@@ -63,7 +64,7 @@ experiment: false
 
 ## 事後条件(postconditions)
 
-PC-1〜PC-13 は `tests/test_session_resume.py`、PC-14 は git コマンドで機械照合する。「record」= `record_session_state.py`、「resume」= `resume_session_state.py`。各テストは `tmp_path` に `git init` した一時リポジトリを作り `cwd` を移して実行する。
+PC-1〜PC-13 と PC-15 は `tests/test_session_resume.py` で、PC-14・PC-16・PC-17 は Step 8 の git / python コマンド(**適用直後・コミット前**に実行)で機械照合する。適用がユーザーの手動 `cp` である以上、適用結果の検証は pytest 内で完結しないため、後者は検証方法に実行コマンドとして明記する。「record」= `record_session_state.py`、「resume」= `resume_session_state.py`。pytest の各ケースは `tmp_path` に `git init` した一時リポジトリを作り `cwd` を移して実行する。
 
 | ID | 対象 | 入力 | 満たすべき条件 | 要件 |
 |---|---|---|---|---|
@@ -79,8 +80,11 @@ PC-1〜PC-13 は `tests/test_session_resume.py`、PC-14 は git コマンドで�
 | PC-10 | resume | 状態ファイルなし / 空 / 不正 UTF-8 バイト列 | stdout 空・exit 0、トレースバックなし | R-5 |
 | PC-11 | resume | 状態ファイルの記録ブランチが現在ブランチと不一致 / mtime が 73 時間前 | それぞれ stdout 空・exit 0 | R-2 |
 | PC-12 | 既存 `reinject_after_compact.py` | `source="compact"` + `latest.md` あり | 従来どおり `latest.md` 本文を stdout に出力・exit 0(回帰) | R-4 |
-| PC-13 | record の slug 導出 | ブランチ名3種(`pipeline/20260805-foo`、`pipeline/20260805-foo-group-A`、`foo`) | `plan_gate._slug_from_branch()` と同じ文字列を返す(両モジュールを import して比較) | R-1 |
-| PC-14 | `.gitignore` | Step 4 適用後のリポジトリ | `git check-ignore -v _staging_settings.json` が `.gitignore:17:/_staging_*` を返し、かつ `git ls-files -i --exclude-standard` の出力が空(既存の追跡ファイルを新たに無視していない) | R-1, R-2 の適用手段 |
+| PC-13 | record の slug 導出 | ブランチ名3種(`pipeline/20260805-foo`、`pipeline/20260805-foo-group-A`、`foo`) | `plan_gate._slug_from_branch()` と同じ文字列を返す(両モジュールを import して比較)。照合対象は slug 導出のみで、`plan_gate._select_plan_path()` の候補選定は**複製しない**ため parity の対象外(PC-15 が代替の安全条件を固定する) | R-1 |
+| PC-14 | `.gitignore` | Step 4 適用後のリポジトリ | `git check-ignore -v _staging_settings.json` が `.gitignore:17:/_staging_*` を返し、かつ `git ls-files -i -c --exclude-standard` が**終了コード 0 かつ空出力**。`-i` は `-c` か `-o` との併用が必須で、`-c` を欠くと `fatal: ls-files -i must be used with either -o or -c`(exit 128)になり、出力が空になるため常に見かけ上パスしてしまう | R-1, R-2 の適用手段 |
+| PC-15 | record の計画特定 | ブランチ `pipeline/foo`、`.claude/plans/` に `20260805-foo.md` のみ存在(直接一致 `foo.md` は無し)。別ケースとして `20260805-foo.md` と `20260806-foo.md` の2件が存在 | いずれの場合も状態ファイルに計画パスを書かず「該当なし」と記録する(誤ったパス・あいまい候補を記録しない)。直接一致 `.claude/plans/foo.md` を置いた場合のみそのパスを記録する | R-1 |
+| PC-16 | 適用後の `.claude/settings.json` | Step 7 適用直後・**コミット前** | `git diff --numstat .claude/settings.json` の出力が `<追加行数>	0	.claude/settings.json`(削除行が 0)。既存エントリの欠落・順序変更・`"async": true` の消失はいずれも削除行として現れるため、0 でなければ FAIL | R-4 |
+| PC-17 | 適用後の `.claude/settings.json` | 同上(`git show HEAD:.claude/settings.json` を適用前の版として使う) | (a) Stop 配列から先頭1要素(`record_session_state.py`)を除いた残りが適用前と**順序込みで完全一致**、(b) SessionStart の `matcher == "compact"` エントリが適用前と一致、(c) PreCompact の `"async": true` が残存、(d) 適用前に存在した全 command 文字列が適用後にも全件存在する | R-4 |
 
 ## 実装手順
 
@@ -89,8 +93,8 @@ PC-1〜PC-13 は `tests/test_session_resume.py`、PC-14 は git コマンドで�
 | 1 | PC-1〜PC-13 の受け入れテストを実装前に書く(この時点では対象フックが存在せず全 FAIL = RED が正しい状態。`tests/test_plan_gate.py` の冒頭 docstring と subprocess CLI 起動形式に倣い、RED である旨を docstring に明記する) | `tests/test_session_resume.py` | なし | A |
 | 2 | 記録フックの完成版全文を作成(R-1/R-3/R-5) | `_staging_record_session_state.py` | Step 1 | A |
 | 3 | 注入フックの完成版全文を作成(R-2/R-4/R-5) | `_staging_resume_session_state.py` | Step 1 | A |
-| 4 | `.gitignore` 17行目を `/_staging_*` に広げ、現行 `settings.json` に2ブロックを挿入した全文を `_staging_settings.json` に書き出す(R-1/R-2)。挿入以外の行・キー順・インデントを変えない | `.gitignore`, `_staging_settings.json` | Step 2, 3 | A |
-| 5 | フック表・ディレクトリツリー・冒頭早見表・env 表を更新し、env フラグをテンプレートに登録(R-2/R-5)。既存の `checkpoint_before_compact.py` 行の書式に倣う | `README.md`, `templates/settings.local.json.template` | Step 2, 3 | A |
+| 4 | `.gitignore` 17行目を `/_staging_*` に広げ、**現行 `settings.json` を読み込んで2要素をプログラム的に挿入する生成スクリプトを書き、実行して** `_staging_settings.json` を出力する(R-1/R-2/R-4)。全文の手書き写しは禁止 | `.gitignore`, `_staging_gen_settings.py`, `_staging_settings.json` | Step 2, 3 | A |
+| 5 | フック表(908-922行)・ディレクトリツリー(1596行付近)・`## 0. 迷ったら` の表(50-62行)・env 表(254行付近)を更新し、env フラグをテンプレートに登録(R-2/R-5)。既存の `checkpoint_before_compact.py` / `CLAUDE_ACTION_LOG` の行の書式に倣う | `README.md`, `templates/settings.local.json.template` | Step 2, 3 | A |
 | 6 | handoff と自動記録の責務境界を追記、変更点を1項目記録(R-6) | `.claude/skills/handoff/SKILL.md`, `CHANGELOG.md` | Step 5 | A |
 | 7 | ユーザーが下記3コマンドで適用し、`_staging_*` を削除する(保護パスのため Claude は実行不可)。適用後に新フック2本を `git add <パス>` して通常どおりコミットする | `.claude/hooks/record_session_state.py`, `.claude/hooks/resume_session_state.py`, `.claude/settings.json` | Step 4, 6 | A |
 
@@ -100,7 +104,7 @@ Step 7 で提示する適用コマンド(完了報告にそのまま載せる):
 cp _staging_record_session_state.py .claude/hooks/record_session_state.py
 cp _staging_resume_session_state.py .claude/hooks/resume_session_state.py
 cp _staging_settings.json .claude/settings.json
-rm _staging_record_session_state.py _staging_resume_session_state.py _staging_settings.json
+rm _staging_record_session_state.py _staging_resume_session_state.py _staging_settings.json _staging_gen_settings.py
 ```
 | 8 | 適用後に GREEN 確認・JSON 妥当性確認・実セッションでの実地確認を行う(R-1/R-2/R-4) | (検証のみ) | Step 7 | A |
 
@@ -112,7 +116,9 @@ rm _staging_record_session_state.py _staging_resume_session_state.py _staging_se
 - **注意(PC-7 の失敗要因)**: transcript は全読みしない。ファイル末尾から 256 KB だけ seek して読み、先頭の不完全行を捨ててから末尾側へ走査する。この設計を守らないと毎ターン数十 MB を読み、Stop が体感で重くなる。
 - **注意(会話抽出の落とし穴)**: JSONL の `user` 行にはツール実行結果も入る。`content` が文字列ならそのまま、リストなら `type == "text"` の要素のみを連結し、連結結果が空のエントリ(tool_result のみ)は「ユーザー発話」として採用しない。これを怠ると「最後のユーザー指示」欄にツール出力が入り、再開時の判断を誤らせる。
 - 会話由来のテキストは必ず `_mask.mask()` を通してから書く(`checkpoint_before_compact.py` 77-87行と同じ方針)。
-- 計画ファイルの特定は `plan_gate.py` 58-88行と同じ規則をこのフック内に実装する(`plan_gate` を import しない。保護パスの変更を避け、private 関数への依存も避けるため。複製である旨をコメントに書く)。PC-13 が両者の一致を守る。
+- 計画ファイルの特定は **`.claude/plans/{slug}.md` の直接一致のみ**とする(`slug` は `plan_gate._slug_from_branch()` と同じ規則=ブランチ最終セグメントから `-group-<英数字>` を1回除去)。`plan_gate.py` の日付つき glob フォールバック(`*-{slug}.md`)は**意図的に実装しない**。あいまい候補の解決を複製すると誤った計画を指しうるため、確実な一致か「該当なし」の二択にする。この意図をコードコメントに書く。
+- 直接一致が無い場合、状態ファイルの計画セクションには「該当なし(`.claude/plans/{slug}.md` が存在しない。`.claude/plans/` を確認すること)」と書き、**推測したパスを書かない**。PC-15 が誤特定しないことを固定する。
+- slug 導出だけは `plan_gate` と一致している必要があるため、PC-13 が両実装の parity を照合する。
 - 例外方針: `main()` 全体を防御し、どの経路でも `sys.exit(0)`。ファイル読み取りは `(OSError, UnicodeError)`、subprocess は `(OSError, subprocess.TimeoutExpired, UnicodeError)` を捕捉する(python-style.md)。git 呼び出しは `timeout=5`、`git diff` は使わない。
 
 ### Step 3 の要点(注入フック)
@@ -124,10 +130,17 @@ rm _staging_record_session_state.py _staging_resume_session_state.py _staging_se
 
 ### Step 4 の要点(settings.json)
 
-- `.claude/checkpoints/` は `guard_scope` の `ARTIFACT_DIR_PATTERNS` で Write 不可(現状分析参照)。提案ファイルはリポジトリ直下の `_staging_settings.json` に置き、`.gitignore` 17行目を `/_staging_*.py` → `/_staging_*` に1箇所だけ広げて未追跡ファイルとして残らないようにする(コメント行は「一時ファイル」としか書いておらず `.py` に依存しないため変更不要)。
-- **注意**: パターンを広げすぎて既存の追跡ファイルを無視してしまわないこと。PC-14 が `git ls-files -i --exclude-standard` の空を機械的に確認する。
+- `.claude/checkpoints/` は `guard_scope` の `ARTIFACT_DIR_PATTERNS` で Write 不可(現状分析参照)。提案ファイルと生成スクリプトはリポジトリ直下の `_staging_*` に置き、`.gitignore` 17行目を `/_staging_*.py` → `/_staging_*` に1箇所だけ広げる(コメント行は `.py` に依存しないため変更不要)。
+- **全文の書き写しは行わない**。`_staging_gen_settings.py` を書いて `uv run python _staging_gen_settings.py` で生成する(実測: guard_bash は当該コマンドを許可・exit 0)。処理は次の4手のみ:
+  1. `json.loads(Path(".claude/settings.json").read_text(encoding="utf-8"))`
+  2. `cfg["hooks"]["Stop"][0]["hooks"].insert(0, {"type": "command", "command": ...record_session_state.py})`(Stop は要素1個の配列で、その `hooks` に6件が並ぶ現行構造を前提とする)
+  3. `cfg["hooks"]["SessionStart"].append({"matcher": "startup", "hooks": [{"type": "command", "command": ...resume_session_state.py}]})`
+  4. `json.dumps(cfg, indent=2, ensure_ascii=False) + "\n"` を `_staging_settings.json` に書く
+- **確認済み**: 現行 `.claude/settings.json` はこの dump 設定で round-trip がバイト単位で一致する(3423 バイト、非 ASCII なし)。したがって生成物と現行版の差分は**挿入行のみ**になり、既存エントリの欠落・順序変更・`"async": true` の消失は `git diff` に削除行として必ず現れる(PC-16 が機械照合)。
+- **注意(二重挿入)**: スクリプトは冒頭で既存 command 文字列に `record_session_state.py` が含まれるかを確認し、含まれていれば何もせず終了する(適用後に再実行してもエントリが2重にならないようにする)。
+- **注意**: `.gitignore` のパターンを広げすぎて既存の追跡ファイルを無視しないこと。PC-14 が機械的に確認する。
 - settings.json 側の変更は2箇所のみ: Stop 配列の**先頭**に `record_session_state.py` の要素を挿入(`"async"` は付けない)、SessionStart 配列に `{"matcher": "startup", ...}` のエントリを1つ追加。
-- 既存の6つの Stop フック・compact エントリの記述は1文字も変えない。適用手順(3つの `cp` と `_staging_*` の削除)を完了報告に明記する。
+- 適用手順(3つの `cp` と `_staging_*` の削除)を完了報告に明記する。
 
 ## 並列化判定
 
@@ -170,9 +183,31 @@ git check-ignore -v _staging_settings.json
 PASS 条件: `.gitignore:17:/_staging_*` を出力(Step 4 適用直後、削除前に実行する)。
 
 ```bash
-git ls-files -i --exclude-standard
+git ls-files -i -c --exclude-standard; echo "exit=$?"
 ```
-PASS 条件: 出力が空(`/_staging_*` への拡張が既存の追跡ファイルを巻き込んでいない)。PC-14。
+PASS 条件: 出力が空**かつ** `exit=0`(`-c` 無しでは exit 128 で空出力になり検出力を失う)。PC-14。
+
+```bash
+git diff --numstat .claude/settings.json
+```
+PASS 条件: 削除行が `0`(2列目が 0)。1以上なら既存エントリを壊しているので適用をやり直す。PC-16。
+
+```bash
+uv run python -c "
+import json,subprocess
+old=json.loads(subprocess.run(['git','show','HEAD:.claude/settings.json'],capture_output=True,text=True,check=True).stdout)
+new=json.loads(open('.claude/settings.json',encoding='utf-8').read())
+o,n=old['hooks'],new['hooks']
+assert n['Stop'][0]['hooks'][0]['command'].endswith('record_session_state.py'), 'Stop 先頭が新規フックでない'
+assert n['Stop'][0]['hooks'][1:]==o['Stop'][0]['hooks'], 'Stop の既存エントリが順序込みで一致しない'
+assert [e for e in n['SessionStart'] if e.get('matcher')=='compact']==[e for e in o['SessionStart'] if e.get('matcher')=='compact'], 'compact エントリが変化した'
+assert n['PreCompact']==o['PreCompact'], 'PreCompact(async 含む)が変化した'
+def cmds(h): return {c['command'] for v in h.values() for e in v for c in e['hooks']}
+assert cmds(o) <= cmds(n), '適用前に存在した command が欠落している'
+print('ok')
+"
+```
+PASS 条件: `ok` が出力される(assert が1つでも落ちれば FAIL)。PC-17。
 
 ### フック単体の CLI 起動(手動確認)
 
@@ -228,6 +263,8 @@ PC-1/PC-3/PC-5 のテストは、以下5パターンの transcript フィクス�
 - **代替案3: 状態を追跡ファイル(`docs/` や `.claude/handoffs/`)にコミットして別マシンでも復元可能にする** — 不採用。毎ターン更新される生成物を追跡すると作業ツリーが常時 dirty になり codex_gate の再レビュー要求と衝突する。会話末尾を git 履歴に残す点も望ましくない。
 - **代替案4: 提案ファイルを `.claude/checkpoints/` に置く** — 不採用というより**実行不能**。`guard_scope` の `ARTIFACT_DIR_PATTERNS`(`/checkpoints/`)で Write が exit 2 になることを実測で確認した。
 - **代替案5: 提案ファイルを `logs/` に置く(`.gitignore` 変更不要)** — 不採用。Write は通る(実測 exit 0)が、`.claude/rules/search-hygiene.md` が `logs/` を全検索から除外させる場所であり、ユーザーが適用すべき一時ファイルの置き場として発見性が低い。`_staging_` は既存の同目的の慣例であり、そちらに寄せる方が一貫する。
+- **`settings.json` の既存配線を静かに壊す**: 全文を手で書き写す方式では、Stop の6エントリや `"async": true` を1つ落としても JSON としては妥当なままで、既存テスト(`verify-hooks.sh` / `tests/`)も settings.json の**内容**を一切検証していない(実測: `grep -rln "settings\.json" tests/ --include="*.py"` は0件)。このため Step 4 をプログラム的生成に変え、PC-16(削除行0)と PC-17(HEAD 版との構造比較)で適用結果を機械照合する。
+- **計画パスが状態ファイルに載らないことがある**: 記録フックは直接一致(`.claude/plans/{slug}.md`)のみを採用するため、日付つき別名しか無いブランチでは「該当なし」と記録される。誤ったパスを記録するより安全側であり、注入文の「計画ファイルを読み直す」指示と `.claude/plans/` の確認で補える。plan_gate 側は従来どおり glob フォールバックを持つため、ゲートの挙動には影響しない。
 - **`.gitignore` のパターン拡張による取りこぼし**: `/_staging_*` は `.py` 以外の `_staging_` 接頭辞ファイルも無視する。将来 `_staging_` で始まる追跡したいファイルを作ると silently 無視される。現時点で該当ファイル・参照コードは0件(実測)であり、既存コメントの意図(コミット対象にしない一時ファイル)とも一致するため許容する。PC-14 が巻き込みゼロを機械的に固定する。
 - 未確認の仮定: Stop フックの JSON payload に `transcript_path` が含まれる(PreCompact では使用実績あり)。欠けても PC-3 のフォールバックで会話セクションが「(取得不可)」になるだけで機能は成立する / 検証: `rg -n "transcript_path" /home/toyod/claude-ml-template/.claude/hooks/checkpoint_before_compact.py` / 期待: 3行ヒット(36・77・82行)し、同名フィールドがフック payload の標準キーとして使われていることが確認できる
 - 未確認の仮定: SessionStart の `matcher` に `startup` を指定でき、既存の `compact` エントリと独立に発火する。フック側で `source` を再判定するため、matcher が期待どおりに効かなくても二重注入は起きない / 検証: `grep -n "matcher" /home/toyod/claude-ml-template/.claude/settings.json` / 期待: `"matcher": "compact"` を含む行が1件だけ表示される(matcher に source 名を書く形式であること)
@@ -237,10 +274,10 @@ PC-1/PC-3/PC-5 のテストは、以下5パターンの transcript フィクス�
 
 | ID | 対応ステップ | 検証方法 |
 |---|---|---|
-| R-1 | Step 1, 2, 4, 7, 8 | `uv run --with pytest python -m pytest tests/test_session_resume.py -q`(PC-1, PC-4, PC-6, PC-7, PC-13)+ `git check-ignore -v _staging_settings.json` と `git ls-files -i --exclude-standard`(PC-14、適用手段)+ 実地確認1 |
+| R-1 | Step 1, 2, 4, 7, 8 | `uv run --with pytest python -m pytest tests/test_session_resume.py -q`(PC-1, PC-4, PC-6, PC-7, PC-13, PC-15)+ `git check-ignore -v _staging_settings.json` / `git ls-files -i -c --exclude-standard`(PC-14、適用手段)+ 実地確認1 |
 | R-2 | Step 1, 3, 4, 5, 7, 8 | 同上(PC-8, PC-11, PC-14)+ 実地確認2 |
 | R-3 | Step 1, 2 | 同上(PC-5) |
-| R-4 | Step 1, 3, 4, 7, 8 | 同上(PC-9, PC-12)+ `bash verify-hooks.sh` + 実地確認3 |
+| R-4 | Step 1, 3, 4, 7, 8 | 同上(PC-9, PC-12)+ `git diff --numstat .claude/settings.json`(PC-16)+ HEAD 版との構造比較ワンライナー(PC-17)+ `bash verify-hooks.sh` + 実地確認3 |
 | R-5 | Step 1, 2, 3, 5 | 同上(PC-2, PC-3, PC-10)+ 「状態が無い/壊れている場合」の手動確認 |
 | R-6 | Step 5, 6 | (目視)`.claude/skills/handoff/SKILL.md` と README のフック表に責務境界の記述があること |
 
