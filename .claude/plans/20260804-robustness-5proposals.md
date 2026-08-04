@@ -503,3 +503,46 @@ cp quality_gate.py.fix2 .claude/hooks/quality_gate.py
 `(cd "$QG_TMP" && ...)` 内で使っており、単一コマンドの実行にのみ環境変数を渡すため
 親シェルの環境を汚染しない。save→restore が要るのは PowerShell が `$env:` への代入で
 プロセス環境を直接書き換えるため)。
+
+## 作業ログ(グループE: Step 10)
+
+- 2026-08-04: Step 10(`README.md` / `CHANGELOG.md`)完了。統合ブランチにマージ済みの
+  グループA〜Dの実装(`planner.md` / `plan-reviewer.md` / `plan-premortem.md` /
+  `ml-pipeline.md` / `quality_gate.py` / `templates/settings.local.json.template` /
+  `claude-init.sh` / `claude-init.ps1` / `verify-hooks.sh` / `.ps1` / `evaluator.md`)を
+  全て Read/grep で現物確認してから、計画記載の line ズレを現物の行番号で
+  再特定して更新した。
+  - mermaid 図に plan-premortem ノード(SC READY → PM → HIGH0件は計画承認 / HIGH1件以上は
+    planner差し戻し最大1回)を追加
+  - 環境変数表に `CLAUDE_DIFF_COVERAGE` / `CLAUDE_DIFF_COVERAGE_MIN` の2行を追加
+  - plan-reviewer 条件表を7行→8行(条件8「未確認の仮定がすべて検証済み」)にし、
+    許可リスト・禁止構文・禁止フラグの規約を1段落で要約併記
+  - パイプライン手順の番号付きリストに plan-premortem のステップを挿入し、以降の
+    番号を1つずつ繰り下げ(旧5〜13 → 新6〜14)。evaluator のステップにベースライン
+    比較実行の要約を追記
+  - `@evaluator` の項にベースライン比較実行(発火条件・分岐元・レポート表)を追記
+  - `@plan-premortem` の項を新設(既存 `spec-auditor` の項の見出し構成に倣う。
+    `####` 見出し・コードブロックの呼び出し例・渡すもの/すること/出力の3点構成)
+  - `@plan-reviewer` の項を7条件→8条件表記に修正
+  - エージェント一覧表に `plan-premortem` 行を追加、`plan-reviewer` 行を8条件表記に修正
+  - フック一覧表の `quality_gate.py` 行に diff-cover(CLAUDE_DIFF_COVERAGE=1)を追記
+  - 3.11 quality-gate の表に「変更行カバレッジ」行を追加、`pytest-cov`/`diff-cover`
+    の導入コマンドを追記
+  - 導入チェックリストの `quality_gate` 行に diff-cover 未導入時のスキップ挙動を追記
+  - ディレクトリツリー2箇所(agents/ に `plan-premortem.md`、hooks/ の
+    `quality_gate.py` 説明に diff-cover)を更新
+  - 「7条件」の表記は全て「8条件」に置換(4箇所)
+  - `CHANGELOG.md` の `[Unreleased]` に `### Added(2026-08-04)` の1ブロックを追加
+    (同日付・同見出しの既存ブロック「導入時の任意機能セットアップ」の直前に、
+    既存 `### Added(2026-07-22)` の粒度・文体に倣って追加。同一日付・同一種別の
+    見出しを2つ作らず1見出し内の追加バレットとして統合)
+- 検証: `grep -rn "7条件" README.md .claude/agents/ .claude/commands/` → ヒット0件。
+  `grep -rln "CLAUDE_DIFF_COVERAGE" README.md templates/settings.local.json.template
+  claude-init.sh claude-init.ps1 .claude/hooks/quality_gate.py` → 5ファイル全てヒット。
+  `grep -rln "plan-premortem" README.md .claude/commands/ml-pipeline.md
+  .claude/agents/plan-premortem.md` → 3ファイル全てヒット。
+  `grep -n "手順3.4" .claude/commands/ml-pipeline.md` → 2箇所(READY分岐と3.4見出し)。
+  変更ファイルは `README.md` / `CHANGELOG.md` のみ(`git status --short` で確認済み、
+  他ファイルへの変更なし)。
+- コミット: `0331810`
+  `docs(step 10): README/CHANGELOGを計画・レビュー堅牢化の実装済み内容に整合させる`
