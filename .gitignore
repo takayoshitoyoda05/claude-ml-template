@@ -14,7 +14,7 @@ logs/
 
 # ガード保護ファイルの変更をユーザーに手動反映してもらうための一時ファイル
 # (コミット対象になることは無く、codex_gate の未追跡チェックを塞がないよう除外)
-/_staging_*.py
+/_staging_*
 
 # 並列実装のグループ別worktree(/ml-pipeline 手順5が作成し、完了後に remove する)
 /.worktrees/

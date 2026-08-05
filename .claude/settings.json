@@ -80,6 +80,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/record_session_state.py"
+          },
+          {
+            "type": "command",
             "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/enforce_eval.py"
           },
           {
@@ -123,6 +127,15 @@
           {
             "type": "command",
             "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/reinject_after_compact.py"
+          }
+        ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/resume_session_state.py"
           }
         ]
       }

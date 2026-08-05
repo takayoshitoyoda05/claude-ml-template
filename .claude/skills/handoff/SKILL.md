@@ -28,3 +28,8 @@ description: 別セッション・別マシンで作業を再開するために�
 新しいセッションで「.claude/handoffs/xxx.md を読んで続きから再開して」と
 伝えると、そこから作業を再開できる。Windows/Linux間などマシンをまたぐ
 場合は、リポジトリを git pull すればハンドオフ文書ごと引き継がれる。
+
+## 自動記録との違い
+セッション上限からの自動再開(record_session_state.py が毎ターン上書きする
+`.claude/checkpoints/session_state.md`、gitignore対象、同一ブランチ・同一
+マシンのみ)は何もしなくてよい。別マシン・別クローンへの引き継ぎや要約整理には本スキルを使う。
