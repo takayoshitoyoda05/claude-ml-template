@@ -344,3 +344,34 @@ cost_estimate:
 | 4 | `.gitignore`拡張+生成スクリプトで`_staging_settings.json`を生成(R-1/R-2/R-4) | `.gitignore`, `_staging_gen_settings.py`(非コミット), `_staging_settings.json`(非コミット) | `diff <(...)`で挿入行のみ、`git check-ignore -v _staging_settings.json`→`.gitignore:17:/_staging_*`、`git ls-files -i -c --exclude-standard`→空・exit0(PC-14) | `c8b08ea`(`.gitignore`のみ) |
 | 5 | フック表・ツリー・「0.迷ったら」表・env表・テンプレートを更新(R-2/R-5) | `README.md`, `templates/settings.local.json.template` | `grep -c CLAUDE_SESSION_RESUME README.md templates/settings.local.json.template`→両方1以上、`uv run python -c "import json; json.load(open('templates/settings.local.json.template')); print('ok')"`→ok | `2a42e94` |
 | 6 | handoffとの責務境界・CHANGELOG追記(R-6) | `.claude/skills/handoff/SKILL.md`, `CHANGELOG.md` | 目視確認(3行以内)。`grep -n "自動記録との違い" .claude/skills/handoff/SKILL.md`→1件 | `64dbfb4` |
+
+## 作業ログ(差し戻し修正: evaluator-standards HIGH指摘対応)
+
+- 2026-08-05: `_format_conversation_piece`が「切り詰め→マスク」の順序に
+  なっており、`sk-`等の秘密情報パターンが`_MAX_CONVERSATION_CHARS`(800文字)の
+  切り詰め境界をまたぐ場合、パターンの前半だけが残ってマスクの正規表現に
+  マッチせず秘密情報の断片が状態ファイルに平文で残る(R-3違反、HIGH)ことが
+  接地検証で確認された。まず`tests/test_session_resume.py`のPC-5節に
+  `test_pc05d_secret_straddling_truncation_boundary_is_masked`を追加。
+  `_MAX_CONVERSATION_CHARS - 20`文字のpaddingの後に`sk-`+40文字のキー様
+  文字列を置き、境界の手前に`sk-`+17文字(パターン`{20,}`未満)が残る
+  ように配置した。現行`.claude/hooks/record_session_state.py`に対して
+  `uv run --with pytest python -m pytest tests/test_session_resume.py -k
+  test_pc05d... -v`を実行しRED(`sk-eeeeeeeeee`が状態ファイルに平文で
+  出現)を確認、`tests/test_session_resume.py -q`で既存29件はPASS・新規
+  1件のみFAILであることも確認した。
+- `.claude/hooks/`は保護パスでClaudeが書けないため、`_format_conversation_piece`
+  を`mask(text)[:_MAX_CONVERSATION_CHARS]`(マスク→切り詰め)に修正した
+  完成版全文を`_staging_record_session_state.py`に作成。現行ファイルとの
+  `diff`は該当関数内の1行変更+説明コメント3行の追加のみであることを確認した。
+  `cp`によるstaging検証(`.claude/hooks`をPYTHONPATH追加)がguardでブロック
+  されたため、`.claude/hooks`を`PYTHONPATH`に加えstaging版を直接CLI起動する
+  形で実地確認し、GREEN(`fragment leaked: False`, `MASKED present: True`,
+  exit 0)を確認した。
+
+### 計画ステップ対応表(差し戻し修正分)
+
+| 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
+|---|---|---|---|---|
+| 2(修正) | PC-5に切り詰め境界またぎのRED検出テストを追加 | `tests/test_session_resume.py` | `uv run --with pytest python -m pytest tests/test_session_resume.py -k test_pc05d_secret_straddling_truncation_boundary_is_masked -v` → 1 failed(RED、`sk-eeeeeeeeee`が平文出現)。`-q`全体で29 passed, 1 failed(既存回帰なし) | `0b94249` |
+| 2(修正) | `_format_conversation_piece`をマスク→切り詰め順に修正した完成版全文を作成 | `_staging_record_session_state.py`(非コミット) | `PYTHONPATH=.claude/hooks python3 _staging_record_session_state.py < stdin.json` の実地確認でfragment leaked: False・[MASKED]あり・exit 0(GREEN見込み)。`diff`は該当関数のみ(1行変更+コメント3行追加) | なし(staging、`.gitignore`対象のため意図的に非コミット) |
