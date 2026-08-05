@@ -138,7 +138,10 @@ def _scan_conversation(text: str) -> tuple[str | None, str | None, str | None]:
 def _format_conversation_piece(text: str | None) -> str:
     if not text:
         return "(取得不可)"
-    return mask(text[:_MAX_CONVERSATION_CHARS])
+    # 先にマスクしてから切り詰める。切り詰め→マスクの順序だと、秘密情報
+    # パターンが切り詰め境界をまたぐ場合に前半だけが残って正規表現に
+    # マッチせず、断片が平文のまま状態ファイルに残る(R-3 違反)
+    return mask(text)[:_MAX_CONVERSATION_CHARS]
 
 
 def _read_conversation(transcript_path: str) -> tuple[str, str, str]:
