@@ -414,6 +414,45 @@ def test_pc05c_tool_result_only_falls_back_to_earlier_utterance(tmp_path: Path) 
     assert "これが最後の実発話です" in text
 
 
+def test_pc05d_secret_straddling_truncation_boundary_is_masked(tmp_path: Path) -> None:
+    """PC-5: sk- キーが会話の切り詰め境界(`_MAX_CONVERSATION_CHARS`)をまたいでも断片が平文で残らない。
+
+    切り詰め→マスクの順序だと、境界をまたぐ秘密情報パターンは前半だけが
+    切り出され正規表現にマッチしないため、その断片が平文のまま状態ファイルに
+    残る(HIGH指摘)。マスク→切り詰めの順序であれば、切り詰め前に全文が
+    `[MASKED]` に置換されるためこの断片は現れない。
+    """
+    _init_repo(tmp_path, "pipeline/20260805-foo")
+    record = _load_module(RECORD_PATH, "record_session_state")
+    max_chars = record._MAX_CONVERSATION_CHARS
+    secret = "sk-" + "e" * 40
+    # 境界の手前に secret の先頭20文字(`sk-` + 17文字)が来るよう padding を
+    # 敷き詰める。境界後に残り23文字が続くため、切り詰め→マスクの順序では
+    # 前半20文字がパターン({20,})に届かず素通りする
+    padding = "x" * (max_chars - 20)
+    content = padding + secret
+    transcript = _write_transcript(
+        tmp_path,
+        [
+            json.dumps(
+                {
+                    "type": "user",
+                    "message": {"role": "user", "content": content},
+                }
+            )
+        ],
+    )
+    stdin = json.dumps({"transcript_path": str(transcript)})
+    result = _run_record(tmp_path, stdin)
+
+    assert result.returncode == 0
+    text = _state_path(tmp_path).read_text(encoding="utf-8")
+    # sk- に続く先頭10文字以上(境界の手前に残る断片)が平文で現れないことを検査する
+    leaked_fragment = secret[:13]
+    assert leaked_fragment not in text
+    assert "[MASKED]" in text
+
+
 # ---------------------------------------------------------------------------
 # PC-6: 対応する計画ファイルと実装手順表が記録される
 # ---------------------------------------------------------------------------
