@@ -25,6 +25,7 @@ Claude からの Edit/Write は常にブロックされる。これは事故で�
        "CLAUDE_COMMIT_STEP_RULE": "",
        "CLAUDE_SPEC_CHECK": "",
        "CLAUDE_SPEC_RECHECK_N": "",
+       "CLAUDE_REQUIREMENTS_GATE": "0",
        "CLAUDE_CROSS_REVIEW": "0",
        "CODEX_MODEL": "",
        "CLAUDE_AUTO_APPROVE": "",
@@ -50,6 +51,7 @@ Claude からの Edit/Write は常にブロックされる。これは事故で�
    | CLAUDE_COMMIT_STEP_RULE | `1` でコミットメッセージにステップ番号(数字)を強制 |
    | CLAUDE_SPEC_CHECK | `1` で Stop 時に設計書の受け入れ条件を機械検査(spec-compliance) |
    | CLAUDE_SPEC_RECHECK_N | spec-compliance の再実行件数。`all` で全件(未指定時 `3`) |
+   | CLAUDE_REQUIREMENTS_GATE | `1` で受け入れ条件テーブル付き設計書が無いままの計画ファイル作成をブロック(既定 `0`) |
    | CLAUDE_CROSS_REVIEW | `1` でCodexクロスレビューをevaluator前に必須にする(既定 `0`) |
    | CODEX_MODEL | Codexのモデルを一時的に上書き(空なら.codex/config.tomlの設定) |
    | CLAUDE_AUTO_APPROVE | `1` で plan-reviewer による計画の自動承認を有効にする(既定 `0`) |
