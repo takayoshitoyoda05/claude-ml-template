@@ -125,6 +125,7 @@ try {
         "CLAUDE_SECURITY_SCAN"  = "パイプライン実行内のセキュリティスキャン"
         "CLAUDE_REFUTE_PASS"    = "レビュー指摘の反証濾過(HIGH 指摘を refuter が潰し、生き残った指摘だけ差し戻しに使う)"
         "CLAUDE_REQUIREMENTS_GATE" = "要件定義の機械ゲート(受け入れ条件テーブル付き設計書が無いままの計画作成をブロック)"
+        "CLAUDE_SESSION_MONITOR"   = "コンテキスト重量化の handoff 推奨モニタ(Stop 時に使用量を実測し警告のみ)"
     }
 
     # settings.local.json の該当フラグを "1" に書き換える
