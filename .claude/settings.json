@@ -43,6 +43,10 @@
           {
             "type": "command",
             "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard_scope.py"
+          },
+          {
+            "type": "command",
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/requirements_gate.py"
           }
         ]
       },
