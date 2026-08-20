@@ -15,7 +15,7 @@
 | R-007 | PASS | 同上 `-k compact_count` | 1 passed | tests/test_session_monitor.py:230 |
 | R-008 | PASS | 同上 `-k fail_open` | 4 passed | tests/test_session_monitor.py:256,265,278,292 |
 | R-009 | PASS | 同上 `-k threshold_env` | 1 passed | tests/test_session_monitor.py:302; logs/runs/20260820-session-monitor-thresholds.log |
-| R-010 | FAIL | `python3 .claude/hooks/session_monitor.py`(compact_count が非数値文字列の状態ファイルを与えて再現) | returncode=1、`ValueError: invalid literal for int() with base 10: 'oops'` の未捕捉トレースバック | .claude/hooks/session_monitor.py:177,179(int(...)がtry/except外) |
+| R-010 | PASS | 破損値状態ファイル({'sess-x': {'compact_count': 'oops'}})を与え session_monitor.py と checkpoint_before_compact.py(trigger:auto)を再現実行、および `uv run --with pytest python -m pytest tests/test_session_monitor.py -q` | 両フックとも returncode=0(トレースバックなし)。22 passed | .claude/hooks/session_monitor.py:62-80(`_as_int`)、195,197(`_as_int` 適用箇所); .claude/hooks/checkpoint_before_compact.py:46-49(try/except); tests/test_session_monitor.py:305,412; logs/runs/20260820-session-monitor-verdict-recheck-20260820_173423.log; logs/runs/20260820-session-monitor-verdict-recheck-testfile-20260820_173428.log |
 | R-011 | PASS | 同上 `-k compact_counter_hook` | 2 passed | tests/test_session_monitor.py:355,372 |
 | R-012 | PASS | 同上 `-k staging_idempotent` | 1 passed | tests/test_session_monitor.py:396 |
 | R-013 | PASS | `diff <(...) <(...)` in `.worktrees/group-B` | exit 0、両方11件(生・一意とも一致) | claude-init.sh:136; claude-init.ps1:128 |
