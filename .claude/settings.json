@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/guard_scope.py"
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard_scope.py"
           }
         ]
       },
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/guard_bash.py"
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard_bash.py"
           }
         ]
       }
@@ -62,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/auto_format.py"
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/auto_format.py"
           }
         ]
       },
@@ -70,7 +70,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/action_log.py"
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/action_log.py"
           }
         ]
       }
@@ -80,27 +80,31 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/enforce_eval.py"
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/record_session_state.py"
           },
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/spec_gate.py"
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/enforce_eval.py"
           },
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/codex_gate.py"
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/spec_gate.py"
           },
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/quality_gate.py"
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/codex_gate.py"
           },
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/plan_gate.py"
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/quality_gate.py"
           },
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/notify.py"
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/plan_gate.py"
+          },
+          {
+            "type": "command",
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/notify.py"
           }
         ]
       }
@@ -110,7 +114,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/checkpoint_before_compact.py",
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/checkpoint_before_compact.py",
             "async": true
           }
         ]
@@ -122,7 +126,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/reinject_after_compact.py"
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/reinject_after_compact.py"
+          }
+        ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/resume_session_state.py"
           }
         ]
       }
@@ -132,7 +145,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run python .claude/hooks/agent_log.py"
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/agent_log.py"
           }
         ]
       }

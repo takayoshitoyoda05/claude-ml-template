@@ -9,19 +9,23 @@ flowchart TD
     A[ユーザー: 要件を伝える] --> BR[作業ブランチを自動作成<br>mainは無傷のまま]
     BR --> B[Planner opus: 調査して実装計画<br>並列化判定つき]
     B --> SC{spec-checklist<br>品質ゲート 手順3.3}
-    SC -->|READY| C{計画の承認<br>CLAUDE_AUTO_APPROVE=1なら<br>plan-reviewerが自動審査}
+    SC -->|READY| PM{plan-premortem<br>敵対的レビュー 手順3.4<br>独立コンテキスト}
     SC -->|NEEDS_WORK 最大2周| DI[design-interview<br>指摘箇所を解消]
     DI --> B
+    PM -->|HIGH 0件| C{計画の承認<br>CLAUDE_AUTO_APPROVE=1なら<br>plan-reviewerが自動審査}
+    PM -->|HIGH 1件以上 差し戻し最大1回| B
     C -->|承認| D[Generator sonnet: 実装・コミット<br>並列化可能ならworktree分離で並列実装]
     D --> X[cross-review: Codexによる<br>別モデルレビュー<br>※CLAUDE_CROSS_REVIEW=1時のみ]
     D -.->|CLAUDE_CROSS_REVIEW無効時| E
     D -.->|CLAUDE_CROSS_REVIEW無効時| F
     X --> E[evaluator: Spec軸 数値で判定]
     X --> F[evaluator-standards: Standards軸 品質レビュー]
-    E & F -->|両方PASS| AD[セキュリティスキャン<br>※CLAUDE_SECURITY_SCAN=1時のみ]
-    E & F -->|NEEDS_REVISION| D
+    E & F --> GV{接地検証 手順6.2<br>+反証濾過 手順6.3<br>※CLAUDE_REFUTE_PASS=1時}
+    GV -->|両方PASS| AD[セキュリティスキャン<br>※CLAUDE_SECURITY_SCAN=1時のみ]
+    GV -->|差し戻し根拠が残る| D
+    GV -->|判定不確実| HR[HUMAN_REVIEW<br>停止・人間の判断]
     E -->|FAIL 3回| B
-    E & F -.->|両方PASSかつSECURITY_SCAN無効時| P
+    GV -.->|両方PASSかつSECURITY_SCAN無効時| P
     AD -->|verifiedな指摘なし| P[リファクタリング・パス<br>動作を変えない磨き1周]
     AD -->|verifiedな指摘あり| D
     P --> FG[final-gate fable: マージ可否の三択判断<br>※CLAUDE_FINAL_GATE=1時のみ]
@@ -52,6 +56,7 @@ flowchart TD
 | 原因不明のバグ・性能劣化 | diagnosing-bugs スキル(「原因を調べて」)→ 原因が分かったら `/ml-pipeline` へ |
 | 単発リファクタ・ドキュメント編集・軽い調査 | 何も挟まずメインセッションで直接(2.5節) |
 | セッションを区切って引き継ぐ | handoff スキル(「handoffして」) |
+| セッション上限で作業が中断された | 何もしなくてよい(次回起動時に自動再開。3.4節) |
 | 関連研究を調べたい・サーベイをまとめたい | literature-review スキル(「サーベイして」)(3.16節) |
 | 論文原稿のチェック・査読対応・推敲 | paper-writing スキル(「論文をチェックして」)(3.16節) |
 | 実験結果の記録・過去実験との比較 | mlflow-log スキル(「実験を記録して」「実験AとBを比較して」)(3.16節) |
@@ -100,9 +105,31 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/clau
 `.claude/`(agents / commands / skills / hooks / output-styles / rules / settings.json)と
 `CLAUDE.md`(共通ルール)、フック設定の雛形 `.claude/settings.local.json` が作られ、
 Codex CLI 連携用に `agents/shared/` の配置・`AGENTS.md` の生成・`.codex/`
-(config.toml と skills のコピー)も行われる。`.gitignore` に
+(config.toml と skills のコピー)も行われる。運用スクリプト
+(`claude-remote` / `claude-update` / `doctor`)は実行したインストーラと同じ形式だけが
+配置される(`claude-init.sh` なら sh 版のみ、`claude-init.ps1` なら ps1 版のみ。
+使わない側の形式は持ち込まれない)
+(`claude-update` / `doctor` は同名の独自ファイルがあれば保持して警告する。
+自動生成マーカーの無い独自の `AGENTS.md` も保持される)。`.gitignore` に
 `.claude/checkpoints/` / `.claude/settings.local.json` / `**/.claude/spec/` / `/.worktrees/`
-が自動追加される。対話質問は無い(既存の `.claude` があるプロジェクトで再実行した
+が自動追加される。テンプレートの配布物一式を導入先の git に載せたくない場合は
+`CLAUDE_TEMPLATE_GITIGNORE_ALL=1` を付けて実行する(`.claude/` / `.codex/` /
+`agents/shared/` / `templates/*.template` / `AGENTS.md` / `CLAUDE.md` /
+運用スクリプト / `spec-gate.yml` を `.gitignore` にまとめて追記する。
+既存の `.gitignore` は上書きせず追記のみ・冪等で、claude-update も同じフラグを
+受け付ける)。
+
+導入時、任意機能(Codex クロスレビュー・haiku スカウト隊・品質ゲート・計画の
+自動承認・デスクトップ通知・final-gate・セキュリティスキャン)を有効にするかを
+1機能ずつ質問し、回答どおりに `.claude/settings.local.json` を書き換える
+(質問は `.claude/settings.local.json` を新規生成した初回導入時だけ。既存があれば
+保持して質問しない)。非対話で導入したい場合は `CLAUDE_TEMPLATE_FEATURES` に
+有効化するフラグ名をカンマ区切りで渡す(例:
+`CLAUDE_TEMPLATE_FEATURES=CLAUDE_CROSS_REVIEW,CLAUDE_NOTIFY`。既定のまま質問を
+省略するなら `none`)。端末が無い非対話環境では質問を省略してすべて既定
+(無効)のままにする。
+
+その他の対話質問は無い(既存の `.claude` があるプロジェクトで再実行した
 場合のみ上書き確認が出る。確認は端末から受け付けるため `curl | bash` でも機能し、
 CI 等の非対話環境では上書きせず安全に中止する)。
 
@@ -142,7 +169,19 @@ CI 等の非対話環境では上書きせず安全に中止する)。
 
 ### 更新(2回目以降・テンプレート側の改善を反映)
 
-テンプレートリポジトリが更新されたら、各プロジェクトのルートで実行する。
+claude-update は claude-init が配布するので、テンプレートリポジトリが更新されたら
+各プロジェクトのルートで実行するだけでよい。
+
+```powershell
+.\claude-update.ps1
+```
+
+```bash
+./claude-update.sh
+```
+
+手元に claude-update が無い場合(claude-update の配布が入る前の claude-init で
+導入したプロジェクト)は、ダウンロードしてから実行する。
 
 ```powershell
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/main/claude-update.ps1" -OutFile "claude-update.ps1"
@@ -154,10 +193,15 @@ curl -sO https://raw.githubusercontent.com/takayoshitoyoda05/claude-ml-template/
 chmod +x claude-update.sh && ./claude-update.sh
 ```
 
-更新されるのは `agents` / `commands` / `hooks` / `skills` / `output-styles` / `rules` /
+主な更新対象は `agents` / `commands` / `hooks` / `skills` / `output-styles` / `rules` /
 `settings.json` と、Codex CLI 連携分(`agents/shared/` の配布ファイル・`AGENTS.md` の再生成・
-`.codex/skills/` のコピー)。`.claude/plans/`(実行履歴)とプロジェクト固有の `CLAUDE.md` は
+`.codex/skills/` のコピー)、運用スクリプト(`claude-remote` / `claude-update` / `doctor`。
+実行した claude-update と同じ形式のみ更新され、他形式の既存ファイルには触らない)。
+実行中の claude-update 自身も最新版に置き換わる。`.claude/plans/`(実行履歴)と
+プロジェクト固有の `CLAUDE.md` は
 保持され、`agents/shared/` や `.codex/skills/` にユーザーが独自に置いたファイルも残る。
+`claude-update.*` / `doctor.*` と同名の独自ファイル、自動生成マーカーの無い独自の
+`AGENTS.md` も上書きされない(保持して警告する)。
 テンプレートとの差分だけ先に確認したい場合は `doctor` を使う(4.5節)。
 運用の全体像(テンプレート改善→push→各プロジェクトで反映)は4節を参照。
 
@@ -203,10 +247,14 @@ config-set スキルが貼り付け用のJSONを提示するので、それを�
 | CODEX_MODEL | Codexのモデルを一時的に上書き(空なら.codex/config.tomlの設定) | 空 |
 | CLAUDE_AUTO_APPROVE | `1` で plan-reviewer による計画の自動承認を有効にする。空文字列なら CLAUDE_CONTROL_LEVEL に委ねる | 空(レベルに委ねる) |
 | CLAUDE_QUALITY_GATE | `1` でruff/radon/mypyの機械的品質チェックをStopフックで強制する | 無効(0) |
+| CLAUDE_DIFF_COVERAGE | `1` で変更行カバレッジ検査(pytest-cov + diff-cover、main比較)をquality_gateの4番目のチェックとして追加する。CLAUDE_QUALITY_GATE=1が前提 | 無効(0) |
+| CLAUDE_DIFF_COVERAGE_MIN | 変更行カバレッジの閾値(1〜100の整数)。読めない値・範囲外は既定にフォールバック | 空(既定80) |
 | CLAUDE_NOTIFY | `1` でセッション停止時にデスクトップ通知を出す。空文字列なら CLAUDE_CONTROL_LEVEL に委ねる(L3 で有効) | 空(レベルに委ねる) |
 | CLAUDE_SECURITY_SCAN | `1` でclaude-securityプラグインによる差分スキャンを2軸レビュー後に実行(起動にはユーザー本人のコスト承諾明記が別途必要。3.17節参照) | 無効(0) |
 | CLAUDE_FINAL_GATE | `1` でFableによる最終ゲート判断をリファクタパス後に実行 | 無効(0) |
+| CLAUDE_REFUTE_PASS | `1` で接地済みHIGH指摘をrefuterが反証する反証濾過パスを有効にする(手順6.3。リスク階層が高の依頼では実行しない) | 無効(0) |
 | CLAUDE_ACTION_LOG | `1`(または未設定)で全ツール実行・エージェントの自動記録を有効化、`0` で無効化 | 有効(1) |
+| CLAUDE_SESSION_RESUME | `1`(または未設定)でセッション上限からの自動再開(Stopでの記録+起動時の注入)を有効化、`0` で無効化 | 有効(1) |
 | CLAUDE_REFACTOR_SWARM | `1` でリファクタパスの検出を Haiku 7体の並列スカウトで行う(エージェントチーム機能が必要) | 無効(0) |
 | CLAUDE_CONTROL_LEVEL | 自律度の一括切替。L1(手動運転)/ L2(監督運転・既定)/ L3(自律運転) | L2 |
 
@@ -262,7 +310,7 @@ verdict/audit/approvals/design_hashes はコミット対象外で、CI は auto�
 ### 計画の自動承認(plan-reviewer)
 
 CLAUDE_AUTO_APPROVE=1 を設定すると、Planner が作成した計画を
-plan-reviewer(Sonnet)が自動審査する。以下の7条件をすべて満たす場合のみ
+plan-reviewer(Sonnet)が自動審査する。以下の8条件をすべて満たす場合のみ
 ユーザー承認をスキップし、自動で実装フェーズに進む。
 
 | # | 条件 |
@@ -274,6 +322,15 @@ plan-reviewer(Sonnet)が自動審査する。以下の7条件をすべて満た�
 | 5 | 既存テストがある領域の変更 |
 | 6 | データ分割/前処理の変更を含まない |
 | 7 | ステップ数が5以下 |
+| 8 | 未確認の仮定がすべて検証済み(0件ならOK) |
+
+条件8は、planner が「未確認の仮定: 〜 / 検証: `<コマンド>` / 期待: 〜」の固定書式で
+書いた検証コマンドを、plan-reviewer が読み取り専用の許可リスト
+(`ls`/`cat`/`head`/`tail`/`wc`/`grep`/`rg`/`find`/`test`/`git` の
+`log`/`show`/`diff`/`status`/`rev-parse`/`ls-files`/`branch` のみ)で実際に実行し
+「期待」と照合する。パイプ・リダイレクト・`;`・`&&`・コマンド置換や、許可リスト外の
+先頭コマンド・破壊的フラグ(`find -delete` 等、`git branch` の `-D`/`-f` 等)を含む行は
+実行せず「実行不能な書式」として条件8を NG にする(fail-closed)。
 
 1つでも満たさない場合は従来通りユーザーに確認する。
 デフォルトは無効(0)。完全自律で回したい場合のみ有効にする。
@@ -478,35 +535,54 @@ outputs/に出る画像が真っ黒になる問題を解消したい
 パイプラインの内部では、次のエージェントがこの順序で自動的に呼ばれる
 (各エージェントの詳細は 2.3 節を参照)。
 
-1. 作業ブランチ `pipeline/YYYYMMDD-<トピック>` を作成する。以降の全コミットはこの上で行い、
+1. **router(haiku)** が依頼内容から規模(S/M/L)とリスク階層(高/中/低)を判定する(手順0)。
+   リスク階層が「高」なら規模判定を1段上げ(S→M、M→L)、手順6.3(反証濾過パス)を
+   実行しない(リスク階層は強める方向にのみ作用する)
+2. 作業ブランチ `pipeline/YYYYMMDD-<トピック>` を作成する。以降の全コミットはこの上で行い、
    main は一切変更されない(「作業ブランチと原子性」の節を参照)
-2. 作業スコープ直下の `CONTEXT.md` をメイン会話が一度だけ読み、要点を各エージェントに渡す。
+3. 作業スコープ直下の `CONTEXT.md` をメイン会話が一度だけ読み、要点を各エージェントに渡す。
    調査範囲が広ければ **Planner(opus)** の前に Explore(haiku)で安価に下調べする
-3. **Planner(opus)** が計画を `.claude/plans/` に保存する
-4. 計画を承認する。`CLAUDE_AUTO_APPROVE=1` なら **plan-reviewer(sonnet)** が7条件で審査し、
+4. **Planner(opus)** が計画を `.claude/plans/` に保存する
+5. spec-checklist の品質ゲート(手順3.3)を READY で通過した計画に対し、
+   **plan-premortem(sonnet)** が計画ファイルのパスと作業スコープだけを渡された
+   独立コンテキストで敵対的にレビューする(手順3.4)。HIGH指摘が1件以上あれば
+   planner に差し戻して手順3.3からやり直す(最大1回。2回目はユーザー判断)
+6. 計画を承認する。`CLAUDE_AUTO_APPROVE=1` なら **plan-reviewer(sonnet)** が8条件で審査し、
    全て満たせばユーザー承認をスキップする。デフォルト(0)ではユーザーが承認するまで進まない
    (「計画の自動承認」の節を参照)
-5. **Generator(sonnet)** が計画通りに実装・コミット。変更ファイル一覧を両 Evaluator に渡す。
+7. **Generator(sonnet)** が計画通りに実装・コミット。変更ファイル一覧を両 Evaluator に渡す。
    計画が「並列化可能」なら、worktree 分離したチームメイトがグループごとの
    サブブランチで並列実装する(「並列実装」の節を参照。tmux は表示用で必須ではない)
-6. `CLAUDE_CROSS_REVIEW=1` なら cross-review スキルが Codex CLI に別モデル視点の
+8. `CLAUDE_CROSS_REVIEW=1` なら cross-review スキルが Codex CLI に別モデル視点の
    レビューをさせ、その結果を Evaluator への追加情報として渡す
-7. **evaluator(sonnet)** と **evaluator-standards(sonnet)** が並行して2軸レビュー
-   (Spec軸: 動作の正しさ / Standards軸: コード品質)
-8. 両方 PASS なら次へ。片方でも NEEDS_REVISION なら Generator に差し戻し、
-   evaluator が FAIL を3回出したら Planner まで巻き戻る。最大3イテレーションで打ち切り。
-   並列実装では全グループ PASS のときだけ統合する(原子性の保証)
-9. `CLAUDE_SECURITY_SCAN=1` なら **claude-security プラグイン**が差分(main...HEAD)を
-   スキャンし、verification.status が verified の指摘のみを採用する
-   (unverified は参考情報に留め差し戻しには使わない)。
-   verified な指摘が残れば Generator に差し戻す(手順6.6)
-10. 両方 PASS 後、Generator が動作を一切変えずにコードを磨く「リファクタリング・パス」を
+9. **evaluator(sonnet)** と **evaluator-standards(sonnet)** が並行して2軸レビュー
+   (Spec軸: 動作の正しさ / Standards軸: コード品質)。evaluator は評価コマンドが
+   1つでも失敗した場合のみ、分岐元の worktree で同じコマンドを再実行して
+   既存の失敗・flaky を差し戻しの根拠から除外する(手順4.5「ベースライン比較実行」)
+10. HIGH/MEDIUM 指摘を**接地検証**する(手順6.2、必須)。file:line 形式は該当行の実在を
+    Read で確認し、再現コマンド形式は実行して再現を確認する。未接地・検証不能の
+    指摘は根拠から外す(MEDIUM)か HUMAN_REVIEW 対象にする(HIGH)。判定そのもの
+    (PASS/NEEDS_REVISION/FAIL)は書き換えない
+11. `CLAUDE_REFUTE_PASS=1` かつリスク階層が「高」でなければ、接地済み HIGH 指摘を
+    **refuter(sonnet)** が独立コンテキストで反証する(手順6.3)。反証成功した指摘は
+    差し戻し根拠から外れ、反証失敗した指摘は差し戻し根拠に昇格する
+12. 両方 PASS なら次へ。片方でも NEEDS_REVISION なら、手順6.2・6.3を経て残った
+    差し戻し根拠だけを Generator に差し戻す。差し戻し根拠が0件、未接地HIGHが残る等
+    判定が不確実な場合は差し戻さずパイプラインを一時停止し人間の判断を仰ぐ
+    (HUMAN_REVIEW)。evaluator が FAIL を3回出したら Planner まで巻き戻る。
+    最大3イテレーションで打ち切り。並列実装では全グループ PASS のときだけ統合する
+    (原子性の保証)
+13. `CLAUDE_SECURITY_SCAN=1` なら **claude-security プラグイン**が差分(main...HEAD)を
+    スキャンし、verification.status が verified の指摘のみを採用する
+    (unverified は参考情報に留め差し戻しには使わない)。
+    verified な指摘が残れば Generator に差し戻す(手順6.6)
+14. 両方 PASS 後、Generator が動作を一切変えずにコードを磨く「リファクタリング・パス」を
     1周行う(手順6.7)。テストか品質再確認が1つでも壊れたら磨き分だけ破棄して先へ進む
-11. `CLAUDE_FINAL_GATE=1` なら **final-gate(fable)** が最終形を俯瞰し、
+15. `CLAUDE_FINAL_GATE=1` なら **final-gate(fable)** が最終形を俯瞰し、
     APPROVE / SEND_BACK / NEEDS_HUMAN の三択でマージ承認の最終判断を行う(手順6.8)
-12. `CLAUDE_SPEC_CHECK=1` で受け入れ条件テーブルがある設計書を扱っている場合、
+16. `CLAUDE_SPEC_CHECK=1` で受け入れ条件テーブルがある設計書を扱っている場合、
     **spec-auditor(sonnet)** が verdict の証拠を独立コンテキストで再検証する
-13. 全工程の完了後、変更の要約とともに「main にマージしますか?」と確認される
+17. 全工程の完了後、変更の要約とともに「main にマージしますか?」と確認される
 
 ### 設計書を通すかどうかの目安(推奨)
 
@@ -576,8 +652,13 @@ planner → (ユーザー承認) → generator → evaluator / evaluator-standar
 ```
 
 - **渡すもの**: 計画ファイルのパス。変更ファイル一覧があれば diff の確認範囲が絞られる
-- **すること**: 計画の評価コマンドを実際に実行し、期待値と数値で照合。「たぶん合っている」では通さない
-- **出力**: PASS / NEEDS_REVISION / FAIL の判定と重大度つき指摘。PASS 時は設計書の
+- **すること**: 計画の評価コマンドを実際に実行し、期待値と数値で照合。「たぶん合っている」では通さない。
+  評価コマンドが1つでも失敗した場合のみ、分岐元(親ブランチ、無ければ `git merge-base HEAD main`)を
+  worktree でチェックアウトして同じコマンドを再実行する「ベースライン比較実行」を行い、
+  ベースラインでも落ちる失敗は「既存の失敗」として NEEDS_REVISION の根拠から除外する
+  (worktree が作れない場合はスキップしてその旨をレポートに明記)
+- **出力**: PASS / NEEDS_REVISION / FAIL の判定と重大度つき指摘(ベースライン比較を実行した場合は
+  「評価コマンド / ブランチ結果 / ベースライン結果 / 判定への採否」の表を含む)。PASS 時は設計書の
   `docs/archive/` への移動と `docs/EXPERIMENT_LOG.md` への記録も行う(検証コマンドが数値指標を出力し、かつ mlflow 導入済みなら
   その指標を MLflow にも自動記録する。3.16節)。受け入れ条件テーブルが
   あれば `.claude/spec/verdict-*.md` も出力(spec-compliance、1節参照)
@@ -595,6 +676,26 @@ planner → (ユーザー承認) → generator → evaluator / evaluator-standar
 - **出力**: PASS / NEEDS_REVISION。HIGH / MEDIUM の指摘が無ければ PASS
 - **単体で呼ぶ場面**: 動作確認は済んでいて、品質観点のレビューだけ欲しいとき
 
+#### @refuter — レビュー指摘の反証(sonnet)
+
+```
+@refuter この指摘を反証して: evaluator-standards の指摘「foo.py:42 で型注釈が無い」
+```
+
+`CLAUDE_REFUTE_PASS=1` かつリスク階層が「高」でなく、手順6.2 の接地検証を通過した
+HIGH 指摘が1件以上あるとき `/ml-pipeline` から自動的に呼ばれる(手順6.3)。単体呼び出しは、
+差し戻す前に特定の指摘だけ反証できないか確認したいときに使う。
+
+- **渡すもの**: 接地済み HIGH 指摘の全文と変更ファイル一覧
+- **すること**: 各指摘について「成り立たない」ことだけを示そうとする(擁護・改善案・
+  新しい指摘は書かない)。事実の不在・経路の不成立・既存の防御・反例の実行のいずれかを
+  実行コマンドの出力か file:line の引用で示せた場合のみ反証成功とし、「軽微だ」等の
+  価値判断しか出せない場合は反証失敗とする(fail-closed。潰せなければ指摘は生き残る)
+- **出力**: 指摘ごとに `判定: 反証成功 / 反証失敗` + `根拠`。反証成功は差し戻し根拠から
+  外れ、反証失敗は差し戻し根拠に昇格する。PASS/NEEDS_REVISION などの判定は出さない
+- **単体で呼ぶ場面**: 手順7で差し戻す前に、特定の HIGH 指摘が本当に成り立つか
+  独立視点で確認したいとき
+
 #### spec-auditor — spec-compliance の独立監査(sonnet)
 
 `/ml-pipeline` 内で `CLAUDE_SPEC_CHECK=1` のときに自動的に呼ばれる。単体呼び出しは
@@ -602,6 +703,26 @@ planner → (ユーザー承認) → generator → evaluator / evaluator-standar
 
 - **すること**: verdict の証拠検証・スコープ外変更の列挙。evaluator の判定を鵜呑みにしない
 - **出力**: `.claude/spec/audit-*.md`
+
+#### @plan-premortem — 計画の敵対的レビュー(sonnet)
+
+```
+@plan-premortem .claude/plans/20260703-gated-attention.md をプレモーテムして
+```
+
+spec-checklist の品質ゲート(手順3.3)を READY で通過した計画に対し
+`/ml-pipeline` 内で自動的に呼ばれる(手順3.4)。単体呼び出しは、実装に進む前に
+計画の失敗要因だけ独立視点で洗い出したいときに使う。
+
+- **渡すもの**: 計画ファイルのパスと作業スコープのみ(planner の会話履歴・検討経緯は渡さない。
+  渡すと「なぜその設計にしたか」を前提にした判断になり、独立レビューの意味が失われる)
+- **すること**: planner の検討経緯を一切知らない初見の立場で、前提の誤り・手順の順序や依存の抜け・
+  検証方法の非検出性・影響範囲の見落とし・並列グループの競合・ロールバック不能性の6観点を検証する。
+  改善案・良い点は書かない(それは planner の責務)
+- **出力**: 重大度(HIGH/MEDIUM/LOW)+失敗シナリオ+根拠(file:line またはコマンド出力)の指摘リスト。
+  HIGH は「計画どおりに実装しても目的を達成できない、または既存の動作を壊す」場合のみ付ける。
+  HIGH が1件以上なら planner に差し戻して手順3.3からやり直す(最大1回。2回目はユーザー判断)。
+  指摘0件なら「失敗要因なし」
 
 #### @plan-reviewer — 計画の自動承認判定(sonnet)
 
@@ -613,8 +734,8 @@ planner → (ユーザー承認) → generator → evaluator / evaluator-standar
 単体では、実装に進む前に計画の安全性だけ機械的に確認したいときに呼べる。
 
 - **渡すもの**: 計画ファイルのパス
-- **すること**: 7条件(変更ファイル数・リスク・アーキテクチャ変更・新規依存・既存テスト・
-  データ分割変更・ステップ数)のチェックのみ。計画内容の良し悪しは判定しない
+- **すること**: 8条件(変更ファイル数・リスク・アーキテクチャ変更・新規依存・既存テスト・
+  データ分割変更・ステップ数・未確認の仮定の機械検証)のチェックのみ。計画内容の良し悪しは判定しない
 - **出力**: 自動承認OK / NG(要ユーザー確認)と各条件の判定結果
 
 #### @improvement-reviewer — 改善案の審査・適用(opus)
@@ -719,15 +840,17 @@ spec-checklist ゲートは設計書の有無に関わらず毎回動く(設計�
 | 名前 | model | 役割 |
 |---|---|---|
 | planner | opus | 調査・実装計画の作成。`.claude/plans/` に計画を保存 |
-| plan-reviewer | sonnet | Plannerの計画を自動審査し、安全な計画はユーザー承認をスキップ。CLAUDE_AUTO_APPROVE=1 で有効。7条件すべてクリアで自動承認 |
+| plan-premortem | sonnet | 計画を独立コンテキストで敵対的にレビューし失敗要因を洗い出す。手順3.4で自動実行、HIGHは1回まで planner に差し戻し |
+| plan-reviewer | sonnet | Plannerの計画を自動審査し、安全な計画はユーザー承認をスキップ。CLAUDE_AUTO_APPROVE=1 で有効。8条件すべてクリアで自動承認 |
 | generator | sonnet | 計画に沿った実装と git commit |
 | evaluator | sonnet | Spec軸: 計画通りに動くか。評価コマンドを実行し数値で判定 |
 | evaluator-standards | sonnet | Standards軸: 規約・可読性・型安全性・コードスメル |
+| refuter | sonnet | 接地済みHIGH指摘を反証専任でレビュー。反証成功で差し戻し根拠から除外(手順6.3、CLAUDE_REFUTE_PASS=1時のみ。リスク階層が高の依頼では実行しない) |
 | spec-auditor | sonnet | spec-compliance の独立監査: verdict の証拠検証・スコープ外変更の列挙 |
 | improvement-reviewer | opus | retrospectiveの改善案を不変条件に基づいて審査・適用(テスト失敗時は自動revert) |
 | final-gate | fable | 最終形を俯瞰しマージ承認の三択判断のみ(第3層。CLAUDE_FINAL_GATE=1で有効、APPROVE/SEND_BACK/NEEDS_HUMAN) |
 | scout-*(7体) | haiku | リファクタ偵察係。命名/重複/複雑度/コメント/対称性/docstring/デッドコードの各観点で提案のみ。CLAUDE_REFACTOR_SWARM=1 で手順6.7から並列起動。コード変更不可 |
-| router | haiku | タスク規模(S/M/L)を判定し経路を振り分ける軽量ルータ。手順0で自動実行。迷ったらL |
+| router | haiku | タスク規模(S/M/L)とリスク階層(高/中/低)を判定し経路を振り分ける軽量ルータ。手順0で自動実行。リスク階層が高なら規模判定を1段上げる。規模は迷ったらL、リスク階層は迷ったら中 |
 
 ### 3.2 スキル(.claude/skills/)
 
@@ -737,9 +860,9 @@ spec-checklist ゲートは設計書の有無に関わらず毎回動く(設計�
 |---|---|---|---|
 | brainstorm | 方向性が定まっていない(発散) | 「ブレストして」「アイディア出しして」 | `ideas/` にアイデア一覧 |
 | design-interview | ラフな設計書を一問一答で固める(収束)。曖昧性タクソノミーで聞き尽くし、要件を EARS 記法で記述 | 「詰めて」「grillして」「深掘りして」 | `docs/drafts/` の設計書を更新 + 受け入れ条件テーブル |
-| spec-checklist | 設計書の品質(完全性・明確性・一貫性・測定可能性・カバレッジ)を実装前に検査 | 「設計書をチェックして」「spec-checklistして」 | READY / NEEDS_WORK のレポート |
+| spec-checklist | 設計書・計画の品質(完全性・明確性・一貫性・測定可能性・カバレッジ)を実装前に検査。測定可能性は計画の事後条件欄も検査対象 | 「設計書をチェックして」「spec-checklistして」 | READY / NEEDS_WORK のレポート |
 | diagnosing-bugs | 原因不明のバグを再現→仮説→計測で診断 | 「原因を調べて」「なぜこうなるか分からない」 | 診断ログ、原因の特定 |
-| tdd | 入出力が明確な新機能を red-green-refactor で | 「テスト駆動で実装して」「red-green-refactorで」 | テストファーストの実装 |
+| tdd | 入出力が明確な新機能を、事後条件を先に固定してから red-green-refactor で | 「テスト駆動で実装して」「red-green-refactorで」 | テストファーストの実装 |
 | adr | トレードオフを伴う設計判断の記録 | 「この決定をADRに残して」 | `docs/adr/` に ADR |
 | handoff | セッションを区切って引き継ぐ | 「handoffして」「引き継ぎを作って」 | `.claude/handoffs/` に引き継ぎ文書 |
 | architecture-check | 設計負債(重複・肥大化)の定期チェック | 「アーキテクチャを見直して」「設計負債をチェックして」 | レポートのみ(コード変更なし) |
@@ -749,7 +872,7 @@ spec-checklist ゲートは設計書の有無に関わらず毎回動く(設計�
 | security-review | コードの脆弱性チェック、サードパーティ製スキルの安全性監査 | 「セキュリティをチェックして」「このスキルは安全か」 | レポートのみ(コード変更なし) |
 | pre-mortem | 動いているコードの「将来壊れそうな箇所」を予測 | 「pre-mortemして」「壊れそうな箇所を洗い出して」 | レポートのみ(コード変更なし) |
 | leakage-check | 学習/評価データ間の情報漏洩(リーケージ)を確認 | 「リーケージチェックして」「分割は正しいか確認して」 | レポートのみ(コード変更なし) |
-| python-standards | Python コーディング規約(uv/pytest/型ヒント等)の固定 | 明示呼び出し不要(`.claude/rules/` が自動適用。参照用) | 参照用(generator/evaluator-standards が基準にする) |
+| python-standards | Python コーディング規約(uv/pytest/型ヒント・テンソル shape/dtype 注釈等)の固定 | 明示呼び出し不要(`.claude/rules/` が自動適用。参照用) | 参照用(generator/evaluator-standards が基準にする) |
 | property-test | ランダム入力で不変条件を網羅的に検証(Hypothesis) | 「プロパティテストして」「hypothesisでテストして」 | tests/ にプロパティテストを生成 |
 | cross-review | Codex CLI で別モデル視点のレビュー | 「クロスレビューして」(CLAUDE_CROSS_REVIEW=1 時は自動要求) | レポート + センチネル |
 | fix-ci | CI失敗の修正ガイド | 「CIを直して」「テストが落ちている」 | 修正実装 |
@@ -792,14 +915,16 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5�
 | auto_format.py | PostToolUse (Edit/Write/NotebookEdit) | `.py` 編集後に `ruff format`(ruff が無ければスルー) |
 | action_log.py | PostToolUse | 全ツール実行を logs/actions/ に JSONL 自動記録(マスキング済み、duration付き) |
 | agent_log.py | SubagentStop | サブエージェントの委譲チェーンを logs/agents/ に記録(モデル・使用量) |
+| record_session_state.py | Stop | 各ターン終了時にブランチ・git status・対応する計画の手順表・直近の会話末尾を `.claude/checkpoints/session_state.md` へ上書き記録(世代管理なし、会話由来テキストはマスキング済み)。`CLAUDE_SESSION_RESUME=0` で無効化 |
 | enforce_eval.py | Stop | 評価コマンドを実行し失敗なら続行を促す(フラグON時のみ)。前回PASSから状態が変わっていなければ再実行をスキップ |
 | spec_gate.py | Stop | `CLAUDE_SPEC_CHECK=1` のとき、設計書の受け入れ条件テーブルを全要件PASS・承認・監査OK・設計書ハッシュ一致(計画承認時点からの改変検知)で検査し、欠けがあればブロック(`--ci` でCIモード: auto再実行+coverageのみ) |
 | codex_gate.py | Stop | CLAUDE_CROSS_REVIEW=1 のとき Codexレビュー未完了ならブロック。センチネル(`.claude/checkpoints/codex_review_done.txt`)の HEAD ハッシュを現在の HEAD と照合し、レビュー後にコミットが進んだ場合と未コミット変更(未追跡含む)が残っている場合は再レビューを要求する(詳細は 3.10 節) |
-| quality_gate.py | Stop | CLAUDE_QUALITY_GATE=1 のとき、ruff/radon/mypyの機械チェックで閾値超過ならブロック |
+| quality_gate.py | Stop | CLAUDE_QUALITY_GATE=1 のとき、ruff/radon/mypyの機械チェックで閾値超過ならブロック。CLAUDE_DIFF_COVERAGE=1 なら変更行カバレッジ(pytest-cov + diff-cover)も4番目のチェックとして追加 |
 | notify.py | Stop | CLAUDE_NOTIFY=1 のとき、セッション停止時にデスクトップ通知(Windows/macOS/Linux対応) |
 | plan_gate.py | Stop | 現在のブランチ名に対応する計画のリソース超過(invariants の resources 比)・goal 未定義・読めない見積もりをブロック |
 | checkpoint_before_compact.py | PreCompact | 圧縮直前に git 状態・トランスクリプトを `.claude/checkpoints/` にバックアップ(直近10世代のみ保持) |
 | reinject_after_compact.py | SessionStart (compact) | 圧縮直後にチェックポイントと注意事項を会話に再注入 |
+| resume_session_state.py | SessionStart (startup) | 起動時、記録されたブランチが現在と一致し72時間以内なら状態と再開指示を会話に注入(自動続行はしない)。`source=compact` では何もしない(reinject_after_compact.py と二重注入しない)。`CLAUDE_SESSION_RESUME=0` で無効化 |
 
 `spec_approve.py` はフックとして配線されず、ユーザーが `!` で手動実行する
 専用スクリプト(manual要件の承認記録と設計書ハッシュの計画承認記録用)。
@@ -868,6 +993,10 @@ claude-update 実行時に AGENTS.md が自動生成され、.codex/skills/ に�
 | python-style.md | `**/*.py` | 型ヒント・docstring・コメント規約 |
 | minimal-diff.md | (全ファイル) | 修正対象以外を書き換えない |
 | secret-safety.md | (全ファイル) | 秘密情報をコード・コマンドに書かない |
+| consistency.md | (全ファイル) | 記述と実装の整合・対になるファイル(sh/ps1 等)の整合を検証コマンド付きで確認する |
+| search-hygiene.md | (全ファイル) | リポジトリ横断検索で大容量の未追跡ディレクトリ(checkpoints/logs 等)を除外し、rg を優先する |
+
+このほか taste.md(美しさの個人辞書)も rules/ に置かれる(3.14節)。
 
 ### 3.9 自己改善(retrospective + improvement-reviewer)
 
@@ -943,6 +1072,7 @@ CLAUDE_QUALITY_GATE=1 を設定すると、Stop フックで以下が自動チ�
 | lint | ruff check | 違反ゼロ |
 | 複雑度 | radon cc | 循環的複雑度 C(11)以上の関数ゼロ |
 | 型 | mypy | 型エラーゼロ(導入済みの場合のみ) |
+| 変更行カバレッジ | pytest-cov + diff-cover | main比較で変更行カバレッジが閾値(既定80%、CLAUDE_DIFF_COVERAGE_MIN で変更可)以上(CLAUDE_DIFF_COVERAGE=1 のときのみ) |
 
 ツールが未導入の場合、そのチェックはスキップされる(壊れない)。
 前回PASSからリポジトリの状態が変わっていなければ再実行はスキップされる
@@ -952,6 +1082,12 @@ radon / mypy の導入:
 
 ```
 uv add --dev radon mypy
+```
+
+pytest-cov / diff-cover の導入(CLAUDE_DIFF_COVERAGE=1 を使う場合):
+
+```
+uv add --dev pytest-cov diff-cover
 ```
 
 #### 複雑度の経時トラッキング
@@ -1106,6 +1242,9 @@ CLAUDE_SECURITY_SCAN=1 と CLAUDE_FINAL_GATE=1 を設定すると、
 (編集の都度、security-guidance が自動レビュー ← 常時安全層)
 
 【第1層】evaluator(Spec) + evaluator-standards(Standards)
+  ↓ 判定(PASS/NEEDS_REVISION)によらず実行
+接地検証(必須、手順6.2)
+  ↓ 反証濾過(opt-in、手順6.3。CLAUDE_REFUTE_PASS=1時。リスク階層「高」では実行しない)
   ↓ 両方PASS
 【第2層】claude-security 差分スキャン
   6フェーズ: Inventory → Threat model → Research → Sweep → Panel → Adversarial
@@ -1216,7 +1355,9 @@ docs/reports/ はローカル成果物(git 管理外。リポジトリには含�
 | HITL 必須操作 | 実行前承認 | 30分超の学習・データ削除・invariants 変更・外部公開は、どのレベルでも実行内容/コスト/不可逆性の3点提示つきで承認を取る |
 | CLAUDE_CONTROL_LEVEL | 一括切替 | L1/L2/L3 で自律度を1つの値で制御 |
 
-注: プロジェクトのデータディレクトリ名が data/ 以外の場合(例: datasets/)、claude-init 時に settings.local.json の permissions.deny に追加できる。
+注: プロジェクトのデータディレクトリ名が data/ 以外の場合(例: datasets/)、claude-init 後に
+`.claude/settings.local.json` の permissions.deny へ手動で追加する(インストーラは permissions を
+扱わない。config-set スキルに下書きを作らせて手動保存するとよい)。
 
 #### 自律度レベル
 
@@ -1244,14 +1385,21 @@ guard_metrics 違反(例: train_val_gap > 0.05)なら fail。
 #### 失敗遷移表
 
 失敗時の再試行回数と遷移先は事前定義されている(構文エラー3回→generator、
-目標未達1回→planner、リソース超過0回→人間、等)。エージェントが勝手に
-リトライし続けたり、勝手に計画を変えたりしない。
+目標未達1回→planner、リソース超過0回→人間、判定不確実0回→人間(HUMAN_REVIEW)、等)。
+エージェントが勝手にリトライし続けたり、勝手に計画を変えたりしない。
+
+判定不確実(HUMAN_REVIEW)は、手順6.2の接地検証でHIGH指摘が未接地・検証不能のまま
+残った/差し戻し根拠が0件になった/指摘の根拠と手順6.3の反証が正面から矛盾する、
+のいずれかで発生する。evaluator の判定語彙(PASS/NEEDS_REVISION/FAIL)自体は変えない。
 
 #### ルーティング(手順0)
 
-router(Haiku)がタスク規模を判定し、S(typo 等)は generator 直行、
+router(Haiku)がタスク規模とリスク階層(高/中/低。`.claude/hooks/` やデータ分割・
+依存追加等の該当条件に基づく)を判定し、S(typo 等)は generator 直行、
 M(単一モジュール)は planner 省略の短縮経路、L はフルパイプラインに
-振り分ける。軽微な修正に重いパイプラインを強制しない。迷ったら L。
+振り分ける。軽微な修正に重いパイプラインを強制しない。リスク階層が「高」なら
+規模判定を1段上げ(S→M、M→L)、反証濾過パス(手順6.3)を実行しない
+(リスク軸は強める方向にのみ作用する)。規模は迷ったら L、リスク階層は迷ったら中。
 
 #### 要件ヒアリング(手順0.5)
 
@@ -1287,11 +1435,19 @@ requirements_gate が「受け入れ条件テーブル付きの設計書が無�
 ./verify-hooks.sh         # bash
 ```
 
+インストーラ(claude-init / claude-update)の配布ロジックを変更した場合は、
+保護動作(独自ファイル保持・上書き・symlink 対策)の回帰テストも実行する。
+
+```
+./verify-installers.sh    # bash のみ(ps1 側は Windows での実機確認)
+```
+
 ## 4.5 その他のツール
 
 ### doctor(テンプレートとの差分確認)
 
-プロジェクト側がテンプレートの最新版からどれだけ差分があるか確認する。
+プロジェクト側がテンプレートの最新版からどれだけ差分があるか確認する
+(doctor は claude-init / claude-update が配布する)。
 
 ```
 .\doctor.ps1        # PowerShell
@@ -1301,7 +1457,7 @@ requirements_gate が「受け入れ条件テーブル付きの設計書が無�
 差分があれば claude-update の実行を検討する。
 
 ### CI
-push / PR のたびに GitHub Actions で verify-hooks が自動実行される。
+push / PR のたびに GitHub Actions で verify-hooks と verify-installers が自動実行される。
 フックを変更したらローカルでも `.\verify-hooks.ps1` で確認してからpushする。
 
 ## 4.6 実プロジェクトでの初回実走(スモークテスト推奨)
@@ -1325,7 +1481,7 @@ push / PR のたびに GitHub Actions で verify-hooks が自動実行される�
 | enforce_eval | CLAUDE_EVAL_CMD が実際の pytest で PASS/FAIL を正しく判定するか |
 | spec-compliance | 受け入れ条件テーブルの auto 要件が verdict まで通るか |
 | 並列実装 | サンドボックスでの1周(worktree分離→2グループ並列→ブランチ参照diffレビュー→原子性チェック→統合マージ)は検証済み(2026-07-22)。**実プロジェクトでの実走は未**。初回は逐次で通し、慣れてから試す |
-| quality_gate | radon / mypy 導入後に有効化。導入前は自動スキップされる |
+| quality_gate | radon / mypy 導入後に有効化。導入前は自動スキップされる。CLAUDE_DIFF_COVERAGE=1 は pytest-cov / diff-cover 導入後に有効化(未導入時も自動スキップ) |
 | Windows(.ps1) | 全 .ps1 は Linux 上で構文検証できていない。Windows 初回は verify-hooks.ps1 の実行から始める |
 
 ---
@@ -1387,10 +1543,14 @@ claude-ml-template/
       generator.md                  Sonnet / 実装専任、acceptEdits
       evaluator.md                  Sonnet / Spec軸レビュー、実験ログ記録
       evaluator-standards.md        Sonnet / Standards軸(コード品質)レビュー
+      refuter.md                    Sonnet / レビュー指摘の反証専任(手順6.3、CLAUDE_REFUTE_PASS=1時)
       spec-auditor.md               Sonnet / spec-compliance独立監査(証拠検証・スコープ外変更列挙)
+      plan-premortem.md             Sonnet / 計画の敵対的レビュー(独立コンテキスト、手順3.4)
       plan-reviewer.md              Sonnet / 計画の自動承認判定(CLAUDE_AUTO_APPROVE=1 時)
       improvement-reviewer.md       Opus / retrospectiveの改善案を不変条件に照らして審査・適用
       final-gate.md                 Fable / 最終形を俯瞰しマージ承認の三択判断のみ(第3層)
+      router.md                     Haiku / タスク規模(S/M/L)を判定する軽量ルータ(手順0)
+      scout-*.md(7体)             Haiku / リファクタ偵察係(命名/重複/複雑度/コメント/対称性/docstring/デッドコード。提案のみ)
     commands/
       ml-pipeline.md                エージェントを繋ぐフロー制御
     skills/
@@ -1418,37 +1578,54 @@ claude-ml-template/
       literature-review/            構造化された文献調査
       paper-writing/                論文の品質チェック(構造・引用実在確認・査読対応・推敲)
       multi-seed/                   worktree並列で複数seedを自動実行・自動集計(自動キュー化)
+      spec-checklist/               設計書・計画の品質検査(完全性・明確性 等5次元。手順3.3で自動実行)
+      branch-naming/                ブランチ命名規則の探索・決定(手順1.5で自動使用)
+      refactor-scout/               スカウト隊の単独実行(レンズ選択可・提案から選んで適用)
     rules/
       python-style.md               .py 編集時に自動適用されるPython規約
       minimal-diff.md               全ファイル編集時に自動適用される最小diff規律
       secret-safety.md              全ファイル編集時に自動適用される秘密情報の扱い
+      consistency.md                記述と実装・対になるファイル(sh/ps1)の整合確認
+      search-hygiene.md             横断検索の衛生(大容量ディレクトリ除外・rg優先)
       taste.md                      美しさの個人辞書(ユーザーの好みの実例を蓄積)
     improvements/
       invariants.md                 improvement-reviewer が改善案を却下する基準
       feedback.md                   差し戻し・却下の記録(運用中に自動で溜まる。.gitignore対象)
+      patterns.md                   retrospective が生成する改善案(運用中に生成)
+      applied.md                    improvement-reviewer の適用結果の記録
     output-styles/
       fable-like.md                 Fable 5行動様式のoutput style(メインセッション用)
     hooks/
       _common.py                    guard系で共有する検知パターン・保護パス定義
+      _logutil.py                   ログ系フック共通のローテーション処理
+      _mask.py                      ログ書き込み前の秘密情報マスキング
       guard_scope.py                スコープ外・秘密情報・フック自己書き換えのブロック
       guard_bash.py                 危険コマンド・git add・リダイレクト/tee のガード
       auto_format.py                ruff format 自動実行
+      action_log.py                 全ツール実行の JSONL 自動記録(logs/actions/)
+      agent_log.py                  サブエージェント委譲チェーンの記録(logs/agents/)
+      plan_gate.py                  Stop: 計画のリソース超過・goal未定義をブロック
+      report_gen.py                 完全レポートの evidence/ 機械集約(手順8.5で手動実行)
+      record_session_state.py       Stop: 各ターン終了時に進行状態を .claude/checkpoints/session_state.md へ上書き記録
       enforce_eval.py               評価コマンド実行強制(状態不変ならスキップ)
       spec_gate.py                  Stop: 設計書の受け入れ条件を機械検査(--ci でCIモード)
       spec_approve.py               manual要件の承認・設計書ハッシュの計画承認記録(ユーザーの`!`実行専用。エージェント経由の実行はguard_bashがブロック)
       codex_gate.py                 Stop: CLAUDE_CROSS_REVIEW=1 のときCodexレビュー未完了ならブロック
-      quality_gate.py               Stop: CLAUDE_QUALITY_GATE=1 のときruff/radon/mypyの機械チェックでブロック
+      quality_gate.py               Stop: CLAUDE_QUALITY_GATE=1 のときruff/radon/mypyの機械チェックでブロック(CLAUDE_DIFF_COVERAGE=1 で変更行カバレッジも検査)
       notify.py                     Stop: CLAUDE_NOTIFY=1 のときセッション停止時にデスクトップ通知(Windows/macOS/Linux対応)
       checkpoint_before_compact.py  圧縮前バックアップ(直近10世代のみ保持)
       reinject_after_compact.py     圧縮後の再注入
+      resume_session_state.py       SessionStart(startup): 記録があれば起動時に注入し再開を促す
     settings.json                   フックの配線・許可コマンド・エージェントチーム設定
   .github/workflows/
-    verify-hooks.yml                CI: push/PR時のフック自動テスト
-    spec-gate.yml                   CI: push/PR時にspec_gate.py --ciを実行(init/updateが配置)
+    verify-hooks.yml                CI: push/PR時のフック・インストーラ自動テスト
+    (spec-gate.yml)                 下流プロジェクト用のCI。本リポジトリには無く、init/update が
+                                    templates/spec-gate.yml.template から各プロジェクトに配置する
   templates/
     CLAUDE.md.template              プロジェクト共通ルールの雛形
     ADR.md.template                 ADR の雛形
     CONTEXT.md.template             ドメイン用語集の雛形
+    design-doc.md.template          設計書の雛形(受け入れ条件テーブル付き。2.4節)
     settings.local.json.template    フック用環境変数の雛形(init/update が展開)
     spec-gate.yml.template          spec-gate CIワークフローの雛形(init/update が配置)
     codex-config.toml.template      Codex CLI のモデル固定用(init/update が .codex/ に配置)
@@ -1458,6 +1635,8 @@ claude-ml-template/
     env_fingerprint.py             実行環境(Python版数/git commit/uv.lock ハッシュ/torch・CUDA版数)をJSONで標準出力へ
   tests/
     test_env_fingerprint.py        env_fingerprint.py の受け入れ回帰テスト
+    test_plan_gate.py              plan_gate.py の回帰テスト
+    test_security_fixes.py         ガード系の脆弱性修正の回帰テスト
   agents/shared/                    Claude Code と Codex CLI で共有する規約(AGENTS.md の生成元)
     coding-rules.md                 コメント規約・最小diff・Python規約
     secret-safety.md                秘密情報の安全な取り扱い
@@ -1466,6 +1645,8 @@ claude-ml-template/
   claude-update.ps1 / .sh           更新(agents/commands/hooks/skills/output-styles/rules/settings.json
                                     に加え agents/shared/ の配置、AGENTS.md 生成、.codex/ への連携)
   verify-hooks.ps1 / .sh            フックの自動テスト
+  verify-installers.sh              インストーラ(init/update)の保護動作の回帰テスト(bash のみ。
+                                    ps1 側の実機確認は Windows で行う)
   doctor.ps1 / .sh                  テンプレートとの差分確認
   claude-remote.ps1 / .sh           リモート運用(Remote Control)の起動
   CHANGELOG.md                      変更履歴

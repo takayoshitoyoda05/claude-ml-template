@@ -76,6 +76,98 @@
   スリープ設定確認つき、WSL2/Linux/macOS 版は tmux があれば自動で使う)を追加。
   doctor に前提チェックを、claude-init/update に配布を追加
 
+### Added(2026-07-29)
+- **運用スクリプトの配布拡張**: claude-update.* と doctor.* を claude-init/update の
+  配布対象に追加(以後、各プロジェクトでは claude-update の再実行だけで自己更新される)。
+  README の更新手順も配布前提に簡略化
+- **インストーラの自動回帰テスト**: `verify-installers.sh` を追加(独自ファイル保持・
+  テンプレート由来の上書き・symlink 対策・自己更新の安全性・.gitignore 冪等性を
+  サンドボックスで検査。ネットワークに出ずローカル clone で再現)。CI
+  (verify-hooks.yml)にも組み込み。ps1 版インストーラは対象外
+  (Windows での実機確認で担保)
+- **検索の衛生ルール(.claude/rules/search-hygiene.md)**: リポジトリ横断検索で
+  大容量の未追跡ディレクトリ(checkpoints / logs 等)を除外し、rg を優先する規律を追加
+
+### Fixed(2026-07-29)
+- **インストーラの独自ファイル保持**: claude-update.* / doctor.* と同名の
+  ユーザー独自ファイル(自動生成マーカー無し)を上書きせず保持して警告する
+  (マーカーの無い独自 AGENTS.md の保持と同じ方針)
+- **インストーラの symlink 対策**: 配置先がシンボリックリンクの場合にリンク先へ
+  書き込んでしまう経路を封鎖(リンク自体を除去して実体ファイルを配置。
+  ディレクトリへのリンク・実ディレクトリは除去/スキップ。mktemp + mv で
+  実行中の claude-update.sh 自身も安全に差し替え)
+- **フックコマンドの絶対参照化**: settings.json のフック配線を
+  `$CLAUDE_PROJECT_DIR` 基準の絶対パスに変更(サブディレクトリを cwd とする
+  実行でもフックが確実に解決される)
+
+### Added(2026-08-04)
+- **計画・レビュー堅牢化**: planner が「未確認の仮定」に読み取り専用の検証コマンドを
+  固定書式(`未確認の仮定: 〜 / 検証: <コマンド> / 期待: 〜`)で明記するよう義務化し、
+  plan-reviewer が条件8としてそのコマンドを許可リスト(ls/cat/head/tail/wc/grep/rg/
+  find/test/git の log/show/diff/status/rev-parse/ls-files/branch のみ)方式で実行して
+  照合する(禁止構文・禁止フラグは fail-closed で実行不能扱い、条件が7個→8個に)。
+  計画専用の敵対的レビューエージェント plan-premortem(sonnet)を新設し、
+  planner の会話履歴を持たない独立コンテキストで spec-checklist 通過後の計画を
+  審査、HIGH指摘は1回まで planner に差し戻す(手順3.4)。quality_gate に
+  変更行カバレッジ検査(pytest-cov + diff-cover、main比較)を4番目のチェックとして
+  追加(`CLAUDE_DIFF_COVERAGE=1` で有効、既定閾値80%は `CLAUDE_DIFF_COVERAGE_MIN`
+  で変更可、ツール未導入・timeout・main未解決はスキップ)。evaluator に手順4.5
+  「ベースライン比較実行」を追加し、評価コマンド失敗時のみ分岐元の worktree で
+  同じコマンドを再実行して既存の失敗・flaky を差し戻し根拠から除外する。
+  手順6のレビュー直前に feedback.md の直近の失敗類型(上位3件まで)を
+  evaluator / evaluator-standards へ参考情報として注入する
+- **導入時の任意機能セットアップ**: claude-init が settings.local.json を新規生成する
+  とき、任意機能(Codex クロスレビュー / haiku スカウト隊 / 品質ゲート / 計画の
+  自動承認 / 通知 / final-gate / セキュリティスキャン)を有効にするか1機能ずつ質問し、
+  回答どおりにフラグを書き換える。非対話用に `CLAUDE_TEMPLATE_FEATURES`
+  (フラグ名のカンマ区切り、または `none`)も受け付ける。端末が無い環境では
+  既定(すべて無効)のまま進む。CLAUDE_CROSS_REVIEW 有効化時に Codex CLI が
+  見つからなければ警告する
+- **リスク階層ゲート**: router(Haiku)が規模(S/M/L)と同時にリスク階層(高/中/低。
+  `.claude/hooks/` やデータ分割・依存追加等の該当条件で判定)を返し、「高」なら
+  規模判定を1段上げ、反証濾過パス(手順6.3)を実行しない(強める方向にのみ作用)
+- **レビュー指摘の接地検証と反証濾過、判定不確実の出口**: 手順6.2でevaluator /
+  evaluator-standards / cross-review のHIGH・MEDIUM指摘をfile:line形式(Read確認、
+  行ズレ時はgrepフォールバック)または再現コマンド形式で機械的に接地確認し、
+  未接地・検証不能の指摘は根拠にしない(HIGHは破棄せずHUMAN_REVIEWへ)。
+  `CLAUDE_REFUTE_PASS=1`(既定無効)かつリスク階層が高でない場合、接地済みHIGH指摘を
+  新設エージェント refuter(sonnet)が独立コンテキストで反証し、反証成功した指摘を
+  差し戻し根拠から除外する。両評価軸の指摘には証拠添付を必須化(evaluator /
+  evaluator-standards / cross-reviewのCodex指示文)。判定不確実な場合は手順7に
+  新設したHUMAN_REVIEW出口でパイプラインを一時停止し人間の判断を仰ぐ(失敗遷移表に
+  1行追加。evaluatorの判定語彙PASS/NEEDS_REVISION/FAILは変更しない)
+- **テンソル shape/dtype 注釈規約と事後条件の事前固定**: python-standardsスキルに
+  テンソルを受け渡す公開関数向けのshape/dtype注釈規約(jaxtyping等、または
+  docstringのShape/dtype節+assert)を追加し、evaluator-standardsの型安全性観点・
+  generatorの自己チェックに反映。plannerの計画フォーマットに「事後条件」欄
+  (`PC-n`形式)を追加し、tdd/spec-checklistスキルと整合させ、Generatorが実装前に
+  事後条件をテストとしてRed確認するよう規定
+
+### Added(2026-08-05)
+- **セッション上限からの自動再開**: Stopフック record_session_state.py が各ターン終了時に
+  ブランチ・git status・対応する計画の手順表・直近の会話末尾を
+  `.claude/checkpoints/session_state.md` へ上書き記録(会話由来テキストはマスキング済み、
+  世代管理なし)。新セッション起動時に resume_session_state.py(SessionStart,
+  matcher: startup)がブランチ一致・72時間以内の記録を会話へ注入し、自動続行せず
+  再開可否の確認を促す(既存のcompact用フックとは独立経路で二重注入しない)。
+  `CLAUDE_SESSION_RESUME=0` で無効化可能
+
+### Added(2026-08-03)
+- **配布物の git 除外オプション**: `CLAUDE_TEMPLATE_GITIGNORE_ALL=1` を付けて
+  claude-init/update を実行すると、テンプレートが配布・生成する一式(`.claude/` /
+  `.codex/` / `agents/shared/` / `templates/*.template` / `AGENTS.md` / `CLAUDE.md` /
+  運用スクリプト / `spec-gate.yml`)を導入先の `.gitignore` に追記する。
+  既存の `.gitignore` は上書きせず追記のみ・冪等。あわせて既存判定を行全体一致に
+  修正(部分一致だと `.claude/checkpoints/` の存在で `.claude/` の追記が
+  スキップされる)
+
+### Changed(2026-08-03)
+- **運用スクリプトの配布をプラットフォーム別に**: claude-init/update は実行した
+  インストーラと同じ形式の運用スクリプトだけを配置する(sh 版インストーラは
+  `claude-remote.sh` / `claude-update.sh` / `doctor.sh` のみ、ps1 版は ps1 のみ)。
+  Windows のプロジェクトに sh 版が、Linux/macOS のプロジェクトに ps1 版が
+  持ち込まれなくなる。既に配置済みの他形式ファイルは削除せずそのまま残す
+
 ### Changed(2026-07-22)
 - ml-pipeline を14手順に再構成(ブランチ作成〜マージ確認)。差し戻しは新規
   generator に指摘全文を渡す・再レビューは失敗軸のみ、のトークン節約規律を明文化

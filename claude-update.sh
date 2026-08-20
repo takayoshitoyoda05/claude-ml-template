@@ -16,7 +16,8 @@ if [ ! -d ".claude" ]; then
 fi
 
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+TMPF=""
+trap 'rm -rf "$TMP"; [ -n "$TMPF" ] && rm -f "$TMPF"' EXIT
 echo "最新テンプレートを取得中..."
 git clone --depth 1 --quiet "$TEMPLATE_REPO" "$TMP"
 
@@ -39,18 +40,23 @@ if [ -d "$SHARED_SRC" ]; then
   echo "OK: agents/shared/ を更新しました"
 fi
 
-# agents/shared/ から AGENTS.md を生成(Codex CLI 用)
+# agents/shared/ から AGENTS.md を生成(Codex CLI 用。自動生成マーカーの無い
+# 既存 AGENTS.md はプロジェクト独自のファイルとみなして保持する)
 if [ -d "agents/shared" ]; then
-  {
-    echo "# AGENTS.md"
-    echo ""
-    echo "<!-- claude-ml-template により自動生成。編集は agents/shared/ で行い claude-update で再生成 -->"
-    echo ""
-    for f in agents/shared/*.md; do
-      [ -f "$f" ] && cat "$f" && echo ""
-    done
-  } > AGENTS.md
-  echo "OK: AGENTS.md を生成しました(Codex CLI 用)"
+  if [ -f AGENTS.md ] && ! grep -q '<!-- claude-ml-template' AGENTS.md; then
+    echo "警告: AGENTS.md は独自ファイルのため保持しました(自動生成版に切り替えるには AGENTS.md を退避してから再実行してください)"
+  else
+    {
+      echo "# AGENTS.md"
+      echo ""
+      echo "<!-- claude-ml-template により自動生成。編集は agents/shared/ で行い claude-update で再生成 -->"
+      echo ""
+      for f in agents/shared/*.md; do
+        [ -f "$f" ] && cat "$f" && echo ""
+      done
+    } > AGENTS.md
+    echo "OK: AGENTS.md を生成しました(Codex CLI 用)"
+  fi
 fi
 
 # スキルを .codex/skills/ にもコピー(Codex CLI 用。配布元にあるスキルディレクトリだけを
@@ -78,13 +84,24 @@ fi
 if [ -f "$TMP/.claude/settings.json" ]; then
   cp "$TMP/.claude/settings.json" .claude/settings.json
   echo "OK: .claude/settings.json を更新しました"
-  # .gitignore に除外エントリを追加(冪等)
-  for IGNORE_ENTRY in ".claude/checkpoints/" ".claude/settings.local.json" "**/.claude/spec/"; do
+  # .gitignore に除外エントリを追加(冪等。既存の .gitignore は上書きせず追記のみ)
+  IGNORE_ENTRIES=(".claude/checkpoints/" ".claude/settings.local.json" "**/.claude/spec/")
+  # CLAUDE_TEMPLATE_GITIGNORE_ALL=1 なら、テンプレートが配布・生成する一式を
+  # 導入先の git 管理外にする(テンプレートのファイルをリポジトリに載せたくない場合)
+  if [ "${CLAUDE_TEMPLATE_GITIGNORE_ALL:-0}" = "1" ]; then
+    IGNORE_ENTRIES+=(".claude/" ".codex/" "agents/shared/" "templates/*.template"
+      "AGENTS.md" "CLAUDE.md" ".github/workflows/spec-gate.yml"
+      "claude-update.sh" "claude-update.ps1" "claude-remote.sh" "claude-remote.ps1"
+      "doctor.sh" "doctor.ps1")
+  fi
+  for IGNORE_ENTRY in "${IGNORE_ENTRIES[@]}"; do
     if [ ! -f ".gitignore" ]; then
       echo "$IGNORE_ENTRY" > .gitignore
       echo "OK: .gitignore を作成しました($IGNORE_ENTRY)"
     else
-      if ! grep -qF "$IGNORE_ENTRY" .gitignore; then
+      # 行全体の一致で判定する(部分一致だと .claude/checkpoints/ の存在だけで
+      # .claude/ が「既にある」と誤判定されて追記されない)
+      if ! grep -qxF "$IGNORE_ENTRY" .gitignore; then
         printf "\n%s\n" "$IGNORE_ENTRY" >> .gitignore
         echo "OK: .gitignore に $IGNORE_ENTRY を追加しました"
       else
@@ -124,14 +141,40 @@ else
   echo "OK: .github/workflows/spec-gate.yml を配置しました"
 fi
 
-# リモート運用の起動スクリプト(claude-remote.*)を配布(常に上書き)
-for f in claude-remote.ps1 claude-remote.sh; do
+# 運用スクリプト(claude-remote.sh / claude-update.sh / doctor.sh)を配布
+# (この環境で使う sh 版のみ。Windows(PowerShell)へは claude-update.ps1 が
+# ps1 版を配布するため、使わない側の形式は持ち込まない。
+# テンプレート由来のファイルだけを上書きし、同名の独自ファイルは保持する。
+# 配布元にマーカーが無いファイル(claude-remote.sh)は識別できないため従来どおり
+# 常に上書き。claude- 接頭辞のため独自ファイルとの衝突リスクは低い)
+# claude-update.sh は実行中の自分自身も更新対象になる。bash はスクリプトを
+# 逐次読みするため cp で同じ inode に直接書くと実行中の本体が壊れる。
+# 一時ファイルに書いてから mv で差し替えれば、実行中の bash は旧 inode を
+# 読み続けるので安全
+MARKER="takayoshitoyoda05/claude-ml-template"
+for f in claude-remote.sh claude-update.sh doctor.sh; do
   if [ -f "$TMP/$f" ]; then
-    cp "$TMP/$f" "$f"
-    echo "OK: $f を更新しました"
-    if [ "$f" = "claude-remote.sh" ]; then
-      chmod +x "$f" 2>/dev/null || true
+    if grep -q "$MARKER" "$TMP/$f" && [ -f "$f" ] && ! grep -q "$MARKER" "$f"; then
+      echo "警告: $f は独自ファイルのため保持しました(テンプレート版が必要なら $f を退避してから再実行してください)"
+      continue
     fi
+    # ディレクトリへのリンクだと mv がリンク先の中へ移動してしまうため、
+    # リンクはリンク自体を除去し、実ディレクトリはスキップする
+    [ -L "$f" ] && rm -f -- "$f"
+    if [ -d "$f" ]; then
+      echo "警告: $f はディレクトリのため更新をスキップしました"
+      continue
+    fi
+    # 固定名だと同名のユーザーファイルやシンボリックリンクを壊すため mktemp で一意にする
+    TMPF=$(mktemp "$f.XXXXXX")
+    cp "$TMP/$f" "$TMPF"
+    chmod 644 "$TMPF"
+    mv "$TMPF" "$f"
+    TMPF=""
+    echo "OK: $f を更新しました"
+    case "$f" in
+      *.sh) chmod +x "$f" 2>/dev/null || true ;;
+    esac
   else
     echo "警告: 配布元に $f が見つかりません(コピーされませんでした)"
   fi
