@@ -242,6 +242,9 @@ config-set スキルが貼り付け用のJSONを提示するので、それを�
 | CLAUDE_COMMIT_STEP_RULE | `1` でコミットメッセージにステップ番号(数字)を強制。他のフラグと同様 `settings.local.json` に恒久設定する(セッション起動時にのみ読み込まれるため、`/ml-pipeline` 実行中だけ自動でONにする仕組みは無い) | チェックなし |
 | CLAUDE_SPEC_CHECK | `1` で Stop 時に設計書の受け入れ条件を機械検査(spec-compliance)ON | チェックなし |
 | CLAUDE_REQUIREMENTS_GATE | `1` で受け入れ条件テーブル付き設計書が無いままの計画ファイル作成をブロック(手順0.5 の機械ゲート) | 無効(0) |
+| CLAUDE_SESSION_MONITOR | `1` でコンテキスト使用量が重くなったことをStop時に警告する handoff 推奨モニタON(警告のみ、ブロックしない) | 無効(0) |
+| CLAUDE_MONITOR_WARN_TOKENS | CLAUDE_SESSION_MONITOR の警告閾値(トークン数) | `150000` |
+| CLAUDE_MONITOR_HIGH_TOKENS | CLAUDE_SESSION_MONITOR の高水準閾値(トークン数) | `180000` |
 | CLAUDE_SPEC_RECHECK_N | spec-compliance でauto要件から再実行する件数。`all` で全件 | `3` |
 | CLAUDE_CROSS_REVIEW | `1` でCodexクロスレビューをevaluator前に必須にする | 無効(0) |
 | CODEX_MODEL | Codexのモデルを一時的に上書き(空なら.codex/config.tomlの設定) | 空 |
@@ -920,9 +923,10 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5�
 | spec_gate.py | Stop | `CLAUDE_SPEC_CHECK=1` のとき、設計書の受け入れ条件テーブルを全要件PASS・承認・監査OK・設計書ハッシュ一致(計画承認時点からの改変検知)で検査し、欠けがあればブロック(`--ci` でCIモード: auto再実行+coverageのみ) |
 | codex_gate.py | Stop | CLAUDE_CROSS_REVIEW=1 のとき Codexレビュー未完了ならブロック。センチネル(`.claude/checkpoints/codex_review_done.txt`)の HEAD ハッシュを現在の HEAD と照合し、レビュー後にコミットが進んだ場合と未コミット変更(未追跡含む)が残っている場合は再レビューを要求する(詳細は 3.10 節) |
 | quality_gate.py | Stop | CLAUDE_QUALITY_GATE=1 のとき、ruff/radon/mypyの機械チェックで閾値超過ならブロック。CLAUDE_DIFF_COVERAGE=1 なら変更行カバレッジ(pytest-cov + diff-cover)も4番目のチェックとして追加 |
+| session_monitor.py | Stop | CLAUDE_SESSION_MONITOR=1 のとき、transcript の usage実測値と auto-compact 回数からコンテキスト使用量が重くなったことを警告し handoff を推奨(警告のみ、ブロックしない。一度警告したら使用量が+10%増えるまで再警告しない) |
 | notify.py | Stop | CLAUDE_NOTIFY=1 のとき、セッション停止時にデスクトップ通知(Windows/macOS/Linux対応) |
 | plan_gate.py | Stop | 現在のブランチ名に対応する計画のリソース超過(invariants の resources 比)・goal 未定義・読めない見積もりをブロック |
-| checkpoint_before_compact.py | PreCompact | 圧縮直前に git 状態・トランスクリプトを `.claude/checkpoints/` にバックアップ(直近10世代のみ保持) |
+| checkpoint_before_compact.py | PreCompact | 圧縮直前に git 状態・トランスクリプトを `.claude/checkpoints/` にバックアップ(直近10世代のみ保持)。auto-compact のトリガー時はセッション別の compact 回数も記録(session_monitor.py が使用) |
 | reinject_after_compact.py | SessionStart (compact) | 圧縮直後にチェックポイントと注意事項を会話に再注入 |
 | resume_session_state.py | SessionStart (startup) | 起動時、記録されたブランチが現在と一致し72時間以内なら状態と再開指示を会話に注入(自動続行はしない)。`source=compact` では何もしない(reinject_after_compact.py と二重注入しない)。`CLAUDE_SESSION_RESUME=0` で無効化 |
 
@@ -1612,6 +1616,7 @@ claude-ml-template/
       spec_approve.py               manual要件の承認・設計書ハッシュの計画承認記録(ユーザーの`!`実行専用。エージェント経由の実行はguard_bashがブロック)
       codex_gate.py                 Stop: CLAUDE_CROSS_REVIEW=1 のときCodexレビュー未完了ならブロック
       quality_gate.py               Stop: CLAUDE_QUALITY_GATE=1 のときruff/radon/mypyの機械チェックでブロック(CLAUDE_DIFF_COVERAGE=1 で変更行カバレッジも検査)
+      session_monitor.py            Stop: CLAUDE_SESSION_MONITOR=1 のときコンテキスト使用量の重量化を警告しhandoffを推奨(警告のみ)
       notify.py                     Stop: CLAUDE_NOTIFY=1 のときセッション停止時にデスクトップ通知(Windows/macOS/Linux対応)
       checkpoint_before_compact.py  圧縮前バックアップ(直近10世代のみ保持)
       reinject_after_compact.py     圧縮後の再注入
