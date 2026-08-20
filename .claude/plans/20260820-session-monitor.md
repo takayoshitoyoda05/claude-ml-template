@@ -162,3 +162,81 @@ cost_estimate:
 ```
 
 学習・実験ジョブを含まないため全て 0。goal は `experiment: false` により対象外。
+
+## 作業ログ(2026-08-20 差し戻し修正)
+
+レビュー指摘 [HIGH]「exit 0 契約の破れ」と [MEDIUM]「`_record_compact` の
+docstring/空行の不揃い」への差し戻し修正。触ってよいファイルは
+`_staging_session_monitor.py`(untracked)と `tests/test_session_monitor.py` の2つのみ
+(`.claude/hooks/` はガードで直接編集不可・実適用はユーザーの `!` 実行)。
+
+### 修正内容
+- `_staging_session_monitor.py` の HOOK_SOURCE に `_as_int(value) -> int` ヘルパーを
+  追加し、`compact_count` / `last_warned_tokens` の int() 変換を try/except で包んだ
+  (2箇所で使うため関数化)。
+- `_staging_session_monitor.py` の checkpoint 側パッチロジックを3状態対応に変更:
+  (1) 修正版マーカー `_COMPACT_FIXED_MARKER` があれば SKIP、(2) 旧版で適用済みの
+  バグありブロック `_COMPACT_BUGGY_BLOCK`(実際に `.claude/hooks/checkpoint_before_compact.py`
+  へ適用されていたバイト列と一致することを確認済み)なら修正版 `_COMPACT_HELPER_FIXED`
+  へ置換(`APPLIED_FIX`)、(3) 未適用ならアンカー挿入で新規追記。MEDIUM の空行不揃い
+  (前が空行4行・後が空行1行だったバグ)も、修正版ブロックで前後とも空行2行(PEP8
+  標準・ファイル内の他関数と同じ書式)に揃えた。
+- 修正版では `_record_compact` 内の `int(session_state.get("compact_count", 0) or 0)`
+  を単発利用(1箇所)のため try/except でインライン変換にした(ヘルパー関数は
+  作らない。最小diff規律)。
+
+### RED の証明(現行の実フックに対して追加テストを実行し FAIL することを確認)
+```
+uv run --with pytest python -m pytest tests/test_session_monitor.py -q \
+  -k "fail_open_corrupted or corrupted_state"
+```
+結果: `2 failed, 20 deselected`。両方とも
+`ValueError: invalid literal for int() with base 10: 'oops'` で
+`returncode == 1`(exit 0 契約破れの再現)。ログ:
+`logs/runs/20260820-*-session-monitor-red-before-fix.log`
+
+### --root 検証(修正版の適用ログ・冪等性・破損値での exit 0)
+一時ディレクトリに実際の `.claude/hooks/checkpoint_before_compact.py`(バグあり適用済み)
+と `_mask.py` / `_common.py` / `settings.json` を複製し、`_staging_session_monitor.py --root <tmp>`
+を2回実行(スクリプト自体は untracked のためコミット外の一時検証スクリプトを使用し、
+検証後に削除した):
+```
+--- apply 1 ---
+[_staging_session_monitor] session_monitor.py: APPLIED
+[_staging_session_monitor] settings.json: SKIP
+[_staging_session_monitor] checkpoint_before_compact.py: APPLIED_FIX
+rc= 0
+--- apply 2 (idempotency check) ---
+[_staging_session_monitor] session_monitor.py: SKIP
+[_staging_session_monitor] settings.json: SKIP
+[_staging_session_monitor] checkpoint_before_compact.py: SKIP
+rc= 0
+idempotent (bytes equal after 2nd apply): True
+--- checkpoint hook: corrupted compact_count -> exit 0, resumes at 1 ---
+returncode: 0
+compact_count after run: 1
+```
+session_monitor.py 側も同様に、状態ファイルの `compact_count`/`last_warned_tokens` を
+文字列 `"oops"` にした transcript で実行し `returncode: 0`(stdout/stderr とも空、
+クラッシュなし)を確認した。`_record_compact` 前後の空行数も awk で2行/2行(PEP8標準)
+であることを確認した。
+
+### テスト結果
+- `uv run --with pytest python -m pytest tests/test_session_monitor.py -q`:
+  `2 failed, 20 passed`(2件は実フック未適用中の想定内 FAIL。ユーザーが staging を
+  適用すれば PASS に変わる設計)
+- `uv run --with pytest python -m pytest tests/ -q`: `2 failed, 176 passed`
+  (既存156件+新規追加分。他の退行なし)
+- `uv run ruff check _staging_session_monitor.py tests/test_session_monitor.py`:
+  `All checks passed!`
+
+### 計画ステップ対応表
+
+| 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
+|---|---|---|---|---|
+| 差し戻し修正(Step 3 相当) | HIGH: `_as_int` ヘルパーで exit 0 契約を復元 | `_staging_session_monitor.py`(untracked) | `python3 -m py_compile` OK、`--root` 適用で破損値 exit 0 を確認 | (untracked、コミットなし) |
+| 差し戻し修正(Step 2 相当) | checkpoint 側の compact_count int() 修正・3状態パッチロジック | `_staging_session_monitor.py`(untracked) | `--root` 検証で `APPLIED_FIX`→2回目`SKIP`(冪等)確認 | (untracked、コミットなし) |
+| 差し戻し修正(MEDIUM対応、Step 2 相当) | `_record_compact` 前後の空行を2行/2行に統一 | `_staging_session_monitor.py`(untracked) | awk で空行数確認(前2行・後2行) | (untracked、コミットなし) |
+| 差し戻し修正(Step 1 相当) | 破損値ケースの回帰テスト追加(RED確認済み) | `tests/test_session_monitor.py` | `pytest -k "fail_open_corrupted or corrupted_state"` が現行実フックに対し `2 failed` で FAIL 確認、全体は `176 passed` | `2d1f103` |
+
+計画外の変更なし(全てレビュー指摘 [HIGH]/[MEDIUM] への直接対応)。
