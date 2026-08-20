@@ -296,6 +296,30 @@ def test_fail_open_empty_jsonl(tmp_path: Path) -> None:
     assert "handoff" not in _output(result)
 
 
+# --- 差し戻し修正(レビュー HIGH): 状態ファイルの破損値で exit 0(fail_open) ---
+# .claude/checkpoints/session_monitor_state.json の compact_count /
+# last_warned_tokens が数値以外(並行書き込みでの破損を想定)でも
+# 「いかなる入力でも exit 0」契約を破らないことを検証する
+
+
+def test_fail_open_corrupted_state_values(tmp_path: Path) -> None:
+    session_id = "sess-corrupted-state"
+    state_dir = tmp_path / ".claude" / "checkpoints"
+    state_dir.mkdir(parents=True)
+    state_path = state_dir / "session_monitor_state.json"
+    state_path.write_text(
+        json.dumps(
+            {session_id: {"compact_count": "oops", "last_warned_tokens": "oops"}}
+        ),
+        encoding="utf-8",
+    )
+    transcript = _transcript(tmp_path, [_assistant_line(10_000)])
+
+    result = _run_monitor(_payload(str(transcript), session_id=session_id), tmp_path)
+    assert result.returncode == 0
+    assert "Traceback" not in _output(result)
+
+
 # --- PC-9: threshold_env ---
 
 
@@ -382,6 +406,28 @@ def test_compact_counter_hook_ignores_manual(tmp_path: Path) -> None:
     if state_path.exists():
         state = json.loads(state_path.read_text(encoding="utf-8"))
         assert state.get(session_id, {}).get("compact_count", 0) == 0
+
+
+@pytestmark_compact
+def test_compact_counter_hook_fail_open_corrupted_state(tmp_path: Path) -> None:
+    # 差し戻し修正(レビュー HIGH): compact_count が数値以外でも int() が
+    # ValueError で main() に伝播せず、exit 0 かつカウントが 1 から再開する
+    session_id = "sess-compact-corrupted"
+    state_dir = tmp_path / ".claude" / "checkpoints"
+    state_dir.mkdir(parents=True)
+    state_path = state_dir / "session_monitor_state.json"
+    state_path.write_text(
+        json.dumps({session_id: {"compact_count": "oops"}}), encoding="utf-8"
+    )
+    payload = json.dumps(
+        {"trigger": "auto", "transcript_path": "", "session_id": session_id},
+        ensure_ascii=False,
+    )
+    result = _run_checkpoint(payload, tmp_path)
+    assert result.returncode == 0
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state[session_id]["compact_count"] == 1
 
 
 # --- PC-12: staging_idempotent(_staging_session_monitor.py 側) ---
