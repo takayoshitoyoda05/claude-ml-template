@@ -240,3 +240,17 @@ session_monitor.py 側も同様に、状態ファイルの `compact_count`/`last
 | 差し戻し修正(Step 1 相当) | 破損値ケースの回帰テスト追加(RED確認済み) | `tests/test_session_monitor.py` | `pytest -k "fail_open_corrupted or corrupted_state"` が現行実フックに対し `2 failed` で FAIL 確認、全体は `176 passed` | `2d1f103` |
 
 計画外の変更なし(全てレビュー指摘 [HIGH]/[MEDIUM] への直接対応)。
+
+## 作業ログ(リーダー統合・手順6.5後の一括追記)
+
+| 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
+|---|---|---|---|---|
+| 1 | PC-1〜12網羅の受け入れテスト作成(テストファースト、作成時全skip確認) | tests/test_session_monitor.py | pytest → 20 skipped(RED) | c478d15 |
+| 2-3 | staging(HOOK_SOURCE/apply/smoke/--root)+session_monitor本体実装 | _staging_session_monitor.py(gitignore・非コミット) | --root検証: 適用/冪等/実機発火確認 | (untracked) |
+| 4 | ユーザーが staging を適用(初回+差し戻し修正後の再適用) | .claude/hooks/session_monitor.py, .claude/hooks/checkpoint_before_compact.py, .claude/settings.json | 適用後 pytest → 20 passed→(修正後)22 passed | a8d60e4, 9c5c268 |
+| 5 | 任意機能メニューに CLAUDE_SESSION_MONITOR 追加(sh/ps1同一文言) | claude-init.sh, claude-init.ps1 | 1対1 diff差分なし(生11・一意11) | 69b0548 |
+| 6 | 雛形に既定"0"追加+verify-installers assert追加 | templates/settings.local.json.template, verify-installers.sh | verify-installers.sh 全PASS | 69b0548 |
+| 7 | README環境変数表・フック一覧・構成ツリーに追記 | README.md | 整合grep一致(150000/180000/変数名) | bf66780 |
+| 8 | config-explain/config-set に追記 | .claude/skills/config-explain/SKILL.md, .claude/skills/config-set/SKILL.md | 整合grep一致 | 7721a5a |
+| 差し戻し | HIGH(int()未捕捉→exit1)+MEDIUM(空行)修正、破損値テスト2件追加(RED→GREEN) | tests/test_session_monitor.py, フック2点(staging再適用) | RED: 2 failed → 適用後 22 passed | 2d1f103, 9c5c268 |
+| 9 | 統合検証: 全テスト・インストーラ検証・整合grep | (検証のみ) | 178 passed / verify-installers 全PASS / verify-hooks 全PASS / R-013 diff差分なし | (本追記コミット) |
