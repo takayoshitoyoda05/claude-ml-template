@@ -83,13 +83,13 @@ Stop フックが transcript の usage 実測値と auto-compact 回数から ha
 |---|------|-------------|------|-------------|
 | 1 | auto要件の受け入れテストを実装前に作成する。PC-1〜PC-12 を網羅し、テスト関数名に設計書の `-k` キーワード(gate_off / below_warn / warn_level / high_level / dedup_silent / dedup_rewarns / compact_count / fail_open / threshold_env / never_blocks / compact_counter_hook / staging_idempotent)を必ず含める。`tests/test_requirements_gate.py` の様式に倣い、モジュール先頭で `pytest.mark.skipif(not HOOK_PATH.exists())` により未適用時 skip。警告有無の判定は **stdout と stderr を連結した文字列**に対して行う(出力先が systemMessage か stderr かの実装判断に影響されないようにするため)。作成後、この時点で「全件 skip」になることを確認する(FAIL/skip 確認) | tests/test_session_monitor.py | なし | A |
 | 2 | staging スクリプトを作成する。(a) `HOOK_SOURCE` 定数に session_monitor.py の全文、(b) `apply(root)` で フック設置 + settings.json 登録 + checkpoint_before_compact.py への文字列置換、(c) `smoke()`、(d) `--smoke-only` と `--root <dir>`(既定はスクリプトのあるディレクトリ)。settings.json は `json.loads` → `hooks.Stop[0].hooks` に挿入 → `json.dumps(indent=2, ensure_ascii=False)` + 末尾改行。**挿入位置は notify.py エントリの直前**(notify.py は末尾である必要があるため)。既に同じ command があれば挿入しない。checkpoint への追記は `REPLACEMENTS = [(OLD, NEW, 説明)]` 方式で、OLD の一意性を検査し、適用済みなら何もしない | _staging_session_monitor.py | Step 1 | A |
-| 3 | session_monitor.py 本体の仕様を staging の HOOK_SOURCE 内に実装する。オプトイン判定 → stdin JSON 読み → `stop_hook_active` なら終了 → transcript を**行単位ストリーム**で走査し最後に見つかった assistant の `message.usage` から `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` を合算 → 状態ファイル `.claude/checkpoints/session_monitor_state.json`(キー: session_id)と突き合わせ、warn/high 判定と 10% 重複排除、compact 回数2以上ならセッション中1回だけ警告 → 警告は JSON の `systemMessage` で出力(表示されない場合は stderr にフォールバック)。読み取りの例外は `(OSError, UnicodeError)` を捕捉し、**全経路 exit 0** | _staging_session_monitor.py | Step 2 | A |
+| 3 | session_monitor.py 本体の仕様を staging の HOOK_SOURCE 内に実装する。オプトイン判定 → stdin JSON 読み → `stop_hook_active` なら終了 → transcript を**行単位ストリーム**で走査し最後に見つかった assistant の `message.usage` から `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` を合算 → 状態ファイル `.claude/checkpoints/session_monitor_state.json`(キー: session_id。Stop/PreCompact とも `payload.get("session_id", "unknown")` でフォールバック)と突き合わせ、warn/high 判定と 10% 重複排除、compact 回数2以上ならセッション中1回だけ警告 → 警告は JSON の `systemMessage` で出力(表示されない場合は stderr にフォールバック)。読み取りの例外は `(OSError, UnicodeError, ValueError)` を捕捉(`json.JSONDecodeError` は ValueError のサブクラス。並行セッションの read-modify-write で状態ファイルが破損しうるため、破損時は状態を空として初期化し続行)し、**全経路 exit 0**(premortem MEDIUM 1・2 の反映) | _staging_session_monitor.py | Step 2 | A |
 | 4 | ユーザーに `! uv run python _staging_session_monitor.py` の実行を依頼し、適用後に Step 1 のテストが skip から実行に変わり全 PASS することを確認する。FAIL があれば Step 2-3 を修正して再適用(冪等なので上書き可) | (ユーザー実行) | Step 3 | A |
 | 5 | 任意機能メニューに `CLAUDE_SESSION_MONITOR` を追加する。sh/ps1 の説明文は**同一文言**にし、追加後に1対1対応を diff で機械検証する | claude-init.sh, claude-init.ps1 | なし | B |
 | 6 | 雛形に `"CLAUDE_SESSION_MONITOR": "0"` を追加し、verify-installers.sh に含有 assert を 92行の様式で追加する | templates/settings.local.json.template, verify-installers.sh | Step 5 | B |
 | 7 | README の環境変数表・フック一覧表・構成ツリーに session_monitor を追記する(既存の record_session_state.py 行の書式に倣う) | README.md | なし | C |
 | 8 | config-explain の変数表、config-set の雛形と変数表に CLAUDE_SESSION_MONITOR を追記する(CLAUDE_REQUIREMENTS_GATE の行の書式に倣う) | .claude/skills/config-explain/SKILL.md, .claude/skills/config-set/SKILL.md | なし | C |
-| 9 | 全テスト・インストーラ検証を実行し、R-013〜R-015 の検証コマンドを通す | (検証のみ) | Step 4, 6, 8 | A |
+| 9 | 全テスト・インストーラ検証を実行し、R-013〜R-015 の検証コマンドを通す。さらに記述と実装の整合を grep で機械照合する: `grep -n "150" README.md .claude/skills/config-set/SKILL.md`(閾値既定値)と `grep -rn "CLAUDE_MONITOR_WARN_TOKENS\|CLAUDE_MONITOR_HIGH_TOKENS\|CLAUDE_SESSION_MONITOR" README.md .claude/skills/config-explain/SKILL.md .claude/skills/config-set/SKILL.md` の結果が実装(HOOK_SOURCE 内の既定値・変数名)と一致すること(premortem MEDIUM 3 の反映) | (検証のみ) | Step 4, 6, 8 | A |
 
 並列化判定: 並列化可能(グループ A / B / C。A=フック実体とテスト、B=インストーラと雛形、
 C=ドキュメントで、触るファイルが完全に分離しており相互依存が無いため。Step 9 は統合検証で
@@ -124,6 +124,7 @@ C=ドキュメントで、触るファイルが完全に分離しており相互
 - staging スクリプトは gitignore 対象でコミットされないため、CI では新規テストが skip
   され続ける(requirements_gate と同じ既知のトレードオフ。設計書 8節に記載済み)。
 - 未確認の仮定: Stop フックの stdin ペイロードに `session_id` キーが含まれる / 検証: `grep -rn "session_id" /home/toyod/claude-ml-template/.claude/hooks/action_log.py` / 期待: `payload.get("session_id", "unknown")` を含む行が出力される(既存フックでの使用実績。Stop で欠ける場合に備え実装側は `"unknown"` フォールバックを持つ)
+- 未確認の仮定: PreCompact フックの stdin ペイロードにも `session_id` キーが含まれる / 検証: 実装時に checkpoint_before_compact.py 側も `payload.get("session_id", "unknown")` フォールバックとし、テストのペイロードに session_id 欠落ケースを含める / 期待: 欠落時は "unknown" キーに計上され exit 0(premortem MEDIUM 1 の反映)
 - 未確認の仮定: Stop フックの `systemMessage` がユーザーに表示される / 検証: `grep -rn "systemMessage" /home/toyod/claude-ml-template/README.md` / 期待: 記載が見つからなければ実機確認が必要(Step 3 で確認し、不可なら stderr フォールバック。どちらでも R-010 は不変)
 
 ## トレーサビリティ
