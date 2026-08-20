@@ -59,6 +59,27 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _as_int(value: object) -> int:
+    """値を int に変換する。変換できなければ 0 を返す(fail-open)。
+
+    状態ファイル(.claude/checkpoints/session_monitor_state.json)は
+    並行するセッションの read-modify-write で壊れうる。compact_count /
+    last_warned_tokens が数値以外(例: 文字列)になっていても int() が
+    ValueError で main() まで伝播しないよう、ここで吸収する(「いかなる
+    入力でも exit 0」契約を守るため)。
+
+    Args:
+        value: 状態ファイルから読んだ生の値。
+
+    Returns:
+        変換できた整数。失敗時は 0。
+    """
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _sum_usage(usage: dict) -> int | None:
     """usage の3フィールドを合算する。型が不正なら None を返す(壊れた行はスキップ)。
 
@@ -174,9 +195,9 @@ def main() -> None:
     if not isinstance(session_state, dict):
         session_state = {}
 
-    compact_count = int(session_state.get("compact_count", 0) or 0)
+    compact_count = _as_int(session_state.get("compact_count", 0))
     compact_warned = bool(session_state.get("compact_warned", False))
-    last_warned_tokens = int(session_state.get("last_warned_tokens", 0) or 0)
+    last_warned_tokens = _as_int(session_state.get("last_warned_tokens", 0))
 
     warn_tokens = _int_env("CLAUDE_MONITOR_WARN_TOKENS", 150_000)
     high_tokens = _int_env("CLAUDE_MONITOR_HIGH_TOKENS", 180_000)

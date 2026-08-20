@@ -26,8 +26,6 @@ def prune_old(backup_dir, pattern):
             pass
 
 
-
-
 def _record_compact(session_id: str, backup_dir: Path) -> None:
     """auto-compact 発生時にセッション別の回数を状態ファイルへ加算する。
 
@@ -45,7 +43,11 @@ def _record_compact(session_id: str, backup_dir: Path) -> None:
     session_state = state.get(session_id)
     if not isinstance(session_state, dict):
         session_state = {}
-    session_state["compact_count"] = int(session_state.get("compact_count", 0) or 0) + 1
+    try:
+        compact_count = int(session_state.get("compact_count", 0) or 0)
+    except (TypeError, ValueError):
+        compact_count = 0
+    session_state["compact_count"] = compact_count + 1
     state[session_id] = session_state
     try:
         state_path.write_text(
@@ -53,6 +55,7 @@ def _record_compact(session_id: str, backup_dir: Path) -> None:
         )
     except (OSError, UnicodeError, ValueError):
         pass
+
 
 def main():
     try:
