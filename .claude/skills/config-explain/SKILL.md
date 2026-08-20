@@ -18,6 +18,7 @@ CLAUDE_WORK_SCOPE 等は settings.local.json とシェル環境変数の両方�
 | CLAUDE_COMMIT_STEP_RULE | 同上 |
 | CLAUDE_SPEC_CHECK | 同上 |
 | CLAUDE_SPEC_RECHECK_N | 同上 |
+| CLAUDE_REQUIREMENTS_GATE | 同上 |
 | CLAUDE_CROSS_REVIEW | 同上 |
 | CODEX_MODEL | 同上 |
 | CLAUDE_AUTO_APPROVE | 同上 |

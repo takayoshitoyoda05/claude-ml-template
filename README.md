@@ -197,6 +197,7 @@ config-set スキルが貼り付け用のJSONを提示するので、それを�
 | CLAUDE_EVAL_CMD | 評価強制で実行するコマンド | 評価強制なし |
 | CLAUDE_COMMIT_STEP_RULE | `1` でコミットメッセージにステップ番号(数字)を強制。他のフラグと同様 `settings.local.json` に恒久設定する(セッション起動時にのみ読み込まれるため、`/ml-pipeline` 実行中だけ自動でONにする仕組みは無い) | チェックなし |
 | CLAUDE_SPEC_CHECK | `1` で Stop 時に設計書の受け入れ条件を機械検査(spec-compliance)ON | チェックなし |
+| CLAUDE_REQUIREMENTS_GATE | `1` で受け入れ条件テーブル付き設計書が無いままの計画ファイル作成をブロック(手順0.5 の機械ゲート) | 無効(0) |
 | CLAUDE_SPEC_RECHECK_N | spec-compliance でauto要件から再実行する件数。`all` で全件 | `3` |
 | CLAUDE_CROSS_REVIEW | `1` でCodexクロスレビューをevaluator前に必須にする | 無効(0) |
 | CODEX_MODEL | Codexのモデルを一時的に上書き(空なら.codex/config.tomlの設定) | 空 |
@@ -1251,6 +1252,20 @@ guard_metrics 違反(例: train_val_gap > 0.05)なら fail。
 router(Haiku)がタスク規模を判定し、S(typo 等)は generator 直行、
 M(単一モジュール)は planner 省略の短縮経路、L はフルパイプラインに
 振り分ける。軽微な修正に重いパイプラインを強制しない。迷ったら L。
+
+#### 要件ヒアリング(手順0.5)
+
+router の規模判定に連動して、planner に渡す前に依頼内容の曖昧さを解消する。
+S はスキップ、M は曖昧性タクソノミーを基準にリーダーが最大3問だけ質問、
+L は design-interview スキルを実行する(設計書が無ければ依頼文を対象に
+質問し、節録版設計書(受け入れ条件テーブル付き)を docs/drafts/ に必ず
+生成して planner に渡す)。手順3.3 の spec-checklist ゲートの
+代替ではなく、事後ゲートと併用する二重の防御。
+
+さらに `CLAUDE_REQUIREMENTS_GATE=1` を設定すると、PreToolUse フックの
+requirements_gate が「受け入れ条件テーブル付きの設計書が無いまま計画
+ファイル(.claude/plans/*.md)を書き始める」ことを機械的にブロックする
+(プロンプト指示である手順0.5 の実施漏れに対する補助線)。
 
 ---
 
