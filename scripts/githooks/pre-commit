@@ -1,0 +1,18 @@
+#!/bin/bash
+# ステージ差分の辞書ヒット/大型バイナリ/ipynb outputs を検知する薄いラッパー。
+# 検知ロジック本体は scripts/precommit_data_check.py に置く(このシェルは
+# git hooks の呼び出し規約に合わせるためだけの薄い皮)。有効化は
+# `git config core.hooksPath scripts/githooks` の1コマンド(README参照、
+# オプトイン。設計書の代替案3不採用の理由と同じくユーザーのgit設定を
+# 無断で書き換えないため)。
+# 配布元: takayoshitoyoda05/claude-ml-template テンプレート
+set -u
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$repo_root" ]; then
+  echo "pre-commit: gitリポジトリのルートを特定できない" >&2
+  exit 1
+fi
+
+python3 "$script_dir/../precommit_data_check.py"

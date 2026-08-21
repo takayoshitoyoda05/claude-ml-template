@@ -334,3 +334,84 @@ Step 7(グループ C)が Step 2(グループ B)に依存しないのは**意図
 
 Step 2 はどの R-ID にも直接対応しない(Step 4・6 が共有する検知エンジンの切り出し。
 検知ロジックのドリフト防止のための準備)。
+
+## 作業ログ(計画外追補・2026-08-22実施・group-B worktree)
+
+ユーザー承認済みの計画外追補として、Step 13(claude-init/update の scripts/
+配布)で使う MARKER 保護方式(配布元にマーカーがあり、ローカル同名ファイルに
+無ければユーザー資産とみなして上書きしない。`claude-init.sh` L227 の既存実装
+を確認)を機能させるため、Step 2〜6 で新設した scripts/ 8ファイルにマーカー行
+`takayoshitoyoda05/claude-ml-template` を追加した。
+
+- Python 7本(`_data_patterns.py` / `data_lock.py` / `data_dictionary.py` /
+  `export_check.py` / `data_scan.py` / `precommit_data_check.py` /
+  `history_scan.py`): モジュール docstring 末尾に
+  `配布元: takayoshitoyoda05/claude-ml-template テンプレート` の1行を追加
+  (`doctor.sh` 等の既存配布物と同じ `MARKER="takayoshitoyoda05/claude-ml-template"`
+  文字列を含む形式に倣った。`claude-init.sh` は文字列の存在のみを grep で
+  判定するため書式は自由)
+- `githooks/pre-commit`(シェル): 既存のコメントブロック末尾に同文言のコメント
+  行を追加
+- `env_fingerprint.py` は本追補の対象外(既存ファイルであり Step 2〜6 の新設物
+  ではないため変更していない)
+
+検証結果:
+- `grep -l "takayoshitoyoda05/claude-ml-template" scripts/*.py scripts/githooks/pre-commit`
+  → 8ファイルヒット(`env_fingerprint.py` は対象外のままヒットせず)
+- `uv run --with pytest python -m pytest tests/test_data_protection_phase2.py -q -k "lock_ or dictionary_generate or export_check or data_scan_diff or precommit_detects or precommit_clean_fast or history_scan"`
+  → 1 failed(`test_doctor_lock_mismatch_warns`), 12 passed。この失敗は
+  `git stash` で本追補の変更を退避した状態でも同一内容で再現し、`doctor.sh`
+  (Step 8, group外)側の既存問題であって本追補由来ではないことを確認済み
+- `uv run --with ruff ruff check <対象7ファイル>` → 9 errors。`git stash` で
+  退避した baseline でも同じ9 errorsであることを確認し、本追補で新規に
+  導入されたlint違反は無いことを確認済み
+
+逸脱: なし(計画外の追補であることはユーザー承認済み。上記が指示範囲外の
+判断を伴わない理由)。
+
+コミット: e34ff64
+`feat(step 13 追補): 配布保護のMARKER行をscripts新設8本に追加`
+(ブランチ pipeline/20260821-data-protection-p2-group-B)
+
+### 計画ステップ対応表
+
+| 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
+|---|---|---|---|---|
+| 計画外(Step13で使うMARKER保護方式をStep2〜6新設物に前倒しで適用。ユーザー承認済み) | scripts/ 新設8本にMARKER行を追加 | scripts/_data_patterns.py, scripts/data_lock.py, scripts/data_dictionary.py, scripts/export_check.py, scripts/data_scan.py, scripts/precommit_data_check.py, scripts/history_scan.py, scripts/githooks/pre-commit | `grep -l "takayoshitoyoda05/claude-ml-template" scripts/*.py scripts/githooks/pre-commit` → 8件; pytest -k 該当群 → 13中12 PASS(1件は baseline から既存の失敗を確認済み); ruff → baselineと同じ9 errors(新規違反なし) | e34ff64 |
+
+## 差し戻し修正(2026-08-22)
+
+指摘 [MEDIUM・接地済み]: `templates/EXPERIMENT_LOG.md.template`(group-E)と
+`evaluator.md` が「使用データ: data.lock のハッシュ先頭12桁」の記入を規約化
+しているが、その12桁を算出・表示する手段が `scripts/data_lock.py` に無かった。
+
+対応: `scripts/data_lock.py` の `--update` / `--check` の正常完了時に、
+`data/data.lock` ファイル内容の sha256 先頭12桁を
+`data.lock digest: <12桁>` 形式で標準出力に表示するようにした
+(`_print_lock_digest` を追加し `update`/`check` の成功パスから呼ぶ)。
+`tests/test_data_protection_phase2.py` への対応テスト追加はメイン側
+(group-E)の担当であり本修正では行っていない。
+
+検証:
+- `uv run --with pytest python -m pytest tests/test_data_protection_phase2.py -q -k "lock_update or lock_check"`
+  → 3 passed(既存テストが出力形式を固定していないため影響なし)
+- `uv run ruff check scripts/data_lock.py` → All checks passed!
+- 手動実行(一時ディレクトリに `data/sample.csv` を用意して `--update` →
+  `--check` の順に実行): 両者とも `data.lock digest: f3c78281ff58` を出力
+  (同一内容の lock に対し同一 digest であることを確認)
+
+整合確認: `grep -n "data.lock\|ハッシュ先頭12桁" .claude/agents/evaluator.md`
+→ ヒットなし。本 worktree(group-B)内には
+`templates/EXPERIMENT_LOG.md.template` も存在しない
+(`find . -iname "EXPERIMENT_LOG*"` → ヒットなし)。該当2ファイルは group-E
+の担当スコープにあり、本修正の対象外。
+
+コミット: b16a9e4
+`fix(step 3): data_lock.py の正常完了時にdata.lock digestを表示`
+(ブランチ pipeline/20260821-data-protection-p2-group-B)
+
+### 計画ステップ対応表(差し戻し分)
+
+| 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
+|---|---|---|---|---|
+| 計画外(差し戻し指摘対応。data.lock digest算出手段が無い問題の修正。ユーザー承認済み) | `--update`/`--check` の正常完了時に `data.lock digest: <12桁>` を表示 | scripts/data_lock.py | `pytest tests/test_data_protection_phase2.py -q -k "lock_update or lock_check"` → 3 passed; `ruff check scripts/data_lock.py` → All checks passed!; 手動実行で `data.lock digest: f3c78281ff58` を確認 | b16a9e4 |
