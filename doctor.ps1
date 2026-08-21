@@ -120,3 +120,22 @@ if (Test-Path "claude-remote.ps1") {
 
 Write-Host "確認: /config の「Enable Remote Control for all sessions」が true か"
 Write-Host "      (マシン単位の設定。未設定なら毎回 /remote-control が必要です)"
+
+Write-Host ""
+Write-Host "=== データ保護(Data Protection)==="
+
+# 判定はWindows実態(ReadOnly属性)に基づく。Unixのパーミッションビットとは
+# 意味が異なり(NTFSのReadOnly属性はACLと独立)、厳密な一致は保証しない。
+if (Test-Path "data") {
+    $rawDir = "data\raw"
+    if ((Test-Path $rawDir) -and (-not (Get-Item $rawDir).Attributes.HasFlag([System.IO.FileAttributes]::ReadOnly))) {
+        Write-Host "警告: [DATA-RAW-WRITABLE] data/raw が書き込み可能です。ReadOnly属性の付与を検討してください。"
+    }
+    $processedDir = "data\processed"
+    if ((Test-Path $processedDir) -and (Get-Item $processedDir).Attributes.HasFlag([System.IO.FileAttributes]::ReadOnly)) {
+        Write-Host "警告: [DATA-PROCESSED-READONLY] data/processed が書き込み不可です。再生成できない場合は権限を確認してください。"
+    }
+    if (-not (Test-Path "data\DATA_LOG.md")) {
+        Write-Host "警告: [DATA-LOG-MISSING] data/DATA_LOG.md がありません。templates/DATA_LOG.md.template から作成してください。"
+    }
+}
