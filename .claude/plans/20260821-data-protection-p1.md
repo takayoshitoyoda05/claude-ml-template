@@ -30,10 +30,10 @@ Phase 2 の機械ゲートは本 Phase の規約・台帳を「正」として�
   `## 絶対に変えてはいけないこと` 配下に `### 役割分離` / `### 安全ガード` /
   `### 人間の介入ポイント` / `### スコープ` が並び、その後に `## 変えてよいこと`。
   データ保護は `### スコープ` の直後・`## 変えてよいこと` の直前に新しい `###` 節として入る。
-- 確認済み: `doctor.sh`(108行)は `set -uo pipefail`。`git clone` 失敗時も `set -e` が無いため
+- 確認済み: `doctor.sh`(107行)は `set -uo pipefail`。`git clone` 失敗時も `set -e` が無いため
   後続処理は継続する。`=== リモート運用(Remote Control)===` 節はテンプレ取得の外側にあり、
   data 検査も同様に「テンプレ取得に依存しない独立ブロック」として置ける。
-  `doctor.ps1`(123行)は clone 部が `try/finally` に入っており、data 検査は finally の外に置く。
+  `doctor.ps1`(122行)は clone 部が `try/finally` に入っており、data 検査は finally の外に置く。
 - 確認済み: `claude-init.sh:201` / `claude-update.sh:124` / `claude-init.ps1:183` は
   `templates/*.template` をグロブで配布する。テンプレート追加でインストーラの変更は不要
   (sh/ps1 の対ファイル規律に抵触しない)。
@@ -90,7 +90,7 @@ Phase 2 の機械ゲートは本 Phase の規約・台帳を「正」として�
 | 2 | 全テストを実行し、doctor/テンプレ/スキル/README 系が **FAIL**、invariants 系3件が **skip** になることを確認する(テストの検出力の証明。ここで PASS するテストがあれば書き方が誤っている) | (実行のみ) | Step 1 | A |
 | 3 | DATA_LOG 台帳の雛形を作成する。必須7列の Markdown 表 + 記入例1行 + 「識別子列は Phase 2 の辞書半自動生成の入力になる」旨の注記。既存の `templates/design-doc.md.template` の書式(見出し + 表 + 注釈コメント)に倣う | templates/DATA_LOG.md.template | Step 1 | B |
 | 4 | invariants.md へデータ保護節を追記する staging スクリプトを作成する。`_staging_session_monitor.py` の構成(モジュール docstring・`--root` 引数・適用済みマーカーによる冪等判定・アンカー件数が1でなければ警告のみで無変更・`APPLIED`/`SKIP` 報告)に倣う。追記内容は `### 研究データ保護` 節として `## 変えてよいこと` の直前に挿入し、データ三原則+持ち出し規制の各行に対応する機械検査名(doctor の検査マーカー名 / Phase 2 のゲート名)を併記する。注意: 検査できない精神論を書かない(検査名を併記できない文言は入れない) | _staging_data_protection_p1.py | Step 1 | C |
-| 5 | doctor.sh に data 検査ブロックを追加する。テンプレ取得(clone)の成否に依存しない独立ブロックとし、`=== リモート運用 ===` 節と同じ様式(見出し行 + 個別チェック)で置く。警告文言に機械照合用マーカー(`[DATA-RAW-WRITABLE]` 等の角括弧キー)を含める。`data/` が無い場合は何も出力しない。注意: 既存の `diff_count` 集計・終了コードに影響を与えない(警告のみ) | doctor.sh | Step 1 | D |
+| 5 | doctor.sh に data 検査ブロックを追加する。テンプレ取得(clone)の成否に依存しない独立ブロックとし、`=== リモート運用 ===` 節と同じ様式(見出し行 + 個別チェック)で置く。警告文言に機械照合用マーカーを含める。**マーカーの正式名は次の3つで確定**(Step 1 のテストもこの文字列を assert する。premortem MEDIUM の反映): `[DATA-RAW-WRITABLE]`(raw 書き込み可)/ `[DATA-PROCESSED-READONLY]`(processed 書き込み不可)/ `[DATA-LOG-MISSING]`(台帳不在)。`data/` が無い場合は何も出力しない。注意: 既存の `diff_count` 集計・終了コードに影響を与えない(警告のみ) | doctor.sh | Step 1 | D |
 | 6 | doctor.ps1 に同一検査項目・同一マーカーのブロックを追加する。判定手段は Windows 実態に合わせる(ReadOnly 属性 / ACL)。判定手段が Unix と厳密には一致しないことをコメントで明記する。clone 部の `try/finally` の外側に置く | doctor.ps1 | Step 5 | D |
 | 7 | handoff スキルに公開前チェックリスト7点の節を追加する。既存の `## 含めないこと` 等と同じ見出し階層・箇条書き様式に倣う。文言に Phase 依存(「Phase 2 で機械化」等)を書かない | .claude/skills/handoff/SKILL.md | Step 1 | E |
 | 8 | paper-writing スキルに **同一文言** のチェックリスト節を追加する。既存の `## 重要なルール` の並びに合わせて配置する | .claude/skills/paper-writing/SKILL.md | Step 7 | E |
