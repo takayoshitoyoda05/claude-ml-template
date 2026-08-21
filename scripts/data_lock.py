@@ -4,6 +4,9 @@
 `--update` は `data/data.lock`(JSON)に現在の `data/` の内容を記録する。
 `--check` は記録済みの `data/data.lock` と現在の `data/` を照合し、
 不一致(改変・削除・新規追加)があれば列挙して非0で終了する(R-001〜R-003)。
+どちらも正常完了時に `data.lock digest: <12桁>` を標準出力へ表示する。これは
+`data/data.lock` ファイル内容の sha256 先頭12桁で、EXPERIMENT_LOG の
+「使用データ」欄に転記する値の出所となる。
 `data/exports/` は正規の外部提供経路であり内容が変わり続けるため、
 lock の走査対象から除外する(除外し忘れると `--check` が恒常的に
 不一致になり警告が無視されるようになる)。
@@ -54,6 +57,16 @@ def _sha256_of(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _print_lock_digest(lock_path: Path) -> None:
+    """`data.lock` 全体の sha256 先頭12桁を `data.lock digest: <12桁>` 形式で表示する。
+
+    EXPERIMENT_LOG.md.template / evaluator.md が記入を規約化している
+    「data.lock のハッシュ先頭12桁」の算出手段がこれまで存在しなかったため、
+    正常完了時にこの値を提示する。
+    """
+    print(f"data.lock digest: {_sha256_of(lock_path)[:12]}")
+
+
 def _relative_key(data_dir: Path, path: Path) -> str:
     """lock のキーとして使う `data/` 相対パス(POSIX区切り)を返す。"""
     return path.relative_to(data_dir).as_posix()
@@ -79,6 +92,7 @@ def update(root: Path) -> int:
     lock_path = root / _LOCK_RELATIVE_PATH
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    _print_lock_digest(lock_path)
     return 0
 
 
@@ -116,6 +130,7 @@ def check(root: Path) -> int:
         for key in mismatched:
             print(key)
         return 1
+    _print_lock_digest(lock_path)
     return 0
 
 
