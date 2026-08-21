@@ -27,6 +27,16 @@ improvement-reviewer がこのファイルを基準に改善案を審査する�
 - エージェント定義のfrontmatter(model, tools, permissionMode)は変更しない
 - フック(.claude/hooks/*.py)のロジック変更は却下する(プロンプトの改善のみ許可)
 
+### 研究データ保護
+
+データ三原則(来歴管理の基盤):
+- raw データは不可侵(書き込み不可が既定)。逸脱の検知: doctorマーカー `[DATA-RAW-WRITABLE]`
+- 前処理は必ずスクリプトを通し、手動編集しない。処理結果が誤って書き込み不可すぎる場合の検知: doctorマーカー `[DATA-PROCESSED-READONLY]`
+- DATA_LOG.md が来歴の唯一の真実である。台帳不在の検知: doctorマーカー `[DATA-LOG-MISSING]`
+
+持ち出し規制:
+- 外部に出してよいのは集計値・図・ハッシュのみ(生データそのものは出さない)。検知: Phase 2 の data_gate(予定)
+
 ## 変えてよいこと
 - エージェント定義の本文(プロンプト部分)への追記・修正
 - スキルの本文への追記・修正

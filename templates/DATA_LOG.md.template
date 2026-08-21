@@ -1,0 +1,10 @@
+# DATA_LOG
+
+<!-- data/ 配下のデータセットごとの来歴台帳。新しいデータセットを data/raw に置いたら
+     この表に1行追記する(このファイル自体がPhase 1における来歴の唯一の真実)。 -->
+
+| データセット名 | 入手元 | 入手日 | ライセンス | sha256 | 前処理コマンド | 識別子列 |
+|---------------|-------|-------|-----------|--------|---------------|---------|
+| example_dataset | https://example.com/dataset | 2026-08-21 | CC-BY-4.0 | 0123456789abcdef... | `uv run python scripts/preprocess.py --in data/raw/example_dataset --out data/processed/example_dataset` | subject_id |
+
+<!-- 識別子列は Phase 2 の辞書半自動生成の入力になる。 -->

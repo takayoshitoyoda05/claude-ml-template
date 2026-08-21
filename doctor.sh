@@ -105,3 +105,18 @@ fi
 
 echo "確認: /config の「Enable Remote Control for all sessions」が true か"
 echo "      (マシン単位の設定。未設定なら毎回 /remote-control が必要です)"
+
+echo ""
+echo "=== データ保護(Data Protection)==="
+
+if [ -d "data" ]; then
+  if [ -d "data/raw" ] && [ -w "data/raw" ]; then
+    echo "警告: [DATA-RAW-WRITABLE] data/raw が書き込み可能です。chmod -w data/raw を検討してください。"
+  fi
+  if [ -d "data/processed" ] && [ ! -w "data/processed" ]; then
+    echo "警告: [DATA-PROCESSED-READONLY] data/processed が書き込み不可です。再生成できない場合は権限を確認してください。"
+  fi
+  if [ ! -f "data/DATA_LOG.md" ]; then
+    echo "警告: [DATA-LOG-MISSING] data/DATA_LOG.md がありません。templates/DATA_LOG.md.template から作成してください。"
+  fi
+fi
