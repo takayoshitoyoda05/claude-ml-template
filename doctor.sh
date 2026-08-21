@@ -119,6 +119,4 @@ if [ -d "data" ]; then
   if [ ! -f "data/DATA_LOG.md" ]; then
     echo "警告: [DATA-LOG-MISSING] data/DATA_LOG.md がありません。templates/DATA_LOG.md.template から作成してください。"
   fi
-else
-  : # data/ が無いプロジェクトでは何も出力しない
 fi
