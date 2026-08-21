@@ -260,6 +260,7 @@ config-set スキルが貼り付け用のJSONを提示するので、それを�
 | CLAUDE_SESSION_RESUME | `1`(または未設定)でセッション上限からの自動再開(Stopでの記録+起動時の注入)を有効化、`0` で無効化 | 有効(1) |
 | CLAUDE_REFACTOR_SWARM | `1` でリファクタパスの検出を Haiku 7体の並列スカウトで行う(エージェントチーム機能が必要) | 無効(0) |
 | CLAUDE_CONTROL_LEVEL | 自律度の一括切替。L1(手動運転)/ L2(監督運転・既定)/ L3(自律運転) | L2 |
+| CLAUDE_DATA_GATE | `1` で data_gate フックが `data/raw` 等を含むコマンドの外部送信をブロック(`data/exports/` 経由は許可。静的判定であり補助線。3.21節) | 無効(0) |
 
 未設定でも動作はする(フックの保護が弱まるだけ)。
 
@@ -1437,6 +1438,61 @@ data/raw の更新手順(誤上書きを防ぐため既定で書き込み禁止�
 3. `DATA_LOG` (data/DATA_LOG.md) に入手元・入手日・sha256 等を追記する
 4. `chmod -w` で再び書き込み不可に戻す
 
+#### バックアップ記録(data/.backup_stamp)
+
+`data/.backup_stamp` に `YYYY-MM-DD` 1行でバックアップ実施日を記録する。DATA_LOG の
+7列契約は変えないため、バックアップ日は列を増やさずこのファイルで管理する。
+**バックアップ日だけは `data/.backup_stamp` が正**(DATA_LOG には書かない)。
+`doctor` が無い場合は `[DATA-BACKUP-UNKNOWN]`、30日を超えると `[DATA-BACKUP-STALE]`
+で警告する(4.5節)。
+
+#### データの改ざん検知(data.lock)
+
+`data/`(`data/exports/` を除く)の sha256・サイズを `data/data.lock` に記録し、
+静かな破損・改変を検知する。
+
+```
+uv run python scripts/data_lock.py --update    # 現状を記録
+uv run python scripts/data_lock.py --check      # 記録との一致を検査
+```
+
+#### exports 検疫(export_check)
+
+`data/exports/` に置いたファイルを DATA_LOG の識別子列から生成した辞書
+(`.claude/checkpoints/data_patterns.json`、`scripts/data_dictionary.py` が生成)で
+スキャンし、識別子の混入をコミット・配布前に検知する。
+
+```
+uv run python scripts/export_check.py
+```
+
+#### pre-commit の設置(オプトイン)
+
+ステージした差分の辞書ヒット・大型バイナリ・出力付き ipynb を検知する
+`scripts/precommit_data_check.py` を git の pre-commit フックとして呼び出せる。
+ユーザーの git 設定を無断で書き換えないため、claude-init/update では自動設置せず、
+以下のコマンドで手動設置する。
+
+```
+git config core.hooksPath scripts/githooks
+```
+
+#### 履歴からの除去(BFG / git filter-repo)
+
+一度コミットしてしまったデータ・識別子は `git rm` だけでは履歴に残る。
+`scripts/history_scan.py` で該当コミットを特定したら、
+[BFG Repo-Cleaner](https://rtyley.github.io/bfg-repo-cleaner/) または
+`git filter-repo` で該当ファイル・文字列を履歴全体から除去し、
+関係者に force-push とローカルクローンの再作成を周知する
+(force-push は破壊的操作のため、実行前にバックアップを取ること)。
+
+#### data_gate(送信経路の静的ゲート)
+
+`CLAUDE_DATA_GATE=1` を設定すると、`data/raw` 等を含むコマンドで外部送信
+(curl/scp 等)を試みた際にブロックする(`data/exports/` 経由は許可)。
+guard_bash と同様、**コマンド文字列の静的判定であり補助線**にすぎない
+(変数展開やスクリプト経由の送信は検知できない)。
+
 ---
 
 ## 4. テンプレートの育て方
@@ -1478,6 +1534,10 @@ data/raw の更新手順(誤上書きを防ぐため既定で書き込み禁止�
 
 差分があれば claude-update の実行を検討する。data/ の権限・台帳も検査し、
 問題があれば `[DATA-RAW-WRITABLE]` 等のマーカー付きで警告する(3.21節)。
+`data/data.lock` との不一致は `[DATA-LOCK-MISMATCH]`、`data/.backup_stamp` が
+無ければ `[DATA-BACKUP-UNKNOWN]`、30日を超えていれば `[DATA-BACKUP-STALE]`、
+`core.hooksPath` が `scripts/githooks` に設定されていなければ
+`[DATA-PRECOMMIT-OFF]` で警告する。
 
 ### CI
 push / PR のたびに GitHub Actions で verify-hooks と verify-installers が自動実行される。
@@ -1656,8 +1716,18 @@ claude-ml-template/
     mcp.json.template               Codex を MCP サーバーとして登録する雛形
     mcp.json.README.md              mcp.json.template の使い方・トラブルシューティング
     DATA_LOG.md.template            データ来歴台帳の雛形(3.21節)
+    EXPERIMENT_LOG.md.template      実験ログの雛形(使用データのハッシュ先頭12桁の記入規約付き。evaluator.mdが参照)
   scripts/
     env_fingerprint.py             実行環境(Python版数/git commit/uv.lock ハッシュ/torch・CUDA版数)をJSONで標準出力へ
+    _data_patterns.py              辞書ロード + 行スキャンの共有エンジン(scripts側の検知ロジックの単一実装)
+    data_lock.py                   data/(exports/除く)のsha256・サイズをdata/data.lockに記録・照合(3.21節)
+    data_dictionary.py             DATA_LOGの識別子列から.claude/checkpoints/data_patterns.jsonを生成
+    export_check.py                data/exports/を辞書スキャンして識別子の混入を検知(3.21節)
+    data_scan.py                   stdinまたは引数ファイルを辞書スキャン(cross-reviewの送信前検疫が使用)
+    precommit_data_check.py        ステージ差分の辞書ヒット・大型バイナリ・出力付きipynbを検知
+    history_scan.py                git履歴全体を辞書 + サイズ閾値でスキャン(手動実行)
+    githooks/
+      pre-commit                   precommit_data_check.pyを呼ぶ薄いシェル(git config core.hooksPathで設置)
   tests/
     test_env_fingerprint.py        env_fingerprint.py の受け入れ回帰テスト
     test_plan_gate.py              plan_gate.py の回帰テスト
