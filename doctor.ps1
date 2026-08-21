@@ -66,6 +66,29 @@ try {
         }
     }
 
+    # scripts/(リポジトリ直下。個別ファイル配布のためこの foreach ($item) ループには
+    # 足さない。.claude\$item を前提とする既存ループに "scripts" を足すと
+    # .claude\scripts が無く continue で無言の no-op になるため、別ブロックにする)
+    $remoteScripts = Join-Path $Tmp "scripts"
+    if (Test-Path $remoteScripts) {
+        $scriptFiles = Get-ChildItem -Path $remoteScripts -Recurse -File
+        foreach ($rf in $scriptFiles) {
+            $relPath = $rf.FullName.Substring($remoteScripts.Length).TrimStart("\")
+            $localFile = Join-Path "scripts" $relPath
+            if (-not (Test-Path $localFile)) {
+                Write-Host "NEW: scripts/$relPath (テンプレートにあるがローカルに無い)"
+                $diffCount++
+                continue
+            }
+            $remoteHash = (Get-FileHash -Path $rf.FullName -Algorithm SHA256).Hash
+            $localHash = (Get-FileHash -Path $localFile -Algorithm SHA256).Hash
+            if ($remoteHash -ne $localHash) {
+                Write-Host "DIFF: scripts/$relPath (内容が異なる)"
+                $diffCount++
+            }
+        }
+    }
+
     $localSettings = ".claude\settings.json"
     $remoteSettings = Join-Path $Tmp ".claude\settings.json"
     if ((Test-Path $localSettings) -and (Test-Path $remoteSettings)) {
@@ -137,5 +160,65 @@ if (Test-Path "data") {
     }
     if (-not (Test-Path "data\DATA_LOG.md")) {
         Write-Host "警告: [DATA-LOG-MISSING] data/DATA_LOG.md がありません。templates/DATA_LOG.md.template から作成してください。"
+    }
+
+    # [DATA-LOCK-MISMATCH] data/data.lock と実データの照合。
+    # sh版はuv run pythonでJSONスキーマ(algorithm/files[].sha256/files[].size)を
+    # 検証するが、ps1は既存のGet-FileHash方式に合わせConvertFrom-Json +
+    # Get-FileHashでネイティブに照合する(外部プロセス起動を増やさないため)。
+    $lockPath = "data\data.lock"
+    if (Test-Path $lockPath) {
+        $lockMismatch = $false
+        try {
+            $lockJson = Get-Content -Path $lockPath -Raw | ConvertFrom-Json
+            foreach ($rel in $lockJson.files.PSObject.Properties.Name) {
+                $entry = $lockJson.files.$rel
+                $filePath = Join-Path "data" $rel
+                if (-not (Test-Path $filePath)) {
+                    $lockMismatch = $true
+                    break
+                }
+                $actualHash = (Get-FileHash -Path $filePath -Algorithm SHA256).Hash
+                $actualSize = (Get-Item $filePath).Length
+                if ($actualHash -ne $entry.sha256.ToUpper() -or $actualSize -ne $entry.size) {
+                    $lockMismatch = $true
+                    break
+                }
+            }
+        } catch {
+            $lockMismatch = $true
+        }
+        if ($lockMismatch) {
+            Write-Host "警告: [DATA-LOCK-MISMATCH] data/data.lock と実データが一致しません。scripts/data_lock.py --update で更新してください。"
+        }
+    }
+
+    # [DATA-BACKUP-UNKNOWN] / [DATA-BACKUP-STALE] data/.backup_stamp(YYYY-MM-DD 1行)
+    $backupStampPath = "data\.backup_stamp"
+    if (Test-Path $backupStampPath) {
+        $stamp = (Get-Content -Path $backupStampPath -TotalCount 1).Trim()
+        $parsedDate = [DateTime]::MinValue
+        $isValidDate = [DateTime]::TryParseExact(
+            $stamp, "yyyy-MM-dd",
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [System.Globalization.DateTimeStyles]::None,
+            [ref]$parsedDate
+        )
+        if ($isValidDate) {
+            $ageDays = (Get-Date).Date.Subtract($parsedDate.Date).Days
+            if ($ageDays -gt 30) {
+                Write-Host "警告: [DATA-BACKUP-STALE] data/.backup_stamp が30日を超えています(${ageDays}日前)。バックアップを取り直して更新してください。"
+            }
+        } else {
+            Write-Host "警告: [DATA-BACKUP-UNKNOWN] data/.backup_stamp の日付を解釈できません。YYYY-MM-DD 形式で記録してください。"
+        }
+    } else {
+        Write-Host "警告: [DATA-BACKUP-UNKNOWN] data/.backup_stamp がありません。バックアップ実施日を記録してください。"
+    }
+
+    # [DATA-PRECOMMIT-OFF] git hooks が scripts/githooks 経由で有効化されているか
+    $hooksPath = (git config --get core.hooksPath 2>$null)
+    if ($hooksPath -ne "scripts/githooks") {
+        Write-Host "警告: [DATA-PRECOMMIT-OFF] core.hooksPath が scripts/githooks に設定されていません。git config core.hooksPath scripts/githooks で有効化してください。"
     }
 }
