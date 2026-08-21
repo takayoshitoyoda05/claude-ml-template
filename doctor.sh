@@ -58,6 +58,25 @@ if [ -d "$TMP/agents/shared" ]; then
   done < <(find "$TMP/agents/shared" -type f -print0)
 fi
 
+# scripts/(リポジトリ直下。個別ファイル配布のためこの for item ループには
+# 足さない。.claude/$item を前提とする既存ループに "scripts" を足すと
+# .claude/scripts が無く continue で無言の no-op になるため、別ブロックにする)
+if [ -d "$TMP/scripts" ]; then
+  while IFS= read -r -d '' rf; do
+    rel_path="${rf#$TMP/scripts/}"
+    local_file="scripts/$rel_path"
+    if [ ! -f "$local_file" ]; then
+      echo "NEW: scripts/$rel_path (テンプレートにあるがローカルに無い)"
+      diff_count=$((diff_count+1))
+      continue
+    fi
+    if ! diff -q "$rf" "$local_file" >/dev/null 2>&1; then
+      echo "DIFF: scripts/$rel_path (内容が異なる)"
+      diff_count=$((diff_count+1))
+    fi
+  done < <(find "$TMP/scripts" -type f -print0)
+fi
+
 if [ -f ".claude/settings.json" ] && [ -f "$TMP/.claude/settings.json" ]; then
   if ! diff -q ".claude/settings.json" "$TMP/.claude/settings.json" >/dev/null 2>&1; then
     echo "DIFF: settings.json (内容が異なる)"
@@ -118,5 +137,69 @@ if [ -d "data" ]; then
   fi
   if [ ! -f "data/DATA_LOG.md" ]; then
     echo "警告: [DATA-LOG-MISSING] data/DATA_LOG.md がありません。templates/DATA_LOG.md.template から作成してください。"
+  fi
+
+  # [DATA-LOCK-MISMATCH] data/data.lock と実データの照合。
+  # scripts/data_lock.py --check を呼ぶのが単一実装として望ましいが、この worktree
+  # には group-B の scripts/data_lock.py が無いため、doctor 内で同じJSONスキーマ
+  # (algorithm/files[].sha256/files[].size)を簡易照合する(計画Step8許容)。
+  if [ -f "data/data.lock" ]; then
+    lock_mismatch=1
+    if uv run python - <<'PY' >/dev/null 2>&1
+import hashlib
+import json
+import os
+import sys
+
+try:
+    with open("data/data.lock", encoding="utf-8") as f:
+        payload = json.load(f)
+    mismatch = False
+    for rel, info in payload.get("files", {}).items():
+        path = os.path.join("data", rel)
+        if not os.path.isfile(path):
+            mismatch = True
+            break
+        with open(path, "rb") as fh:
+            content = fh.read()
+        if hashlib.sha256(content).hexdigest() != info.get("sha256") or len(content) != info.get("size"):
+            mismatch = True
+            break
+    sys.exit(1 if mismatch else 0)
+except Exception:
+    sys.exit(1)
+PY
+    then
+      lock_mismatch=0
+    fi
+    if [ "$lock_mismatch" -ne 0 ]; then
+      echo "警告: [DATA-LOCK-MISMATCH] data/data.lock と実データが一致しません。scripts/data_lock.py --update で更新してください。"
+    fi
+  fi
+
+  # [DATA-BACKUP-UNKNOWN] / [DATA-BACKUP-STALE] data/.backup_stamp(YYYY-MM-DD 1行)
+  if [ -f "data/.backup_stamp" ]; then
+    stamp=$(head -n1 "data/.backup_stamp" | tr -d '[:space:]')
+    stamp_epoch=""
+    if echo "$stamp" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+      stamp_epoch=$(date -d "$stamp" +%s 2>/dev/null)
+    fi
+    if [ -z "$stamp_epoch" ]; then
+      echo "警告: [DATA-BACKUP-UNKNOWN] data/.backup_stamp の日付を解釈できません。YYYY-MM-DD 形式で記録してください。"
+    else
+      now_epoch=$(date +%s)
+      age_days=$(( (now_epoch - stamp_epoch) / 86400 ))
+      if [ "$age_days" -gt 30 ]; then
+        echo "警告: [DATA-BACKUP-STALE] data/.backup_stamp が30日を超えています(${age_days}日前)。バックアップを取り直して更新してください。"
+      fi
+    fi
+  else
+    echo "警告: [DATA-BACKUP-UNKNOWN] data/.backup_stamp がありません。バックアップ実施日を記録してください。"
+  fi
+
+  # [DATA-PRECOMMIT-OFF] git hooks が scripts/githooks 経由で有効化されているか
+  hooks_path=$(git config --get core.hooksPath 2>/dev/null)
+  if [ "$hooks_path" != "scripts/githooks" ]; then
+    echo "警告: [DATA-PRECOMMIT-OFF] core.hooksPath が scripts/githooks に設定されていません。git config core.hooksPath scripts/githooks で有効化してください。"
   fi
 fi
