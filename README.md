@@ -1419,6 +1419,24 @@ requirements_gate が「受け入れ条件テーブル付きの設計書が無�
 ファイル(.claude/plans/*.md)を書き始める」ことを機械的にブロックする
 (プロンプト指示である手順0.5 の実施漏れに対する補助線)。
 
+### 3.21 データディレクトリの運用規約(data/)
+
+研究データは役割ごとにディレクトリを分け、来歴を DATA_LOG.md に記録する。
+
+| ディレクトリ | 役割 | 書き込み可否 |
+|--------------|------|--------------|
+| data/raw | 入手元そのままの原本 | 不可侵(既定で書き込み禁止。更新は下記手順のみ) |
+| data/processed | raw から前処理スクリプトで導出した派生データ | 可(再生成前提。読み取り専用運用も可) |
+| data/synthetic | 公開・共有用に加工した合成ミラー | 可 |
+| data/exports | 外部への持ち出しの正規経路(集計値・図・ハッシュ等) | 可 |
+
+data/raw の更新手順(誤上書きを防ぐため既定で書き込み禁止にしている):
+
+1. `chmod +w` で対象ファイルを書き込み可能にする
+2. データを更新する
+3. `DATA_LOG` (data/DATA_LOG.md) に入手元・入手日・sha256 等を追記する
+4. `chmod -w` で再び書き込み不可に戻す
+
 ---
 
 ## 4. テンプレートの育て方
@@ -1458,7 +1476,8 @@ requirements_gate が「受け入れ条件テーブル付きの設計書が無�
 ./doctor.sh         # bash
 ```
 
-差分があれば claude-update の実行を検討する。
+差分があれば claude-update の実行を検討する。data/ の権限・台帳も検査し、
+問題があれば `[DATA-RAW-WRITABLE]` 等のマーカー付きで警告する(3.21節)。
 
 ### CI
 push / PR のたびに GitHub Actions で verify-hooks と verify-installers が自動実行される。
@@ -1636,6 +1655,7 @@ claude-ml-template/
     codex-config.toml.template      Codex CLI のモデル固定用(init/update が .codex/ に配置)
     mcp.json.template               Codex を MCP サーバーとして登録する雛形
     mcp.json.README.md              mcp.json.template の使い方・トラブルシューティング
+    DATA_LOG.md.template            データ来歴台帳の雛形(3.21節)
   scripts/
     env_fingerprint.py             実行環境(Python版数/git commit/uv.lock ハッシュ/torch・CUDA版数)をJSONで標準出力へ
   tests/
