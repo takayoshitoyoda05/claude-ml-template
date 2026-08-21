@@ -227,8 +227,10 @@ doctor 2本 ・ 文書4本 + EXPERIMENT_LOG 雛形)。
   意図せず広く一致しうる(例: `.` や `\d+` 単体)。`_mask` は毎ツール実行で走る
   `action_log` から呼ばれるため、過剰一致はログを読めなくする。
   `_mask.py` は 45-51 行・56-59 行に ReDoS 相当の劣化の実測付き前例を持つ。
-  data_patterns.json 由来のパターンは `re.compile` 失敗時に捨て、パターン数に
-  上限を設ける。
+  data_patterns.json 由来のパターンは `re.compile` 失敗時に捨て、パターン数の
+  上限は **100**(ユーザー確定 2026-08-21。超過分は読み込み順で切り捨て、stderr に
+  注記のみ。上限値は `scripts/_data_patterns.py` の定数 `MAX_PATTERNS = 100` として
+  Step 2 で実装し、Step 1 のテストで 101 パターン入力→100 適用を固定する)。
 - data_patterns.json は識別子そのものを含みうる。`.claude/checkpoints/` が
   gitignore 済みであることは確認済みだが、Generator が別の場所に出力しないこと。
 - 未確認の仮定: `uv` が利用可能で `uv run --with pytest python -m pytest` が動く /
