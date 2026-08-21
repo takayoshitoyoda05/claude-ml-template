@@ -415,3 +415,15 @@ Step 2 はどの R-ID にも直接対応しない(Step 4・6 が共有する検�
 | 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
 |---|---|---|---|---|
 | 計画外(差し戻し指摘対応。data.lock digest算出手段が無い問題の修正。ユーザー承認済み) | `--update`/`--check` の正常完了時に `data.lock digest: <12桁>` を表示 | scripts/data_lock.py | `pytest tests/test_data_protection_phase2.py -q -k "lock_update or lock_check"` → 3 passed; `ruff check scripts/data_lock.py` → All checks passed!; 手動実行で `data.lock digest: f3c78281ff58` を確認 | b16a9e4 |
+
+## 作業ログ(リーダー統合・手順6.5後の一括追記。グループB分は同ブランチで追記済み)
+
+| 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
+|---|---|---|---|---|
+| 1 | PC-1〜28のテストファースト(RED 19/skip 16確認、スキーマ固定) | tests/test_data_protection_phase2.py | 19 failed/2 passed/16 skipped | b758827 |
+| 7 | staging(data_gate+_mask辞書+settings登録、全冪等) | _staging_data_protection_p2.py(untracked) | --root検証: PC-6〜10/12〜14/26〜27全経路OK | (untracked) |
+| 8 | doctor 4マーカー+scripts差分検査(別ブロック) | doctor.sh, doctor.ps1 | 担当5テストPASS・parity 7/7 | 4290de1 |
+| 9-12 | cross-review検疫・python-standards規約・README・EXPERIMENT_LOG雛形+evaluator.md | スキル2・README・雛形・evaluator.md | 担当3テストPASS・整合grep一致 | a40e44a,80f4cf5,2d86cf2,88bab8a |
+| 13 | installer 4本にscripts個別配布(MARKER保護)+IGNORE_ENTRIES | claude-init/update sh・ps1 | verify-installers全PASS・1対1 10/10・E2Eでenv_fingerprint配布確認 | 614b166 |
+| 差し戻し | HIGH: testsデッドコード削除 / MEDIUM: data_lock digest 12桁表示 | tests, scripts/data_lock.py | 前後不変確認 / 3 passed+digest出力例 | 36d0e86, b16a9e4 |
+| 14 | 統合検証: 4マージ後 214 passed/15 skipped、verify-hooks/installers全PASS | (検証のみ) | 本追記コミット参照 | (マージ4件) |
