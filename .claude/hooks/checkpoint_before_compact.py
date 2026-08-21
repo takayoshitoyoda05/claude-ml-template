@@ -26,6 +26,37 @@ def prune_old(backup_dir, pattern):
             pass
 
 
+def _record_compact(session_id: str, backup_dir: Path) -> None:
+    """auto-compact 発生時にセッション別の回数を状態ファイルへ加算する。
+
+    session_monitor.py が読む状態ファイルと同じスキーマを使う
+    (圧縮直後は使用量が下がって見えるため、二次指標として利用するため)。
+    """
+    state_path = backup_dir / "session_monitor_state.json"
+    try:
+        text = state_path.read_text(encoding="utf-8") if state_path.exists() else "{}"
+        state = json.loads(text)
+        if not isinstance(state, dict):
+            state = {}
+    except (OSError, UnicodeError, ValueError):
+        state = {}
+    session_state = state.get(session_id)
+    if not isinstance(session_state, dict):
+        session_state = {}
+    try:
+        compact_count = int(session_state.get("compact_count", 0) or 0)
+    except (TypeError, ValueError):
+        compact_count = 0
+    session_state["compact_count"] = compact_count + 1
+    state[session_id] = session_state
+    try:
+        state_path.write_text(
+            json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except (OSError, UnicodeError, ValueError):
+        pass
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -38,6 +69,10 @@ def main():
     backup_dir = Path(".claude/checkpoints")
     backup_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    # session_monitor: auto-compact の発生回数をセッション別に記録する
+    if trigger == "auto":
+        _record_compact(data.get("session_id", "unknown"), backup_dir)
 
     lines = [f"# チェックポイント ({trigger}) - {ts}", ""]
 
