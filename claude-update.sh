@@ -92,7 +92,10 @@ if [ -f "$TMP/.claude/settings.json" ]; then
     IGNORE_ENTRIES+=(".claude/" ".codex/" "agents/shared/" "templates/*.template"
       "AGENTS.md" "CLAUDE.md" ".github/workflows/spec-gate.yml"
       "claude-update.sh" "claude-update.ps1" "claude-remote.sh" "claude-remote.ps1"
-      "doctor.sh" "doctor.ps1")
+      "doctor.sh" "doctor.ps1"
+      "scripts/_data_patterns.py" "scripts/data_lock.py" "scripts/data_dictionary.py"
+      "scripts/export_check.py" "scripts/data_scan.py" "scripts/precommit_data_check.py"
+      "scripts/history_scan.py" "scripts/env_fingerprint.py" "scripts/githooks/pre-commit")
   fi
   for IGNORE_ENTRY in "${IGNORE_ENTRIES[@]}"; do
     if [ ! -f ".gitignore" ]; then
@@ -177,6 +180,49 @@ for f in claude-remote.sh claude-update.sh doctor.sh; do
     esac
   else
     echo "警告: 配布元に $f が見つかりません(コピーされませんでした)"
+  fi
+done
+
+# Phase 2 データ保護スクリプト(scripts/ 配下)を更新。
+# ディレクトリごとコピーすると DATA_LOG 雛形が参照する scripts/preprocess.py の
+# ようなユーザー資産を壊すため、個別ファイル名を列挙する。上の運用スクリプトと
+# 同じ MARKER 保護方式(配布元にマーカーがあり、ローカル同名ファイルに無ければ
+# ユーザー自身のファイルとみなして上書きしない)。
+mkdir -p scripts
+SCRIPTS_FILES=(
+  _data_patterns.py
+  data_lock.py
+  data_dictionary.py
+  export_check.py
+  data_scan.py
+  precommit_data_check.py
+  history_scan.py
+  env_fingerprint.py
+  githooks/pre-commit
+)
+for f in "${SCRIPTS_FILES[@]}"; do
+  if [ -f "$TMP/scripts/$f" ]; then
+    if grep -q "$MARKER" "$TMP/scripts/$f" && [ -f "scripts/$f" ] && ! grep -q "$MARKER" "scripts/$f"; then
+      echo "警告: scripts/$f は独自ファイルのため保持しました(テンプレート版が必要なら scripts/$f を退避してから再実行してください)"
+      continue
+    fi
+    [ -L "scripts/$f" ] && rm -f -- "scripts/$f"
+    if [ -d "scripts/$f" ]; then
+      echo "警告: scripts/$f はディレクトリのため更新をスキップしました"
+      continue
+    fi
+    mkdir -p "scripts/$(dirname "$f")"
+    TMPF=$(mktemp "scripts/$f.XXXXXX")
+    cp "$TMP/scripts/$f" "$TMPF"
+    chmod 644 "$TMPF"
+    mv "$TMPF" "scripts/$f"
+    TMPF=""
+    echo "OK: scripts/$f を更新しました"
+    case "$f" in
+      githooks/pre-commit) chmod +x "scripts/$f" 2>/dev/null || true ;;
+    esac
+  else
+    echo "警告: 配布元に scripts/$f が見つかりません(コピーされませんでした)"
   fi
 done
 
