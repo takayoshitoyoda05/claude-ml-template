@@ -168,3 +168,16 @@ doctor テストの実行方式(設計判断): **作業ツリーの doctor.sh �
 | R-013 | Step 1, 4 | uv run --with pytest python -m pytest tests/test_data_protection_phase1.py -q -k staging_idempotent |
 | R-014 | Step 2, 10 | uv run --with pytest python -m pytest tests/ -q |
 | R-015 | Step 10 | (目視)ユーザーが `! uv run python _staging_data_protection_p1.py` を実行し APPLIED を確認 |
+
+## 作業ログ(リーダー統合・手順6.5後の一括追記)
+
+| 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
+|---|---|---|---|---|
+| 1-2 | 受け入れテスト14関数作成+RED確認(9 failed/4 skip/1正当PASS) | tests/test_data_protection_phase1.py | pytest → 9 failed, 1 passed, 4 skipped | 1ddf4a2 |
+| 3 | DATA_LOG雛形(必須7列+記入例+Phase2注記) | templates/DATA_LOG.md.template | -k datalog_template → 1 passed | 65483a5 |
+| 4 | invariants追記のstagingスクリプト(冪等・アンカー検査) | _staging_data_protection_p1.py(gitignore・非コミット) | -k staging_idempotent → 1 passed。差し戻しでdocstring+例外捕捉を追補 | (untracked) |
+| 5-6 | doctor sh/ps1にdata検査3マーカー(独立ブロック・警告のみ) | doctor.sh, doctor.ps1 | doctor系6件PASS。マーカー1対1: 生3/一意3/diff差分なし | e7bf0b1, cb08748 |
+| 7-8 | handoff/paper-writingに同一文言のチェックリスト7点 | 2つのSKILL.md | -k checklist系 → 2 passed | 71dee7a, fdf9112 |
+| 9 | README 3.21新設+4.5・6章追記 | README.md | -k readme_data_convention → 1 passed | 4038428 |
+| 10 | ユーザーがstaging適用(R-015承認)→invariants系3件PASS化→B/D/E/Fマージ→統合検証 | .claude/improvements/invariants.md | 全体 192 passed / verify-hooks・installers 全PASS | ac8aa8a+マージ4件 |
+| 差し戻し | Standards MEDIUM 2件(docstring・例外捕捉)をstagingに反映 | _staging_data_protection_p1.py | staging_idempotent PASS・ruff PASS | (untracked) |
