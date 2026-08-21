@@ -382,9 +382,6 @@ def test_doctor_backup_stamp_states(tmp_path: Path) -> None:
     out_d = _output(_run_doctor(sandbox_doctor, proj_d))
     assert _MARKER_BACKUP_UNKNOWN in out_d
 
-    for out in (out_a, out_b, out_c, out_d):
-        pass  # 4ケースいずれもdoctorはexit 0(Phase1から不変)。個別assertは下記
-
 
 @pytestmark_doctor
 def test_doctor_backup_stamp_exit_code_unchanged(tmp_path: Path) -> None:
