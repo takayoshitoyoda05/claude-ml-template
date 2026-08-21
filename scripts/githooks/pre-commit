@@ -5,6 +5,7 @@
 # `git config core.hooksPath scripts/githooks` の1コマンド(README参照、
 # オプトイン。設計書の代替案3不採用の理由と同じくユーザーのgit設定を
 # 無断で書き換えないため)。
+# 配布元: takayoshitoyoda05/claude-ml-template テンプレート
 set -u
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

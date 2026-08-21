@@ -7,6 +7,8 @@
 `data/exports/` は正規の外部提供経路であり内容が変わり続けるため、
 lock の走査対象から除外する(除外し忘れると `--check` が恒常的に
 不一致になり警告が無視されるようになる)。
+
+配布元: takayoshitoyoda05/claude-ml-template テンプレート
 """
 
 import argparse

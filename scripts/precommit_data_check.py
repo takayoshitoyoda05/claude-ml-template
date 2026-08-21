@@ -6,6 +6,8 @@
 `git show :<path>` でインデックス上の内容のみを見る。サイズ閾値超の
 バイナリは中身を読まず `git cat-file -s` のサイズのみで即判定する
 (通常コミットで1秒以内という非機能要件のため)。
+
+配布元: takayoshitoyoda05/claude-ml-template テンプレート
 """
 
 import json

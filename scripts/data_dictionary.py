@@ -6,6 +6,8 @@
 として `.claude/checkpoints/data_patterns.json` に格納する(両対応・R-011)。
 出力は `scripts/_data_patterns.py` が固定するスキーマ
 (``{"patterns": [str, ...]}``)に従う。
+
+配布元: takayoshitoyoda05/claude-ml-template テンプレート
 """
 
 import json

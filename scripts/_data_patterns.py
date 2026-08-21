@@ -11,6 +11,8 @@
 `.claude/hooks/_mask.py` は本モジュールを import せず、同じスキーマを
 自己完結で読み込む(PC-26)。両ローダのパターン解釈が一致することは
 テストで固定する。
+
+配布元: takayoshitoyoda05/claude-ml-template テンプレート
 """
 
 import json

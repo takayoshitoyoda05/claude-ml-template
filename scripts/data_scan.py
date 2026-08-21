@@ -3,6 +3,8 @@
 
 cross-review スキルが codex へ diff を送る前の検疫に使う。検知エンジンは
 `export_check.py` と共有する(`_data_patterns.py`)。
+
+配布元: takayoshitoyoda05/claude-ml-template テンプレート
 """
 
 import sys

@@ -5,6 +5,8 @@
 `data_patterns.json` に一致する内容を追加したコミットと、サイズ閾値を
 超える大きなオブジェクトを列挙する。BFG / git-filter-repo による除去手順は
 README に記載する(このスクリプトは検知のみで除去は行わない)。
+
+配布元: takayoshitoyoda05/claude-ml-template テンプレート
 """
 
 import re

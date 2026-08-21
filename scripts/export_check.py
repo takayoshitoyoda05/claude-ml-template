@@ -4,6 +4,8 @@
 `data/exports/` は外部送信の正規経路(data_gate の遮断対象外)だが、
 識別子辞書に一致する値をうっかり集計値と一緒に置いてしまうことを防ぐため、
 export 前にこのスクリプトで検疫する。
+
+配布元: takayoshitoyoda05/claude-ml-template テンプレート
 """
 
 import sys
