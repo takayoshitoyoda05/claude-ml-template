@@ -95,7 +95,10 @@ try {
         $ignoreEntries += @(".claude/", ".codex/", "agents/shared/", "templates/*.template",
             "AGENTS.md", "CLAUDE.md", ".github/workflows/spec-gate.yml",
             "claude-update.sh", "claude-update.ps1", "claude-remote.sh", "claude-remote.ps1",
-            "doctor.sh", "doctor.ps1")
+            "doctor.sh", "doctor.ps1",
+            "scripts/_data_patterns.py", "scripts/data_lock.py", "scripts/data_dictionary.py",
+            "scripts/export_check.py", "scripts/data_scan.py", "scripts/precommit_data_check.py",
+            "scripts/history_scan.py", "scripts/env_fingerprint.py", "scripts/githooks/pre-commit")
     }
     foreach ($ignoreEntry in $ignoreEntries) {
         if (-not (Test-Path $gitignorePath)) {
@@ -235,6 +238,53 @@ try {
             Write-Host "OK: $f を配置しました"
         } else {
             Write-Host "警告: 配布元に $f が見つかりません(コピーされませんでした)"
+        }
+    }
+
+    # Phase 2 データ保護スクリプト(scripts/ 配下)を配置。
+    # ディレクトリごとコピーすると DATA_LOG 雛形が参照する scripts/preprocess.py の
+    # ようなユーザー資産を壊すため、個別ファイル名を列挙する。上の運用スクリプトと
+    # 同じ marker 保護方式(配布元にマーカーがあり、ローカル同名ファイルに無ければ
+    # ユーザー自身のファイルとみなして上書きしない)。
+    New-Item -ItemType Directory -Path "scripts" -Force | Out-Null
+    New-Item -ItemType Directory -Path "scripts\githooks" -Force | Out-Null
+    $scriptsFiles = @(
+        "_data_patterns.py",
+        "data_lock.py",
+        "data_dictionary.py",
+        "export_check.py",
+        "data_scan.py",
+        "precommit_data_check.py",
+        "history_scan.py",
+        "env_fingerprint.py",
+        "githooks\pre-commit"
+    )
+    foreach ($f in $scriptsFiles) {
+        $src = Join-Path $Tmp "scripts\$f"
+        $dest = "scripts\$f"
+        if (Test-Path $src) {
+            $existing = Get-Item $dest -Force -ErrorAction SilentlyContinue
+            if (Test-Path $dest -PathType Container) {
+                if ($existing -and $existing.LinkType) {
+                    $existing.Delete()
+                } else {
+                    Write-Host "警告: $dest はディレクトリのため配置をスキップしました"
+                    continue
+                }
+            }
+            if ((Select-String -Path $src -Pattern $marker -Quiet) -and (Test-Path $dest) -and -not (Select-String -Path $dest -Pattern $marker -Quiet)) {
+                Write-Host "警告: $dest は独自ファイルのため保持しました(テンプレート版が必要なら $dest を退避してから再実行してください)"
+                continue
+            }
+            $existing = Get-Item $dest -Force -ErrorAction SilentlyContinue
+            if ($existing -and $existing.LinkType) { $existing.Delete() }
+            $tmpf = "$dest." + [System.IO.Path]::GetRandomFileName()
+            Copy-Item $src $tmpf
+            Move-Item $tmpf $dest -Force
+            $tmpf = $null
+            Write-Host "OK: $dest を配置しました"
+        } else {
+            Write-Host "警告: 配布元に $dest が見つかりません(コピーされませんでした)"
         }
     }
 
