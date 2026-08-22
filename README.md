@@ -1532,6 +1532,9 @@ uv run python scripts/data_summary.py data/raw/x.csv
 sensitive は読み取り遮断・送信ゲートとも有効、internal は送信ゲートのみ有効、
 public・空はともに無効。**`CLAUDE_DATA_NO_READ` / `CLAUDE_DATA_GATE` が空でない値を
 持つ場合は、そちらの個別変数がプロファイルより優先される**(環境変数表参照)。
+`CLAUDE_DATA_PROFILE` は3値のため、`claude-init` の機能有効化メニュー(フラグ系の
+個別変数のみを扱う)には含めない。設定は `settings.local.json` を直接編集するか
+config-set スキルで行う。
 
 #### 一時解除(data_unlock)
 
