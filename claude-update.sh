@@ -95,7 +95,8 @@ if [ -f "$TMP/.claude/settings.json" ]; then
       "doctor.sh" "doctor.ps1"
       "scripts/_data_patterns.py" "scripts/data_lock.py" "scripts/data_dictionary.py"
       "scripts/export_check.py" "scripts/data_scan.py" "scripts/precommit_data_check.py"
-      "scripts/history_scan.py" "scripts/env_fingerprint.py" "scripts/githooks/pre-commit")
+      "scripts/history_scan.py" "scripts/env_fingerprint.py" "scripts/githooks/pre-commit"
+      "scripts/data_summary.py" "scripts/backup_encrypt.py")
   fi
   for IGNORE_ENTRY in "${IGNORE_ENTRIES[@]}"; do
     if [ ! -f ".gitignore" ]; then
@@ -199,6 +200,8 @@ SCRIPTS_FILES=(
   history_scan.py
   env_fingerprint.py
   githooks/pre-commit
+  data_summary.py
+  backup_encrypt.py
 )
 for f in "${SCRIPTS_FILES[@]}"; do
   if [ -f "$TMP/scripts/$f" ]; then
