@@ -35,9 +35,14 @@ Phase 1・2 が塞げない唯一の経路「エージェントが data/ を読�
 - **`"Read"` matcher は前例が無く新設になる**: `.claude/settings.json` の PreToolUse は
   `Edit|Write|NotebookEdit` と `Bash|PowerShell` の2つのみ。SessionStart の
   `compact` / `startup` を含めても Read 系の matcher は存在しない。
-- **Read ツールの入力キーは `file_path`(絶対パス)**: `logs/actions/20260726-7808005c.jsonl`
-  の Read エントリの `input` が `{"file_path": "/home/toyod/claude-ml-template/docs/..."}`。
-  相対パス解決は `guard_scope.py:117-127` の「ペイロード cwd 優先」方式に倣う。
+- **Read の PreToolUse 発火とペイロード形は公式ドキュメントで確認済み**
+  (https://code.claude.com/docs/en/hooks.md 、確認日 2026-08-22): matcher `"Read"` は
+  有効、`tool_input` は `file_path` を持つ(相対/絶対の明示は無い)、exit 2 で Read が
+  中断され stderr が Claude に表示される。**相対/絶対が明示されていない**ため、
+  `guard_scope.py:117-127` の「ペイロード cwd 優先」方式による相対解決を維持する。
+- **実測でも入力キーは `file_path`(絶対パス)**: `logs/actions/20260726-7808005c.jsonl`
+  の Read エントリの `input` が `{"file_path": "/home/toyod/claude-ml-template/docs/..."}`
+  (PostToolUse 側の記録。PreToolUse 実機での最終確認は Step 10 で行う)。
 - **ユーザー `!` 実行専用スクリプトのブロック方式の実体**: `guard_bash.py:270-310` は、
   コマンド文字列に当該スクリプト名が含まれ、かつ全セグメントの先頭コマンドが
   読み取り専用コマンド集合(`guard_bash.py:113-123` の grep/rg/cat/head/tail/wc/diff/echo/git)に
@@ -70,6 +75,14 @@ Phase 1・2 が塞げない唯一の経路「エージェントが data/ を読�
 - **OPTIONAL_FEATURES の値の書き込みは `"1"` 固定**: `claude-init.sh:144-154` の
   `enable_feature()` が `sed` で `"$var": "1"` に置換する。3値を取る変数は載せられない
   (確定事項の Q1=A の根拠)。
+- **機能有効化の仕組みは claude-init 専用**: `claude-init.sh:128-140` の `OPTIONAL_FEATURES`
+  配列 + `enable_feature()`、`claude-init.ps1:120-176` の `$OptionalFeatures` +
+  `Enable-Feature`(識別子名が sh/ps1 で異なる)。**`claude-update.sh` / `claude-update.ps1`
+  には該当する仕組みが1つも無い**(`grep -n -i "optional|feature|enable_feature"` がヒット0)。
+  更新時に機能を有効化するのは既存設計の役割分担外であり、本計画でも新設しない。
+- **README の既存 data_gate 段落**: `README.md:1489-1493` の
+  `#### data_gate(送信経路の静的ゲート)` が `CLAUDE_DATA_GATE=1` 前提の説明のまま。
+  プロファイル解決を入れると新旧の説明が併存するため、Step 7 で更新する。
 - **age は本環境に未導入**(`command -v age` が空)。よって暗号化経路のテストは
   age 実在時のみ走る条件付きになり、本環境では不在経路が常に検証される。
 - **staging 前例**: `.claude/plans/20260821-data-protection-p2.md` の Step 7(全操作を冪等・
@@ -109,7 +122,8 @@ Phase 1・2 が塞げない唯一の経路「エージェントが data/ を読�
 | `README.md` | synthetic 規約・復号手順・Grep の既知の限界・一時解除手順・環境変数表・ファイルツリー |
 | `templates/settings.local.json.template` | `CLAUDE_DATA_PROFILE` / `CLAUDE_DATA_NO_READ` / `CLAUDE_DATA_GATE` を既定 `""` で追加 |
 | `.claude/skills/config-set/SKILL.md` / `config-explain/SKILL.md` | 雛形JSONと変数表に同3変数を追加 |
-| `claude-init.sh` / `claude-init.ps1` / `claude-update.sh` / `claude-update.ps1` | 新 scripts 2本を配布リスト + IGNORE_ENTRIES に、OPTIONAL_FEATURES にフラグ系2変数 |
+| `claude-init.sh` / `claude-init.ps1` | 新 scripts 2本を配布リスト + IGNORE_ENTRIES に追加。**加えて** OPTIONAL_FEATURES(sh: `OPTIONAL_FEATURES` 配列 / ps1: `$OptionalFeatures`)にフラグ系2変数を追加 |
+| `claude-update.sh` / `claude-update.ps1` | 新 scripts 2本を配布リスト + IGNORE_ENTRIES に追加**のみ**。機能有効化プロンプトは新設しない(update 側に該当の仕組みが無い) |
 
 ## 事後条件(postconditions)
 
@@ -131,11 +145,11 @@ Phase 1・2 が塞げない唯一の経路「エージェントが data/ を読�
 | PC-12 | 同上 | 全セルに一意な既知の値(例 `ZZTOPSECRET1` 等)を埋めた上記4形式 | stdout・stderr のどこにもセル値が1件も現れない(列名は除く) | R-011 |
 | PC-13 | 両フックのプロファイル解決 | `CLAUDE_DATA_PROFILE` が sensitive / internal / public / 空 × 個別変数が空、の全組み合わせ | sensitive→(NO_READ 有効, GATE 有効)、internal→(無効, 有効)、public・空→(無効, 無効)。**両フックの実効結果が全組み合わせで一致する** | R-012 |
 | PC-14 | 同上 | `CLAUDE_DATA_NO_READ=0` + `CLAUDE_DATA_PROFILE=sensitive` / `CLAUDE_DATA_GATE=0` + 同 profile | 前者は `data/raw/x.csv` の Read が exit 0、後者は data/raw を curl で送信するコマンドが exit 0(個別変数が優先) | R-013 |
-| PC-15 | `templates/settings.local.json.template`・`config-set/SKILL.md`・`config-explain/SKILL.md`・`claude-init.sh`/`.ps1` | ファイル内容 | `CLAUDE_DATA_PROFILE` / `CLAUDE_DATA_NO_READ` / `CLAUDE_DATA_GATE` の3変数が template・config-set(雛形JSONと変数表)・config-explain(変数表)のすべてに現れる。template は `json.loads` でパースでき、3変数の値がいずれも `""`、かつ既存キーが1つも消えていない。`claude-init.sh` / `.ps1` の OPTIONAL_FEATURES には `CLAUDE_DATA_NO_READ` と `CLAUDE_DATA_GATE` だけが現れ、`CLAUDE_DATA_PROFILE` は現れない | R-014 |
+| PC-15 | `templates/settings.local.json.template`・`config-set/SKILL.md`・`config-explain/SKILL.md`・`claude-init.sh`/`.ps1` | ファイル内容 | `CLAUDE_DATA_PROFILE` / `CLAUDE_DATA_NO_READ` / `CLAUDE_DATA_GATE` の3変数が template・config-set(雛形JSONと変数表)・config-explain(変数表)のすべてに現れる。template は `json.loads` でパースでき、3変数の値がいずれも `""`、かつ既存キーが1つも消えていない。`claude-init.sh` / `.ps1` の OPTIONAL_FEATURES(sh: `OPTIONAL_FEATURES` / ps1: `$OptionalFeatures`)には `CLAUDE_DATA_NO_READ` と `CLAUDE_DATA_GATE` だけが現れ、`CLAUDE_DATA_PROFILE` は現れない。`claude-update.sh` / `.ps1` には3変数のいずれも現れない(機能有効化プロンプトを新設していないこと) | R-014 |
 | PC-16 | `scripts/backup_encrypt.py` | age を含まない PATH で実行 | 非0終了。stderr に age の導入案内。実行前後で data/ 配下のファイル一覧と各 sha256 が不変、出力先ファイルが生成されていない。age 実在時のみ追加検証: recipient 2件で出力ファイルが生成され、先頭に age 形式の識別子を含む | R-015 |
 | PC-17 | `doctor.sh`(サンドボックス実行) | recipients ファイル無し / 鍵1本だけ / age 不在 PATH | それぞれ `[DATA-KEY-RECIPIENTS-MISSING]`(前2者)・`[DATA-AGE-MISSING]` を出力し、**終了コードは警告なしの場合と同じ** | R-016 |
 | PC-18 | 同上 | `data/DATA_LOG.md` にデータ行1行以上 + プロファイル無効 / 同 + `CLAUDE_DATA_PROFILE=sensitive` | 前者のみ `[DATA-PROFILE-UNSET]` を出力。終了コードは不変 | R-017 |
-| PC-19 | `README.md` | ファイル内容 | (a) data/synthetic の役割詳細、(b) age 復号手順、(c) Grep/Glob が遮断対象外である既知の限界、(d) 一時解除の `!` 実行手順、の4トピックがいずれも記載されている | R-018 |
+| PC-19 | `README.md` | ファイル内容 | (a) data/synthetic の役割詳細、(b) age 復号手順、(c) Grep/Glob が遮断対象外である既知の限界、(d) 一時解除の `!` 実行手順、の4トピックがいずれも記載されている。加えて (e) 既存の `#### data_gate(送信経路の静的ゲート)` 段落にプロファイル(`CLAUDE_DATA_PROFILE`)への言及があり、`CLAUDE_DATA_GATE=1` だけを前提とした説明が残っていない | R-018 |
 | PC-20 | installer 4本 + サンドボックス配布 | `claude-init.sh` / `.ps1` / `claude-update.sh` / `.ps1` の scripts 名の集合、IGNORE_ENTRIES 2箇所、E2E 配布 | 4本の scripts 名集合が一致し `data_summary.py`・`backup_encrypt.py` を含む。IGNORE_ENTRIES 2箇所にも両方。E2E 配布後に両ファイルが実在する | R-019 |
 | PC-21 | `doctor.sh` / `doctor.ps1` | `[DATA-...]` 形式のマーカーの抽出集合 | sh と ps1 が一致し、要素数がちょうど10。新3マーカーを含む | R-020 |
 | PC-22 | `_staging_data_protection_p3.py --root [dir]` | 同一サンドボックスに2回適用 | 2回目適用後の `settings.json` / `data_gate.py` / `guard_bash.py` / `_common.py` が1回目適用後とバイト単位で一致。2回目も exit 0。`settings.json` の PreToolUse に matcher `"Read"` がちょうど1つ、data_read_gate 登録もちょうど1つ | R-021 |
@@ -153,9 +167,9 @@ Phase 1・2 が塞げない唯一の経路「エージェントが data/ を読�
 | 4 | staging スクリプトを1本作る。適用内容は (a) `data_read_gate.py` の配置、(b) `data_unlock.py` の配置(`--minutes` 既定30・上限240。上限超過・0以下はエラーで非0終了し記録を書かない。記録は UTC epoch 秒の整数1行で上書き)、(c) `data_gate.py` の拡張、(d) `guard_bash.py` に data_unlock の実行・複製ブロック追加、(e) `_common.py` の PROTECTED に2件追加、(f) `settings.json` の PreToolUse に matcher `"Read"` を新設して data_read_gate を登録。**6操作すべてを冪等にする**(適用済みか判定してから書く。settings.json は配列・オブジェクト追加、他は行挿入なので素朴に書くと2回目で重複する。PC-22)。`--root [dir]` を受ける。**注意1**: (c) は `data_gate.py:66` の先頭オプトイン分岐をプロファイル解決に置き換えるが、`CLAUDE_DATA_GATE=1` のみが与えられたときの挙動(egress だけ遮断・読みは通す)を変えてはならない(既存 Phase 2 テストが退行する。PC-6 後半)。**注意2**: (d) は `guard_bash.py:270-310` の既存ブロック実装と同じ構造にし、読み取り専用コマンド集合の例外も同じく効かせる。**注意3**: (f) の Read matcher 追加で他の matcher 配列を書き換えないこと (R-001〜R-009・R-012・R-013・R-021 対応) | `_staging_data_protection_p3.py` | Step 1 | C |
 | 5 | doctor に3マーカーを追加する。`[DATA-KEY-RECIPIENTS-MISSING]`(`.claude/backup_recipients.txt` が無い/鍵が2未満)・`[DATA-AGE-MISSING]`(age 未導入)・`[DATA-PROFILE-UNSET]`(DATA_LOG にデータ行があるのにプロファイル実効が無効)。既存 `doctor.sh:180-203` / `doctor.ps1:196-222` の節の書式・警告文の言い回しに倣い、**終了コードを変えない**。sh と ps1 に対称に入れる (R-016, R-017, R-020 対応) | `doctor.sh`, `doctor.ps1` | Step 1 | D |
 | 6 | 既存 parity テストの期待値を 7 から 10 に更新する(`tests/test_data_protection_phase2.py:924` の1行のみ。他は触らない)。Step 5 と同時に入れないと Phase 2 テストが赤になる (R-020, R-023 対応) | `tests/test_data_protection_phase2.py` | Step 5 | D |
-| 7 | README を追記する。3.21 節に (a) data/synthetic の役割詳細(実データと同スキーマの合成サンプル・遮断対象外・テストとデバッグはここで行う)、(b) 読み取り遮断とプロファイルの説明(3変数の関係と解決規約)、(c) 一時解除の `!` 実行手順(既定30分・上限240分)、(d) age 復号の手動手順と秘密鍵は環境外管理である旨、(e) Grep/Glob は遮断対象外という既知の限界。あわせて環境変数表(263行付近。既存の `CLAUDE_DATA_GATE` 行の既定表記を、出荷時 `""` かつプロファイル解決に委ねる旨に整える)・4.5 節の doctor マーカー一覧・ファイルツリーの scripts/ 一覧に新規分を追記する。既存 3.21 節の小見出し(`#### バックアップ記録(data/.backup_stamp)` 等)の粒度に倣う (R-018 対応) | `README.md` | Step 1 | E |
+| 7 | README を追記する。3.21 節に (a) data/synthetic の役割詳細(実データと同スキーマの合成サンプル・遮断対象外・テストとデバッグはここで行う)、(b) 読み取り遮断とプロファイルの説明(3変数の関係と解決規約)、(c) 一時解除の `!` 実行手順(既定30分・上限240分)、(d) age 復号の手動手順と秘密鍵は環境外管理である旨、(e) Grep/Glob は遮断対象外という既知の限界。**既存の `#### data_gate(送信経路の静的ゲート)` 段落(`README.md:1489-1493`)を、プロファイル解決を踏まえた説明に更新する**(`CLAUDE_DATA_GATE=1` 前提の記述と新しいプロファイルの説明が併存しないようにする。PC-19 (e))。あわせて環境変数表(263行付近。既存の `CLAUDE_DATA_GATE` 行の既定表記を、出荷時 `""` かつプロファイル解決に委ねる旨に整える)・4.5 節の doctor マーカー一覧・ファイルツリーの scripts/ 一覧に新規分を追記する。既存 3.21 節の小見出し(`#### バックアップ記録(data/.backup_stamp)` 等)の粒度に倣う (R-018 対応) | `README.md` | Step 1 | E |
 | 8 | 設定の配線。`templates/settings.local.json.template` に `CLAUDE_DATA_PROFILE` / `CLAUDE_DATA_NO_READ` / `CLAUDE_DATA_GATE` を**いずれも既定 `""`** で追加し(現状これらのキーは1件も無いため追加のみ)、`config-set` の雛形 JSON と変数表、`config-explain` の変数表に同じ3変数を追加する。既存の `CLAUDE_SESSION_MONITOR` の並び・説明文の書式に倣う。変数表にはプロファイル解決規約(個別変数が非空なら優先)を1行で書く。template は JSON として妥当なまま保つ (R-014 対応) | `templates/settings.local.json.template`, `.claude/skills/config-set/SKILL.md`, `.claude/skills/config-explain/SKILL.md` | Step 1 | E |
-| 9 | 配布の配線。`claude-init.sh` / `claude-init.ps1` / `claude-update.sh` / `claude-update.ps1` の scripts 配布リストに `data_summary.py` と `backup_encrypt.py` を追加し、`claude-init.sh:107-109` と `claude-update.sh:92` 相当の IGNORE_ENTRIES にも追加する(sh/ps1 で1対1)。あわせて OPTIONAL_FEATURES には**フラグ系の `CLAUDE_DATA_NO_READ` と `CLAUDE_DATA_GATE` の2つだけ**を追加する(`CLAUDE_DATA_PROFILE` は3値のため載せない。`enable_feature()` は変更しない)。**注意**: doctor の scripts 差分検査は `find` による全走査なので追加変更は不要(現状分析の裏取り済み)。既存 `scripts/data_scan.py` の記載箇所と同じ並びに足す (R-014, R-019 対応) | `claude-init.sh`, `claude-init.ps1`, `claude-update.sh`, `claude-update.ps1` | Step 1 | F |
+| 9 | 配布の配線。`claude-init.sh` / `claude-init.ps1` / `claude-update.sh` / `claude-update.ps1` の scripts 配布リストに `data_summary.py` と `backup_encrypt.py` を追加し、`claude-init.sh:107-109` と `claude-update.sh:92` 相当の IGNORE_ENTRIES にも追加する(sh/ps1 で1対1)。あわせて OPTIONAL_FEATURES には**フラグ系の `CLAUDE_DATA_NO_READ` と `CLAUDE_DATA_GATE` の2つだけ**を追加する(`CLAUDE_DATA_PROFILE` は3値のため載せない。`enable_feature()` / `Enable-Feature` のロジックは変更しない)。**OPTIONAL_FEATURES への追加先は `claude-init.sh`(`OPTIONAL_FEATURES` 配列)と `claude-init.ps1`(`$OptionalFeatures`)だけ**であり、`claude-update.sh` / `.ps1` は**配布リストと IGNORE_ENTRIES のみ**を変更する(update 側には機能有効化の仕組みが無く、本計画でも新設しない。確認済み)。**注意**: doctor の scripts 差分検査は `find` による全走査なので追加変更は不要(現状分析の裏取り済み)。既存 `scripts/data_scan.py` の記載箇所と同じ並びに足す (R-014, R-019 対応) | `claude-init.sh`, `claude-init.ps1`, `claude-update.sh`, `claude-update.ps1` | Step 1 | F |
 | 10 | ユーザーに `! uv run python _staging_data_protection_p3.py` の実行を依頼し、適用後に skip していたケースが PASS することを確認する。**注意**: Step 4 の (e) で `scripts/data_summary.py` が保護パスになるため、適用後は Step 2 の成果物を Edit で直せない。適用前に Step 2 のテストが緑であることを確認してから依頼する (R-024, R-023 対応) | (なし) | Step 2〜9 すべて | A |
 
 並列化判定: **並列化可能**(グループ B・C・D・E・F。Step 1 を先に完了させたうえで、
@@ -210,7 +224,7 @@ F=installer 4本 と、対象ファイルが完全に分離しているため。
   - **案E: `enable_feature()` を「変数名|説明|設定値」形式に拡張して 3値のプロファイルも
     OPTIONAL_FEATURES に載せる** — 対話で機密度まで選べるが、installer 4本の共通ロジック
     変更となり既存11機能すべての回帰確認が要る。不採用(確定事項 Q1=A)。
-- 未確認の仮定: PreToolUse の Read ペイロードも PostToolUse ログと同じく `tool_input.file_path`(絶対パス)を持つ / 検証: `grep -c file_path /home/toyod/claude-ml-template/logs/actions/20260726-7808005c.jsonl` / 期待: 1以上(Read の入力が file_path キーで記録されている。PreToolUse 側は Step 10 の staging 適用後に実際の Read で最終確認する)
+- 確認済み(公式ドキュメント https://code.claude.com/docs/en/hooks.md 、確認日 2026-08-22): matcher `"Read"` の PreToolUse は有効、`tool_input` は `file_path` を持ち、exit 2 で Read が中断され stderr が Claude に表示される。相対/絶対の明示が無いため相対解決は維持する。実機での最終確認は Step 10 で行う(価値が残るため手順として存置)
 - 未確認の仮定: age は本環境の PATH に存在しない(暗号化経路のテストは条件付き実行になる) / 検証: `command -v age` / 期待: 何も出力せず終了コードが1
 - Phase 2 と同じ既知のトレードオフ: staging 適用(Step 10)まで新規テストの一部は skip
 
