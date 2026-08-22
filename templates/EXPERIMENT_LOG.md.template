@@ -1,0 +1,5 @@
+# EXPERIMENT_LOG
+
+<!-- 各エントリの「使用データ」欄には data/data.lock のハッシュ先頭12桁を記入する
+     (data.lock は scripts/data_lock.py --update で生成・更新する)。
+     どのデータで得た結果かを後から一意に追跡できるようにするための規約。 -->

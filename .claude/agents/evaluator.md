@@ -143,11 +143,12 @@ verdict ファイルの PASS / FAIL / UNVERIFIABLE は変更しない。
   docs/active/ から docs/archive/YYYYMMDD_<元のファイル名> にリネームして移動する。
   docs/archive/ が存在しない場合は作成する。
 - 判定が PASS の場合、docs/EXPERIMENT_LOG.md に以下の形式で1エントリ追記する
-  (ファイルが無ければ「# EXPERIMENT_LOG」という見出し付きで新規作成する)。
+  (ファイルが無ければ `templates/EXPERIMENT_LOG.md.template` を元に新規作成する)。
 
   ## YYYY-MM-DD <計画のタイトル>
   - 計画: .claude/plans/xxx.md
   - 変更内容: (1-2文)
+  - 使用データ: data.lock のハッシュ先頭12桁
   - 指標の変化: <指標名> before → after
 
 - 主要な指標が計画の検証項目に明示されていた場合、その値を

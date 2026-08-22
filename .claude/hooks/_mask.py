@@ -5,7 +5,9 @@
 秘密情報が混入しうる。ログに書く前に既知パターンを伏せ字にする。
 """
 
+import json
 import re
+from pathlib import Path
 
 from _common import SECRET_CONTENT_PATTERNS
 
@@ -173,6 +175,46 @@ def _mask_keyvalues(text: str) -> str:
     return "".join(out)
 
 
+# Phase 2 staging: 辞書パターンによるマスク(_staging_data_protection_p2.py 挿入)。
+# .claude/checkpoints/data_patterns.json を読み、辞書ヒットも [MASKED] にする。
+# 他モジュールを import せず、ここで読み込み・compile・置換を完結させる
+# (共有エンジン側の loader と同じスキーマ解釈を保つ。PC-26)。
+_MAX_DICTIONARY_PATTERNS = 100
+
+
+def _load_dictionary_patterns() -> list[re.Pattern]:
+    """data_patterns.json を読み、compile 済みパターンのリストを返す。
+
+    壊れた JSON・想定外の型・compile 失敗は fail-open で無視する
+    (毎ツール実行で走る秘密語マスクという保全系の性質上、辞書の破損で
+    従来のマスクまで止めてはならない)。
+    """
+    path = Path.cwd() / ".claude" / "checkpoints" / "data_patterns.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return []
+    patterns = payload.get("patterns") if isinstance(payload, dict) else None
+    if not isinstance(patterns, list):
+        return []
+    compiled: list[re.Pattern] = []
+    for raw in patterns[:_MAX_DICTIONARY_PATTERNS]:
+        if not isinstance(raw, str):
+            continue
+        try:
+            compiled.append(re.compile(raw))
+        except re.error:
+            continue
+    return compiled
+
+
+def _mask_dictionary_patterns(text: str) -> str:
+    """辞書パターン(data_patterns.json)のヒットを [MASKED] に置換する(fail-open)。"""
+    for pat in _load_dictionary_patterns():
+        text = pat.sub("[MASKED]", text)
+    return text
+
+
 def mask(text: str) -> str:
     """既知の秘密情報パターンを [MASKED] に置換して返す。"""
     if not text:
@@ -182,6 +224,7 @@ def mask(text: str) -> str:
     masked = _URL_CREDENTIALS.sub(r"\1[MASKED]\2", masked)
     for pat in _SIMPLE_PATTERNS:
         masked = pat.sub("[MASKED]", masked)
+    masked = _mask_dictionary_patterns(masked)
     # key=value / JSON 形式は値だけマスクする
     masked = _mask_keyvalues(masked)
     return masked
