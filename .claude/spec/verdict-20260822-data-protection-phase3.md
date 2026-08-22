@@ -3,35 +3,67 @@
 評価対象: `docs/active/20260822-data-protection-phase3.md` の受け入れ条件(R-001〜R-024)
 計画: `.claude/plans/20260822-data-protection-p3.md`
 
-評価時点: 統合ブランチ `pipeline/20260822-data-protection-p3`(714d5df)
-+ 未マージの並列グループ worktree(group-B/D/E/F)を個別に検証。
-**この設計書のマージ(統合)自体はまだ完了していない**ため、
-「メイン統合ブランチで `pytest tests/ -q` が全PASS」という完了条件は
-未達(各グループworktreeでは個別PASS)。マージ後の再検証が必要。
+評価時点: `pipeline/20260822-data-protection-p3` ブランチ、4グループマージ済み
++ ユーザーの `!` 実行(コミット `378d2d0`)+ 自己完結検査の精密化(コミット `f369414`)後。
+**全実装がメインの作業ブランチに統合済み**。全体テストは
+`uv run --with pytest python -m pytest tests/ -q` で **239 passed, 16 skipped**
+(`logs/runs/20260823-040727-verdict-p3-full.log`)。失敗0。R-023/R-024 の
+UNVERIFIABLE は解消し、全24件を確定判定に更新した。
+
+## skip 16件の内訳(`logs/runs/20260823-040727-verdict-p3-skipreasons.log`)
+
+| 件数 | 理由 | 分類 |
+|---|---|---|
+| 1 | `tests/test_data_protection_phase1.py:365` `_staging_data_protection_p1.py` が存在しない(既に適用済みで staging スクリプトを削除済み) | 環境系(過去 staging 削除済み) |
+| 12 | `tests/test_data_protection_phase2.py`(419/429/438/461/473/595/606×4/635/1038/1080) `_staging_data_protection_p2.py` 未適用(Phase 2 は既に適用済みで staging スクリプトを削除済みのため存在検知に失敗) | 環境系(過去 staging 削除済み) |
+| 1 | `tests/test_data_protection_phase3.py:727` `test_backup_encrypt_age_present_produces_encrypted_file` — age未導入(`command -v age` が空) | 環境系(age 不在。計画の「未確認の仮定」通りの想定内条件分岐) |
+| 1 | `tests/test_session_monitor.py:441` `_staging_session_monitor.py` が存在しない(既に適用済みで staging スクリプトを削除済み) | 環境系(過去 staging 削除済み) |
+
+Phase3 単体テスト(`uv run --with pytest python -m pytest tests/test_data_protection_phase3.py -v -rs`、
+`logs/runs/20260823-040727-verdict-p3-file.log`)は **25 passed, 1 skipped**
+(skip は上記 age 不在の1件のみ)。マージ前は group 分割worktreeでしか通らなかった
+`profile_wiring_docs`(R-014)も統合後の単体実行で 1 passed を確認
+(`logs/runs/20260823-040727-verdict-p3-r014.log`)。
 
 | ID | 判定 | 実行コマンド | 実測値 | 証拠(file:line) |
 |---|---|---|---|---|
-| R-001 | PASS | サンドボックス直接実行(NO_READ=1, data/raw/x.csv Read) | exit 2、行動つき文言(data_summary/data_unlock双方言及)を含むstderr 実測 | `_staging_data_protection_p3.py:170-178`(main側のBLOCKEDメッセージ) |
-| R-002 | PASS | サンドボックス直接実行(synthetic/exports/data.lock/.backup_stamp) | 4パス全て exit 0 実測 | `_staging_data_protection_p3.py:120-124`(`_is_excluded_data_rel`) |
-| R-003 | PASS | サンドボックス直接実行(NO_READ=raw) | raw→exit 2, processed→exit 0 実測 | `_staging_data_protection_p3.py:127-134`(`_no_read_blocks_rel`) |
-| R-004 | PASS | サンドボックス直接実行(未設定/`0`) | 両方 exit 0 実測 | `_staging_data_protection_p3.py:129`(`no_read_value in ("", "0")`) |
-| R-005 | PASS | サンドボックス直接実行(非JSON/tool_input欠落/src/metadata) | 全て exit 0 実測 | `_staging_data_protection_p3.py:138-148` |
-| R-006 | PASS | サンドボックス直接実行(cat/head/tail/less, NO_READ=1 vs GATE=1単独) | NO_READ=1で4種全exit 2、GATE=1単独(NO_READ/PROFILE空)ではcat exit 0(Phase2挙動不変) 実測 | `_staging_data_protection_p3.py:426-432`(main冒頭のプロファイル解決分岐) |
-| R-007 | PASS | サンドボックス直接実行(窓口実行コマンド) | `uv run python scripts/data_summary.py data/raw/x.csv`(NO_READ=1) → exit 0 実測 | `_staging_data_protection_p3.py:410-411`(`_WINDOW_SCRIPT`) |
-| R-008 | PASS | サンドボックス直接実行(未来/過去/非整数/空の記録) / `tests/test_data_protection_phase3.py -k unlock_window` | 未来→両フックexit 0+解除中stderr、過去/非整数/空→両フックexit 2 実測。`--minutes`境界値(30/240/241/0/-5)も想定通り(logs/runs/20260822-staging-apply1.log系で直接実測、記録参照) | `_staging_data_protection_p3.py:85-96, 355-370`, `.claude/hooks/data_unlock.py` 相当(staging生成物) |
-| R-009 | PASS | サンドボックス直接実行(guard_bash)+ main `-k unlock_agent_blocked` | guard_bash直接実行: exec/copy→exit 2(案内文言あり)、grep参照→exit 0。加えて guard_scope の Write ブロック(`.claude/spec/data_unlock.txt`)も `-k unlock_agent_blocked_write_via_guard_scope` で1 passed(subprocess・returncode==2) | `_staging_data_protection_p3.py:577-592`(`data_unlock_execution`)、`tests/test_data_protection_phase3.py:459-477` |
-| R-010 | PASS | group-B `-k summary_outputs` | 1 passed | `.worktrees/group-B/scripts/data_summary.py:149-180` |
-| R-011 | PASS | group-B `-k summary_no_row_values` + 直接実行(ZZTOPSECRET*埋め込み) | 1 passed + 直接実行でstdout/stderrにセル値が0件(`grep -c ZZTOPSECRET` = 0) | `.worktrees/group-B/scripts/data_summary.py:8-10, 202-208` |
-| R-012 | PASS | サンドボックス直接実行(sensitive/internal/public/空 全組み合わせ) | sensitive→両ブロック(read exit2/bash exit2)、internal→読みは許可・GATEのみ有効(catはegress対象外のためexit0)、public/空→exit0/exit0。両フック一致 実測 | `_staging_data_protection_p3.py:69-82, 330-352` |
-| R-013 | PASS | サンドボックス直接実行(NO_READ=0+sensitive / GATE=0+sensitive) | 前者: Read exit 0、後者: curlアップロード exit 0(個別変数が優先) 実測 | `_staging_data_protection_p3.py:76-78, 337-339, 348-350` |
-| R-014 | PASS(要マージ後再確認) | group-E `-k docs_phase3`(1 passed)/ `-k profile_wiring_docs` は単体worktreeでは失敗(E+F双方の変更が要る) | template/config-set/config-explainへの3変数配線はgroup-E側で確認済み、OPTIONAL_FEATURES(sh/ps1)へのフラグ系2変数追加・PROFILE非掲載はgroup-F側で確認済み。単体テストは分割されておらずマージ後に`-k profile_wiring_docs`で再検証要 | `templates/settings.local.json.template`(group-E diff)、`claude-init.sh:141-142`(group-F diff) |
-| R-015 | PASS | group-B `-k backup_encrypt` + age不在直接実行 | 3 passed, 1 skipped(age実在時のみのテストは本環境age未導入のためskip)。直接実行でexit 1・data/内容不変(sha256一致)・出力ファイル未生成を確認 | `.worktrees/group-B/scripts/backup_encrypt.py:89-94` |
-| R-016 | PASS | group-D `-k doctor_key_checks` | 1 passed | `.worktrees/group-D/doctor.sh:206-216` |
-| R-017 | PASS | group-D `-k doctor_profile_unset` | 1 passed | `.worktrees/group-D/doctor.sh:228-263` |
-| R-018 | PASS | group-E `-k docs_phase3` | 1 passed | `.worktrees/group-E/README.md`(diff: synthetic節、age復号手順、読み取り遮断/一時解除/Grep既知の限界、data_gate段落更新) |
-| R-019 | PASS | group-F `-k scripts_distributed_p3` + `./verify-installers.sh` | 1 passed, 1 skipped(E2Eはstaging未適用のため一部skip)/ verify-installers.sh 全28件PASS(logs/runs/20260822-groupF-tests.log) | `.worktrees/group-F/claude-init.sh:107-109,141-142,277-282`, `claude-update.sh:98-99,203-204` |
-| R-020 | PASS | group-D `-k doctor_parity_p3` + `diff <(grep -oE '\[DATA-[A-Z-]+\]' doctor.sh\|sort -u) <(同 doctor.ps1)` | 1 passed。マーカー: raw19件/一意10件(sh・ps1とも)、diff差分なし | `.worktrees/group-D/doctor.sh`, `doctor.ps1` |
-| R-021 | PASS | mainサンドボックスで `_staging_data_protection_p3.py --root` を2回適用 | 2回とも exit 0、`.claude`配下バイト単位一致(`diff -r`で差分なし)、Read matcher件数=1 | `_staging_data_protection_p3.py:693-720`(`apply_settings`の冪等判定) |
-| R-022 | PASS | main `-k hooks_selfcontained_p3` | 1 passed | `tests/test_data_protection_phase3.py:1100-1109` |
-| R-023 | NEEDS_REVISION(マージ未完了。退行ではない) | `uv run --with pytest python -m pytest tests/ -q`(main統合ブランチ) | 8 failed, 215 passed, 32 skipped(`logs/runs/20260822-main-full.log`)。失敗8件は全てgroup-B/D/E/Fの担当範囲に1:1対応し、各worktree単体では該当テストがPASSすることを確認済み(未マージが原因) | `logs/runs/20260822-main-full.log` |
-| R-024 | UNVERIFIABLE(manual・未実施) | (ユーザーの`!`実行待ち) | main上で `.claude/hooks/data_read_gate.py` が未配置であることを確認(staging未適用)。ユーザー承認・適用は本レビューの範囲外 | `_staging_data_protection_p3.py`(untracked, staging方式) |
+| R-001 | PASS | `pytest tests/test_data_protection_phase3.py -k read_gate_blocks_raw_read` | 1 passed(全体実行にも含まれ239件中でPASS) | `.claude/hooks/data_read_gate.py`(NO_READ判定・exit 2の本体)、`tests/test_data_protection_phase3.py:153` `test_read_gate_blocks_raw_read` |
+| R-002 | PASS | 同 `-k read_gate_allows_excluded_paths` | PASS | `tests/test_data_protection_phase3.py:177` |
+| R-003 | PASS | 同 `-k read_gate_granular_subdir` | PASS | `tests/test_data_protection_phase3.py:192` |
+| R-004 | PASS | 同 `-k read_gate_off_without_no_read` | PASS | `tests/test_data_protection_phase3.py:201` |
+| R-005 | PASS | 同 `-k read_gate_fail_open_input` | PASS | `tests/test_data_protection_phase3.py:210` |
+| R-006 | PASS | 同 `-k bash_read_blocked_various_readers` | PASS | `tests/test_data_protection_phase3.py:256`、`.claude/hooks/data_gate.py`(プロファイル解決分岐) |
+| R-007 | PASS | 同 `-k bash_read_allows_summary_window` | PASS | `tests/test_data_protection_phase3.py:296`、`scripts/data_summary.py` |
+| R-008 | PASS | 同 `-k unlock_window` | 2 passed(`test_unlock_window_expiry_states` + `test_unlock_window_minutes_boundary`) | `tests/test_data_protection_phase3.py:315, 350` |
+| R-009 | PASS | 同 `-k unlock_agent_blocked` | 2 passed(execution_and_copy + write_via_guard_scope) | `tests/test_data_protection_phase3.py:410, 460`、`.claude/hooks/guard_bash.py`(data_unlock 実行・複製ブロック) |
+| R-010 | PASS | 同 `-k summary_outputs_shape_types_stats_hash` | PASS | `tests/test_data_protection_phase3.py:524`、`scripts/data_summary.py` |
+| R-011 | PASS | 同 `-k summary_no_row_values` | PASS | `tests/test_data_protection_phase3.py:552` |
+| R-012 | PASS | 同 `-k profile_resolution_all_combinations` | PASS | `tests/test_data_protection_phase3.py:577` |
+| R-013 | PASS | 同 `-k profile_individual_override` | PASS | `tests/test_data_protection_phase3.py:609` |
+| R-014 | PASS | 同 `-k profile_wiring_docs`(統合後に単体実行で再確認) | 1 passed, 25 deselected(`logs/runs/20260823-040727-verdict-p3-r014.log`)。`claude-init.sh:141-142` に `CLAUDE_DATA_NO_READ`/`CLAUDE_DATA_GATE` のみ、`CLAUDE_DATA_PROFILE` は不掲載。`claude-update.sh` に `CLAUDE_DATA_` の出現0件(`grep -c` で確認) | `tests/test_data_protection_phase3.py:634`、`claude-init.sh:141-142` |
+| R-015 | PASS | 同 `-k backup_encrypt` | 1 passed(age不在), 1 skipped(age実在時のみの追加検証。本環境未導入のため計画通り条件付きskip) | `tests/test_data_protection_phase3.py:689, 728`、`scripts/backup_encrypt.py` |
+| R-016 | PASS | 同 `-k doctor_key_checks` | PASS | `tests/test_data_protection_phase3.py:830`、`doctor.sh`(鍵/age マーカー) |
+| R-017 | PASS | 同 `-k doctor_profile_unset` | PASS | `tests/test_data_protection_phase3.py:873` |
+| R-018 | PASS | 同 `-k docs_phase3` | PASS | `tests/test_data_protection_phase3.py:906`、`README.md`(3.21節・data_gate段落) |
+| R-019 | PASS | 同 `-k scripts_distributed_p3` + `bash verify-installers.sh` | 2 passed(parity+e2e)。verify-installers.sh 全PASS(`logs/runs/20260823-040727-verdict-p3-verifyinstallers.log`「全テストPASS」) | `tests/test_data_protection_phase3.py:936, 964` |
+| R-020 | PASS | 同 `-k doctor_parity_p3_markers` + `diff <(grep -oE '\[DATA-[A-Z-]+\]' doctor.sh\|sort -u) <(同 doctor.ps1)` | 1 passed。マーカー raw=19/unique=10(sh・ps1とも一致)、diff差分なし(実測コマンド出力より) | `tests/test_data_protection_phase3.py:1013`、`doctor.sh`, `doctor.ps1` |
+| R-021 | PASS | 同 `-k staging_idempotent_p3_apply_twice` | PASS | `tests/test_data_protection_phase3.py:1031` |
+| R-022 | PASS | 同 `-k hooks_selfcontained_p3_no_scripts_import` | PASS(f369414 でimport文のみの検査に精密化済み) | `tests/test_data_protection_phase3.py:1101` |
+| R-023 | PASS | `uv run --with pytest python -m pytest tests/ -q` | **239 passed, 16 skipped**、失敗0(`logs/runs/20260823-040727-verdict-p3-full.log`)。skip 16件はいずれも環境系(内訳は上表)で、契約上の失敗ではない | `logs/runs/20260823-040727-verdict-p3-full.log` |
+| R-024 | PASS | ユーザーの `! uv run python _staging_data_protection_p3.py` 実行(コミット `378d2d0`)+ 実機確認 | `378d2d0` で `.claude/hooks/data_read_gate.py`(150行)・`.claude/hooks/data_unlock.py`・`.claude/settings.json` の PreToolUse Read matcher が新規追加されたことをコミット差分で確認。現況 `.claude/hooks/data_read_gate.py` が実在し、`.claude/settings.json:67` に `"matcher": "Read"` が実在(実測コマンド出力より) | `378d2d0`(commit)、`.claude/settings.json:67`、`.claude/hooks/data_read_gate.py` |
+
+## 補足検証
+
+- `bash verify-hooks.sh` → 全テストPASS(`logs/runs/20260823-040727-verdict-p3-verifyhooks.log`)。
+  Phase 3 固有ケースの追加は無いが、Phase 1/2 の既存フックが Phase 3 の変更で
+  退行していないことを確認。
+- `bash verify-installers.sh` → 全テストPASS(`logs/runs/20260823-040727-verdict-p3-verifyinstallers.log`)。
+- mypy: `uv run mypy --version` がエラー(未導入)のためスキップ。
+- git diff は本レビューでは実装変更なし(verdict最終化のみ)。作業ツリーは
+  評価開始時点で clean(`git status --short` 出力なし)。
+
+## 判定: PASS
+
+全24件が PASS。契約(全経路 exit 0 相当・fail-closed 挙動・冪等性・hooks 自己完結)は
+実機実行で確認済み。skip 16件はいずれも環境要因(age 未導入・過去 staging 削除済み)で
+あり、コードの契約違反ではない。
