@@ -256,3 +256,16 @@ F=installer 4本 と、対象ファイルが完全に分離しているため。
 | R-022 | Step 1, 4 | 同 `-k hooks_selfcontained_p3` |
 | R-023 | Step 6, 10 | `uv run --with pytest python -m pytest tests/ -q` |
 | R-024 | Step 10 | (目視) ユーザーの `!` 実行後、staging 依存のテストが skip から PASS に変わる |
+
+## 作業ログ(リーダー統合・手順6.5後の一括追記)
+
+| 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
+|---|---|---|---|---|
+| 1 | PC-1〜25を26テスト関数化(RED 8/skip 17確認、契約4点固定) | tests/test_data_protection_phase3.py | 8 failed/1 passed/17 skipped | 714d5df |
+| 2-3 | 窓口data_summary(個票非出力)+backup_encrypt(age 2鍵・fail時データ不変) | scripts/data_summary.py, scripts/backup_encrypt.py | 担当3 passed(age実在1 skip) | bf50d0d, 74c6a35 |
+| 4 | staging 6操作冪等(read_gate/unlock配置・data_gate/guard_bash/_common拡張・Read matcher新設)。実装中にNO_READとアップロードの責務分離バグを自己検出・修正 | _staging_data_protection_p3.py(untracked) | --root 2回適用sha256一致・PC-1〜10/13/14/25全経路実測OK | (untracked) |
+| 5-6 | doctor 3マーカー(sh/ps1対称)+Phase2 parity期待値7→10 | doctor.sh, doctor.ps1, tests/test_data_protection_phase2.py | 担当3 passed・parity 10/10・Phase1/2非退行 | a563f53, 679b016 |
+| 7-8 | README(3.21拡張・data_gate段落更新・env表)+template/config-set/config-explainに3変数("") | README.md, template, スキル2 | docs_phase3 PASS・4箇所整合grep一致 | 3ae8a55, 6414f4e |
+| 9 | installer 4本: scripts配布+IGNORE_ENTRIES、initのみOPTIONAL_FEATURESにフラグ2種 | claude-init/update sh・ps1 | verify-installers全PASS・1対1 11/11・updateにCLAUDE_DATA_出現0 | 11524de |
+| 差し戻し | Standards MEDIUM 2: has_data_row正順化 / READMEにPROFILEメニュー非収録理由 | doctor.sh, README.md | 再レビューPASS(動作不変・最小diff確認) | 59f1d73, 74e5ca7 |
+| 統合 | 4マージ後: 225 passed/30 skipped・verify-hooks/installers全PASS | (検証のみ) | 本追記コミット参照 | (マージ4件) |
