@@ -221,7 +221,7 @@ PY
 
   # [DATA-PROFILE-UNSET] data/DATA_LOG.md にデータ行があるのにプロファイル実効が無効
   if [ -f "data/DATA_LOG.md" ]; then
-    has_data_row=1
+    has_data_row=0
     if uv run python - <<'PY' >/dev/null 2>&1
 import re
 import sys
@@ -244,7 +244,7 @@ for line in text.splitlines():
 sys.exit(0 if rows else 1)
 PY
     then
-      has_data_row=0
+      has_data_row=1
     fi
 
     # プロファイル実効判定(個別変数が非空かつ"0"以外なら優先、空ならプロファイルに委ねる)
@@ -261,7 +261,7 @@ PY
       gate_effective=1
     fi
 
-    if [ "$has_data_row" -eq 0 ] && [ "$no_read_effective" -eq 0 ] && [ "$gate_effective" -eq 0 ]; then
+    if [ "$has_data_row" -eq 1 ] && [ "$no_read_effective" -eq 0 ] && [ "$gate_effective" -eq 0 ]; then
       echo "警告: [DATA-PROFILE-UNSET] data/DATA_LOG.md にデータがありますが、CLAUDE_DATA_PROFILE 等の保護が無効です。機密度に応じて CLAUDE_DATA_PROFILE を設定してください。"
     fi
   fi
