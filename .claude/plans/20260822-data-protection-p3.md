@@ -124,7 +124,7 @@ Phase 1・2 が塞げない唯一の経路「エージェントが data/ を読�
 | PC-5 | 同上 | 非JSON の stdin / `tool_input` 欠落 / `file_path` が `src/train.py` / `file_path` が `metadata/x.csv` | すべて exit 0(過剰ブロックなし) | R-005 |
 | PC-6 | `.claude/hooks/data_gate.py` | env `CLAUDE_DATA_NO_READ=1`、cmd `cat data/raw/x.csv` / `head -5 data/raw/x.csv` / `tail data/raw/x.csv` / `less data/raw/x.csv` / python のワンライナーで同ファイルを開くコマンド | すべて exit 2。同じ cmd を env `CLAUDE_DATA_GATE=1` のみ(NO_READ・PROFILE 空)で与えると exit 0(Phase 2 の挙動不変) | R-006 |
 | PC-7 | 同上 | env `CLAUDE_DATA_NO_READ=1`、cmd `uv run python scripts/data_summary.py data/raw/x.csv` | exit 0 | R-007 |
-| PC-8 | `data_read_gate.py` と `data_gate.py` | `CLAUDE_SPEC_DIR` 配下の `data_unlock.txt` に未来の UTC epoch を書いた状態で遮断対象の入力。次に過去の epoch で同入力 | 未来: 両方 exit 0 かつ stderr に解除中である旨を含む。過去: 両方 exit 2 | R-008 |
+| PC-8 | `data_read_gate.py` と `data_gate.py` | `CLAUDE_SPEC_DIR` 配下の `data_unlock.txt` に (a) 未来の UTC epoch (b) 過去の epoch (c) 非整数の文字列 (d) 空ファイル、の4状態で遮断対象の入力 | (a) 両方 exit 0 かつ stderr に解除中である旨を含む。(b)(c)(d) いずれも両方 exit 2(壊れた記録は「解除されていない」として fail-closed。spec-checklist LOW の反映) | R-008 |
 | PC-9 | `.claude/hooks/guard_bash.py` | cmd `uv run python .claude/hooks/data_unlock.py --minutes 30` / `cp .claude/hooks/data_unlock.py /tmp/x.py` / `grep -n minutes .claude/hooks/data_unlock.py` | 前2つは exit 2(stderr に `!` 実行の案内)、grep は exit 0 | R-009 |
 | PC-10 | `.claude/hooks/guard_scope.py` | Write の `file_path` がサンドボックス配下の `.claude/spec/data_unlock.txt` | exit 2 | R-009 |
 | PC-11 | `scripts/data_summary.py` | 3列(数値2列・文字列1列)×4行、欠損1件を含む csv / tsv / json / jsonl | exit 0。stdout に 行数・列数・全列名・列ごとの型・欠損数・数値列の min/max/mean/std・12桁の16進ハッシュが現れる | R-010 |
