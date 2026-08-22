@@ -34,6 +34,7 @@ scripts_distributed_p3 系を skip する。age(暗号化ツール)実在時の�
 検証は `command -v age` で skip する。
 """
 
+import ast
 import hashlib
 import json
 import os
@@ -1098,11 +1099,22 @@ def test_staging_idempotent_p3_apply_twice(tmp_path: Path) -> None:
 
 
 def test_hooks_selfcontained_p3_no_scripts_import() -> None:
+    # 自己完結の契約は「scripts を import しない」こと。文字列としての
+    # "scripts" 出現(保護パターンの記述・案内文言等)は正当な参照であり違反ではない。
     for py_file in sorted(HOOKS_DIR.glob("*.py")):
         text = py_file.read_text(encoding="utf-8")
-        assert "scripts" not in text, (
-            f"{py_file} が 'scripts' を参照している(自己完結の原則違反)"
-        )
+        tree = ast.parse(text, filename=str(py_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert "scripts" not in alias.name, (
+                        f"{py_file} が 'scripts' を import している(自己完結の原則違反)"
+                    )
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                assert "scripts" not in module, (
+                    f"{py_file} が 'scripts' を import している(自己完結の原則違反)"
+                )
 
 
 # ============================================================
