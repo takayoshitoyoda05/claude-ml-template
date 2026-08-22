@@ -921,7 +921,9 @@ def test_doctor_parity_p2_markers() -> None:
         re.findall(r"\[DATA-[A-Z-]+\]", DOCTOR_PS1_PATH.read_text(encoding="utf-8"))
     )
     assert sh_markers == ps1_markers
-    assert len(sh_markers) == 7, f"想定7種(既存3+新規4)と異なる: {sh_markers}"
+    assert len(sh_markers) == 10, (
+        f"想定10種(既存3+新規4+Phase3新規3)と異なる: {sh_markers}"
+    )
     assert set(_NEW_MARKERS) <= sh_markers
 
 
