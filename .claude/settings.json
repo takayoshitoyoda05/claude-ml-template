@@ -62,6 +62,15 @@
             "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/data_gate.py"
           }
         ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/data_read_gate.py"
+          }
+        ]
       }
     ],
     "PostToolUse": [

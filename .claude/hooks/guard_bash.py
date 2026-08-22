@@ -286,6 +286,24 @@ def spec_approve_execution(cmd):
     return False
 
 
+def data_unlock_execution(cmd):
+    """data_unlock を実行・複製しうるコマンドなら True。spec_approve_execution と同型。
+
+    全セグメントの先頭コマンドが読み取り専用(grep/cat 等)なら許可し、
+    それ以外(python/uv/sh/cp 等、実行・複製に使えるもの)が1つでもあれば
+    ブロックする。
+    """
+    if not re.search(r"data_unlock", cmd, flags=re.IGNORECASE):
+        return False
+    for segment in _SEGMENT_SPLIT.split(cmd):
+        name, _ = _segment_head(segment)
+        if name is None:
+            continue
+        if name not in _SPEC_APPROVE_READONLY_CMDS:
+            return True
+    return False
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -304,6 +322,16 @@ def main():
             "[guard_bash] BLOCKED: spec_approve を実行・複製しうるコマンドは禁止です。"
             "manual要件の承認はユーザー自身が"
             " `! uv run python .claude/hooks/spec_approve.py <要件ID>`"
+            " を実行してください(参照だけなら Read/Grep ツールを使う)。",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    if data_unlock_execution(cmd):
+        print(
+            "[guard_bash] BLOCKED: data_unlock を実行・複製しうるコマンドは禁止です。"
+            "一時解除はユーザー自身が"
+            " `! uv run python .claude/hooks/data_unlock.py [--minutes N]`"
             " を実行してください(参照だけなら Read/Grep ツールを使う)。",
             file=sys.stderr,
         )
