@@ -27,6 +27,9 @@ CLAUDE_WORK_SCOPE 等は settings.local.json とシェル環境変数の両方�
 | CLAUDE_NOTIFY | 同上 |
 | CLAUDE_SECURITY_SCAN | 同上 |
 | CLAUDE_FINAL_GATE | 同上 |
+| CLAUDE_DATA_PROFILE | 同上(sensitive/internal/public。個別変数が空でなければそちらが優先) |
+| CLAUDE_DATA_NO_READ | 同上(空ならCLAUDE_DATA_PROFILEに委ねる) |
+| CLAUDE_DATA_GATE | 同上(空ならCLAUDE_DATA_PROFILEに委ねる) |
 
 ## 進め方
 1. リポジトリ直下の .claude/settings.local.json を読む(無ければ「未設定」とする)。

@@ -33,7 +33,10 @@ Claude からの Edit/Write は常にブロックされる。これは事故で�
        "CLAUDE_QUALITY_GATE": "0",
        "CLAUDE_NOTIFY": "",
        "CLAUDE_SECURITY_SCAN": "0",
-       "CLAUDE_FINAL_GATE": "0"
+       "CLAUDE_FINAL_GATE": "0",
+       "CLAUDE_DATA_PROFILE": "",
+       "CLAUDE_DATA_NO_READ": "",
+       "CLAUDE_DATA_GATE": ""
      }
    }
    ```
@@ -61,6 +64,9 @@ Claude からの Edit/Write は常にブロックされる。これは事故で�
    | CLAUDE_NOTIFY | `1` でセッション停止時にデスクトップ通知を出す(既定 `0`) |
    | CLAUDE_SECURITY_SCAN | `1` でclaude-securityプラグインによる差分スキャンを2軸レビュー後に実行(既定 `0`)。設定=1だけでは起動せず、同一パイプライン実行内のユーザー本人の発言(依頼文・計画承認時の発言を含む)にコスト承諾の明記が必要 |
    | CLAUDE_FINAL_GATE | `1` でFableによる最終ゲート判断をリファクタパス後に実行(既定 `0`) |
+   | CLAUDE_DATA_PROFILE | 機密度プロファイル一括切替。sensitive/internal/public(既定 空=プロファイル無効)。個別変数(CLAUDE_DATA_NO_READ / CLAUDE_DATA_GATE)が空でなければそちらを優先 |
+   | CLAUDE_DATA_NO_READ | `1`(data/全体)または`raw,processed`のようなdata/直下サブディレクトリ名のカンマ区切りでRead/Bashの直読みをブロック(既定 空=CLAUDE_DATA_PROFILEに委ねる) |
+   | CLAUDE_DATA_GATE | `1` でdata_gateフックがdata/を含むコマンドの外部送信をブロック(既定 空=CLAUDE_DATA_PROFILEに委ねる) |
 
 3. 完成形の JSON 全文をコードブロックで提示する。Edit/Write は呼ばない
    (呼んでもガードにブロックされるだけなので試みない)。
