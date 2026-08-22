@@ -260,7 +260,9 @@ config-set スキルが貼り付け用のJSONを提示するので、それを�
 | CLAUDE_SESSION_RESUME | `1`(または未設定)でセッション上限からの自動再開(Stopでの記録+起動時の注入)を有効化、`0` で無効化 | 有効(1) |
 | CLAUDE_REFACTOR_SWARM | `1` でリファクタパスの検出を Haiku 7体の並列スカウトで行う(エージェントチーム機能が必要) | 無効(0) |
 | CLAUDE_CONTROL_LEVEL | 自律度の一括切替。L1(手動運転)/ L2(監督運転・既定)/ L3(自律運転) | L2 |
-| CLAUDE_DATA_GATE | `1` で data_gate フックが `data/raw` 等を含むコマンドの外部送信をブロック(`data/exports/` 経由は許可。静的判定であり補助線。3.21節) | 無効(0) |
+| CLAUDE_DATA_PROFILE | 機密度プロファイルの一括切替。sensitive(読み取り遮断・送信ゲートとも有効)/ internal(送信ゲートのみ有効)/ public・空(両方無効)。個別変数(CLAUDE_DATA_NO_READ / CLAUDE_DATA_GATE)が空でなければそちらを優先(3.21節) | 空(プロファイル無効) |
+| CLAUDE_DATA_NO_READ | `1`(data/ 全体)、または `raw,processed` のような data/ 直下サブディレクトリ名のカンマ区切りで Read/Bash からの直読みをブロック(3.21節)。空文字列なら CLAUDE_DATA_PROFILE に解決を委ねる | 空(プロファイルに委ねる) |
+| CLAUDE_DATA_GATE | `1` で data_gate フックが `data/raw` 等を含むコマンドの外部送信をブロック(`data/exports/` 経由は許可。静的判定であり補助線。3.21節)。空文字列なら CLAUDE_DATA_PROFILE に解決を委ねる | 空(プロファイルに委ねる) |
 
 未設定でも動作はする(フックの保護が弱まるだけ)。
 
@@ -1438,6 +1440,13 @@ data/raw の更新手順(誤上書きを防ぐため既定で書き込み禁止�
 3. `DATA_LOG` (data/DATA_LOG.md) に入手元・入手日・sha256 等を追記する
 4. `chmod -w` で再び書き込み不可に戻す
 
+#### data/synthetic(公開・共有用の合成ミラー)
+
+data/raw / data/processed と同じスキーマを持つが、個票の実値を含まない合成・匿名化
+サンプルを置く場所。実データを読めないエージェントでもテスト・デバッグができるよう、
+読み取り遮断(後述)の対象から外している(`data/exports/` / `data/data.lock` /
+`data/.backup_stamp` と同様)。
+
 #### バックアップ記録(data/.backup_stamp)
 
 `data/.backup_stamp` に `YYYY-MM-DD` 1行でバックアップ実施日を記録する。DATA_LOG の
@@ -1466,6 +1475,26 @@ uv run python scripts/data_lock.py --check      # 記録との一致を検査
 uv run python scripts/export_check.py
 ```
 
+#### バックアップの暗号化と復号(age)
+
+`scripts/backup_encrypt.py` は data/(exports/ を除く)を tar にまとめ、
+`.claude/backup_recipients.txt` に列挙した公開鍵2件を受信者として age で暗号化する
+(鍵が2件未満、または age 未導入の場合はデータを一切変更せず案内を出して終了する)。
+
+```
+uv run python scripts/backup_encrypt.py backup.tar.age
+```
+
+復号は age の秘密鍵を持つ人間が手動で行う。復号コマンド自体はスクリプト化しない
+(秘密鍵をエージェントの実行環境に渡さないため)。
+
+```
+age -d -i <秘密鍵ファイル> -o backup.tar backup.tar.age
+```
+
+秘密鍵はリポジトリにもエージェントの環境変数にも置かず、パスワードマネージャ等の
+環境外で管理する。
+
 #### pre-commit の設置(オプトイン)
 
 ステージした差分の辞書ヒット・大型バイナリ・出力付き ipynb を検知する
@@ -1486,12 +1515,51 @@ git config core.hooksPath scripts/githooks
 関係者に force-push とローカルクローンの再作成を周知する
 (force-push は破壊的操作のため、実行前にバックアップを取ること)。
 
+#### 読み取り遮断とプロファイル(data_read_gate)
+
+`CLAUDE_DATA_NO_READ` を設定すると、Read ツールおよび Bash 経由の `cat`/`head`/`tail`/
+`less` 等での data/ 直読みをブロックする。値は `1`(data/ 全体)、または
+`raw,processed` のような data/ 直下サブディレクトリ名のカンマ区切り。`data/synthetic` /
+`data/exports` / `data/data.lock` / `data/.backup_stamp` は対象外。ブロックされた場合、
+統計量のみを返す窓口(`scripts/data_summary.py`)経由での参照は許可される。
+
+```
+uv run python scripts/data_summary.py data/raw/x.csv
+```
+
+`CLAUDE_DATA_PROFILE` は `CLAUDE_DATA_NO_READ` と `CLAUDE_DATA_GATE` をまとめて切り替える
+機密度プロファイル(sensitive/internal/public)。3変数の解決規約は次のとおり:
+sensitive は読み取り遮断・送信ゲートとも有効、internal は送信ゲートのみ有効、
+public・空はともに無効。**`CLAUDE_DATA_NO_READ` / `CLAUDE_DATA_GATE` が空でない値を
+持つ場合は、そちらの個別変数がプロファイルより優先される**(環境変数表参照)。
+
+#### 一時解除(data_unlock)
+
+読み取り遮断を一時的に解除したい場合、ユーザー自身が `!` でシェル実行する
+(エージェント経由の実行・複製は guard_bash がブロックする専用スクリプト)。
+
+```
+! uv run python .claude/hooks/data_unlock.py --minutes 30
+```
+
+`--minutes` は既定30分・上限240分(241以上または0以下の指定はエラーで非0終了し、
+解除記録は変更されない)。解除記録は `.claude/spec/data_unlock.txt`
+(`CLAUDE_SPEC_DIR` 配下)に UTC epoch 秒の整数1行で記録される。
+
+#### Grep/Glob は遮断対象外(既知の限界)
+
+読み取り遮断は Read ツールと Bash 経由の直読みコマンドのみを対象とし、Grep/Glob
+ツールはブロックしない(検索結果にファイル内容の一部が含まれ得る)。data/ を
+sensitive 相当で運用する場合はこの限界を踏まえて運用で補う。
+
 #### data_gate(送信経路の静的ゲート)
 
-`CLAUDE_DATA_GATE=1` を設定すると、`data/raw` 等を含むコマンドで外部送信
-(curl/scp 等)を試みた際にブロックする(`data/exports/` 経由は許可)。
-guard_bash と同様、**コマンド文字列の静的判定であり補助線**にすぎない
-(変数展開やスクリプト経由の送信は検知できない)。
+`CLAUDE_DATA_GATE=1`、または `CLAUDE_DATA_PROFILE=sensitive` / `internal`
+(個別変数 `CLAUDE_DATA_GATE` が空の場合)のいずれかで有効になると、`data/raw` 等を
+含むコマンドで外部送信(curl/scp 等)を試みた際にブロックする(`data/exports/` 経由は
+許可)。プロファイルと個別変数の解決規約は前項「読み取り遮断とプロファイル」のとおり
+(個別変数が優先)。guard_bash と同様、**コマンド文字列の静的判定であり補助線**に
+すぎない(変数展開やスクリプト経由の送信は検知できない)。
 
 ---
 
@@ -1537,7 +1605,10 @@ guard_bash と同様、**コマンド文字列の静的判定であり補助線*
 `data/data.lock` との不一致は `[DATA-LOCK-MISMATCH]`、`data/.backup_stamp` が
 無ければ `[DATA-BACKUP-UNKNOWN]`、30日を超えていれば `[DATA-BACKUP-STALE]`、
 `core.hooksPath` が `scripts/githooks` に設定されていなければ
-`[DATA-PRECOMMIT-OFF]` で警告する。
+`[DATA-PRECOMMIT-OFF]` で警告する。`.claude/backup_recipients.txt` が無い、または
+鍵が2件未満なら `[DATA-KEY-RECIPIENTS-MISSING]`、age が未導入なら `[DATA-AGE-MISSING]`、
+DATA_LOG にデータ行があるのに読み取り遮断・送信ゲートがいずれも無効なら
+`[DATA-PROFILE-UNSET]` で警告する(いずれも警告のみで終了コードは変えない)。
 
 ### CI
 push / PR のたびに GitHub Actions で verify-hooks と verify-installers が自動実行される。
@@ -1683,7 +1754,9 @@ claude-ml-template/
       _logutil.py                   ログ系フック共通のローテーション処理
       _mask.py                      ログ書き込み前の秘密情報マスキング
       guard_scope.py                スコープ外・秘密情報・フック自己書き換えのブロック
-      guard_bash.py                 危険コマンド・git add・リダイレクト/tee のガード
+      guard_bash.py                 危険コマンド・git add・リダイレクト/tee のガード(data_unlock.pyの実行・複製もブロック)
+      data_read_gate.py             PreToolUse (Read): CLAUDE_DATA_NO_READ/CLAUDE_DATA_PROFILEに応じてdata/直読みをブロック(3.21節)
+      data_unlock.py                読み取り遮断の一時解除(ユーザーの`!`実行専用。既定30分・上限240分。3.21節)
       auto_format.py                ruff format 自動実行
       action_log.py                 全ツール実行の JSONL 自動記録(logs/actions/)
       agent_log.py                  サブエージェント委譲チェーンの記録(logs/agents/)
@@ -1726,6 +1799,8 @@ claude-ml-template/
     data_scan.py                   stdinまたは引数ファイルを辞書スキャン(cross-reviewの送信前検疫が使用)
     precommit_data_check.py        ステージ差分の辞書ヒット・大型バイナリ・出力付きipynbを検知
     history_scan.py                git履歴全体を辞書 + サイズ閾値でスキャン(手動実行)
+    data_summary.py                Read/Bash遮断時の窓口。csv/tsv/json/jsonlの統計量のみを返し個票値は返さない(3.21節)
+    backup_encrypt.py              data/(exports/除く)をtar+ageで暗号化(recipient2件必須。3.21節)
     githooks/
       pre-commit                   precommit_data_check.pyを呼ぶ薄いシェル(git config core.hooksPathで設置)
   tests/
