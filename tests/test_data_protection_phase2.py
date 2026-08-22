@@ -610,7 +610,7 @@ def test_mask_uses_dictionary_pattern(tmp_path: Path) -> None:
 def test_mask_without_dictionary_fails_open(tmp_path: Path, setup: str) -> None:
     project = tmp_path / "project"
     if setup == "missing":
-        pass
+        project.mkdir(parents=True, exist_ok=True)
     elif setup == "broken_json":
         _write_patterns(project, "{not valid json")
     elif setup == "empty":
