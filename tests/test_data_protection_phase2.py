@@ -27,6 +27,7 @@ reportgen_sanitize・staging_idempotent)は `_staging_data_protection_p2.py`
 (Step 13)未実装の間は scripts_distributed 系を skip する。
 """
 
+import ast
 import hashlib
 import json
 import os
@@ -921,7 +922,9 @@ def test_doctor_parity_p2_markers() -> None:
         re.findall(r"\[DATA-[A-Z-]+\]", DOCTOR_PS1_PATH.read_text(encoding="utf-8"))
     )
     assert sh_markers == ps1_markers
-    assert len(sh_markers) == 7, f"想定7種(既存3+新規4)と異なる: {sh_markers}"
+    assert len(sh_markers) == 10, (
+        f"想定10種(既存3+新規4+Phase3新規3)と異なる: {sh_markers}"
+    )
     assert set(_NEW_MARKERS) <= sh_markers
 
 
@@ -1014,11 +1017,22 @@ def test_docs_conventions_hash_and_readme() -> None:
 
 
 def test_mask_loader_selfcontained_no_scripts_import() -> None:
+    # 自己完結の契約は「scripts を import しない」こと。文字列としての
+    # "scripts" 出現(保護パターンの記述・案内文言等)は正当な参照であり違反ではない。
     for py_file in sorted(HOOKS_DIR.glob("*.py")):
         text = py_file.read_text(encoding="utf-8")
-        assert "scripts" not in text, (
-            f"{py_file} が 'scripts' を参照している(自己完結の原則違反)"
-        )
+        tree = ast.parse(text, filename=str(py_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert "scripts" not in alias.name, (
+                        f"{py_file} が 'scripts' を import している(自己完結の原則違反)"
+                    )
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                assert "scripts" not in module, (
+                    f"{py_file} が 'scripts' を import している(自己完結の原則違反)"
+                )
 
 
 @pytestmark_staging

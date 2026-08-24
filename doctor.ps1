@@ -221,4 +221,58 @@ if (Test-Path "data") {
     if ($hooksPath -ne "scripts/githooks") {
         Write-Host "警告: [DATA-PRECOMMIT-OFF] core.hooksPath が scripts/githooks に設定されていません。git config core.hooksPath scripts/githooks で有効化してください。"
     }
+
+    # [DATA-KEY-RECIPIENTS-MISSING] .claude/backup_recipients.txt が無い、または鍵が2未満
+    $recipientsPath = ".claude\backup_recipients.txt"
+    if (-not (Test-Path $recipientsPath)) {
+        Write-Host "警告: [DATA-KEY-RECIPIENTS-MISSING] .claude/backup_recipients.txt がありません。バックアップ暗号化の受信者公開鍵を2件以上登録してください。"
+    } else {
+        $keyCount = @(Get-Content -Path $recipientsPath | Where-Object { $_.Trim() -ne "" }).Count
+        if ($keyCount -lt 2) {
+            Write-Host "警告: [DATA-KEY-RECIPIENTS-MISSING] .claude/backup_recipients.txt の鍵が2件未満です(${keyCount}件)。受信者公開鍵を2件以上登録してください。"
+        }
+    }
+
+    # [DATA-AGE-MISSING] age(暗号化ツール)が未導入
+    if (-not (Get-Command age -ErrorAction SilentlyContinue)) {
+        Write-Host "警告: [DATA-AGE-MISSING] age が見つかりません。バックアップ暗号化には age の導入が必要です。"
+    }
+
+    # [DATA-PROFILE-UNSET] data/DATA_LOG.md にデータ行があるのにプロファイル実効が無効
+    $datalogPath = "data\DATA_LOG.md"
+    if (Test-Path $datalogPath) {
+        $hasDataRow = $false
+        $headerSeen = $false
+        foreach ($line in (Get-Content -Path $datalogPath)) {
+            if ($line -notmatch '^\|(.+)\|\s*$') { continue }
+            $inner = $Matches[1]
+            if ($inner -match '^[\s|:-]+$') { continue }
+            if (-not $headerSeen) {
+                $headerSeen = $true
+                continue
+            }
+            $hasDataRow = $true
+        }
+
+        # プロファイル実効判定(個別変数が非空かつ"0"以外なら優先、空ならプロファイルに委ねる)
+        $noReadEffective = $false
+        $gateEffective = $false
+        $noReadVar = $env:CLAUDE_DATA_NO_READ
+        $gateVar = $env:CLAUDE_DATA_GATE
+        $profileVar = $env:CLAUDE_DATA_PROFILE
+        if ($noReadVar -and $noReadVar -ne "0") {
+            $noReadEffective = $true
+        } elseif ((-not $noReadVar) -and $profileVar -eq "sensitive") {
+            $noReadEffective = $true
+        }
+        if ($gateVar -and $gateVar -ne "0") {
+            $gateEffective = $true
+        } elseif ((-not $gateVar) -and ($profileVar -eq "sensitive" -or $profileVar -eq "internal")) {
+            $gateEffective = $true
+        }
+
+        if ($hasDataRow -and (-not $noReadEffective) -and (-not $gateEffective)) {
+            Write-Host "警告: [DATA-PROFILE-UNSET] data/DATA_LOG.md にデータがありますが、CLAUDE_DATA_PROFILE 等の保護が無効です。機密度に応じて CLAUDE_DATA_PROFILE を設定してください。"
+        }
+    }
 }

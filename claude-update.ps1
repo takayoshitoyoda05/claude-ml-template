@@ -98,7 +98,8 @@ try {
                 "doctor.sh", "doctor.ps1",
                 "scripts/_data_patterns.py", "scripts/data_lock.py", "scripts/data_dictionary.py",
                 "scripts/export_check.py", "scripts/data_scan.py", "scripts/precommit_data_check.py",
-                "scripts/history_scan.py", "scripts/env_fingerprint.py", "scripts/githooks/pre-commit")
+                "scripts/history_scan.py", "scripts/env_fingerprint.py", "scripts/githooks/pre-commit",
+                "scripts/data_summary.py", "scripts/backup_encrypt.py")
         }
         foreach ($ignoreEntry in $ignoreEntries) {
             if (-not (Test-Path $gitignorePath)) {
@@ -205,7 +206,9 @@ try {
         "precommit_data_check.py",
         "history_scan.py",
         "env_fingerprint.py",
-        "githooks\pre-commit"
+        "githooks\pre-commit",
+        "data_summary.py",
+        "backup_encrypt.py"
     )
     foreach ($f in $scriptsFiles) {
         $src = Join-Path $Tmp "scripts\$f"

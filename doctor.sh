@@ -202,4 +202,67 @@ PY
   if [ "$hooks_path" != "scripts/githooks" ]; then
     echo "警告: [DATA-PRECOMMIT-OFF] core.hooksPath が scripts/githooks に設定されていません。git config core.hooksPath scripts/githooks で有効化してください。"
   fi
+
+  # [DATA-KEY-RECIPIENTS-MISSING] .claude/backup_recipients.txt が無い、または鍵が2未満
+  recipients_file=".claude/backup_recipients.txt"
+  if [ ! -f "$recipients_file" ]; then
+    echo "警告: [DATA-KEY-RECIPIENTS-MISSING] .claude/backup_recipients.txt がありません。バックアップ暗号化の受信者公開鍵を2件以上登録してください。"
+  else
+    key_count=$(grep -c . "$recipients_file" 2>/dev/null || echo 0)
+    if [ "${key_count:-0}" -lt 2 ]; then
+      echo "警告: [DATA-KEY-RECIPIENTS-MISSING] .claude/backup_recipients.txt の鍵が2件未満です(${key_count}件)。受信者公開鍵を2件以上登録してください。"
+    fi
+  fi
+
+  # [DATA-AGE-MISSING] age(暗号化ツール)が未導入
+  if ! command -v age >/dev/null 2>&1; then
+    echo "警告: [DATA-AGE-MISSING] age が見つかりません。バックアップ暗号化には age の導入が必要です。"
+  fi
+
+  # [DATA-PROFILE-UNSET] data/DATA_LOG.md にデータ行があるのにプロファイル実効が無効
+  if [ -f "data/DATA_LOG.md" ]; then
+    has_data_row=0
+    if uv run python - <<'PY' >/dev/null 2>&1
+import re
+import sys
+
+text = open("data/DATA_LOG.md", encoding="utf-8").read()
+row_re = re.compile(r"^\|(.+)\|\s*$")
+sep_re = re.compile(r"^[\s|:-]+$")
+rows = []
+header_seen = False
+for line in text.splitlines():
+    m = row_re.match(line)
+    if not m:
+        continue
+    if sep_re.match(m.group(1)):
+        continue
+    if not header_seen:
+        header_seen = True
+        continue
+    rows.append(m.group(1))
+sys.exit(0 if rows else 1)
+PY
+    then
+      has_data_row=1
+    fi
+
+    # プロファイル実効判定(個別変数が非空かつ"0"以外なら優先、空ならプロファイルに委ねる)
+    no_read_effective=0
+    gate_effective=0
+    if [ -n "${CLAUDE_DATA_NO_READ:-}" ] && [ "${CLAUDE_DATA_NO_READ:-}" != "0" ]; then
+      no_read_effective=1
+    elif [ -z "${CLAUDE_DATA_NO_READ:-}" ] && [ "${CLAUDE_DATA_PROFILE:-}" = "sensitive" ]; then
+      no_read_effective=1
+    fi
+    if [ -n "${CLAUDE_DATA_GATE:-}" ] && [ "${CLAUDE_DATA_GATE:-}" != "0" ]; then
+      gate_effective=1
+    elif [ -z "${CLAUDE_DATA_GATE:-}" ] && { [ "${CLAUDE_DATA_PROFILE:-}" = "sensitive" ] || [ "${CLAUDE_DATA_PROFILE:-}" = "internal" ]; }; then
+      gate_effective=1
+    fi
+
+    if [ "$has_data_row" -eq 1 ] && [ "$no_read_effective" -eq 0 ] && [ "$gate_effective" -eq 0 ]; then
+      echo "警告: [DATA-PROFILE-UNSET] data/DATA_LOG.md にデータがありますが、CLAUDE_DATA_PROFILE 等の保護が無効です。機密度に応じて CLAUDE_DATA_PROFILE を設定してください。"
+    fi
+  fi
 fi

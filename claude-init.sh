@@ -106,7 +106,8 @@ if [ "${CLAUDE_TEMPLATE_GITIGNORE_ALL:-0}" = "1" ]; then
     "doctor.sh" "doctor.ps1"
     "scripts/_data_patterns.py" "scripts/data_lock.py" "scripts/data_dictionary.py"
     "scripts/export_check.py" "scripts/data_scan.py" "scripts/precommit_data_check.py"
-    "scripts/history_scan.py" "scripts/env_fingerprint.py" "scripts/githooks/pre-commit")
+    "scripts/history_scan.py" "scripts/env_fingerprint.py" "scripts/githooks/pre-commit"
+    "scripts/data_summary.py" "scripts/backup_encrypt.py")
 fi
 for IGNORE_ENTRY in "${IGNORE_ENTRIES[@]}"; do
   if [ ! -f ".gitignore" ]; then
@@ -137,6 +138,8 @@ OPTIONAL_FEATURES=(
   "CLAUDE_REFUTE_PASS|レビュー指摘の反証濾過(HIGH 指摘を refuter が潰し、生き残った指摘だけ差し戻しに使う)"
   "CLAUDE_REQUIREMENTS_GATE|要件定義の機械ゲート(受け入れ条件テーブル付き設計書が無いままの計画作成をブロック)"
   "CLAUDE_SESSION_MONITOR|コンテキスト重量化の handoff 推奨モニタ(Stop 時に使用量を実測し警告のみ)"
+  "CLAUDE_DATA_NO_READ|データ読み取り遮断(Read/Bash から data/ の生読みをブロックし窓口経由に限定)"
+  "CLAUDE_DATA_GATE|送信経路の静的ゲート(data/ を送信・複製するコマンドをブロック)"
 )
 
 # settings.local.json の該当フラグを "1" に書き換える(sed -i は BSD/GNU で
@@ -274,6 +277,8 @@ SCRIPTS_FILES=(
   history_scan.py
   env_fingerprint.py
   githooks/pre-commit
+  data_summary.py
+  backup_encrypt.py
 )
 for f in "${SCRIPTS_FILES[@]}"; do
   if [ -f "$TMP/scripts/$f" ]; then

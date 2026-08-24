@@ -78,6 +78,8 @@ PROTECTED_PATH_PATTERNS = [
     # よる上書き・削除まで塞ぐためガード側にも入れる(invariants の
     # 「データセットの削除・上書き禁止」の多層防御)
     "/data/",
+    "/.claude/spec/data_unlock.txt",
+    "/scripts/data_summary.py",
 ]
 
 CASE_INSENSITIVE_FS = os.name == "nt"
