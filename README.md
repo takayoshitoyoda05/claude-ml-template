@@ -138,7 +138,7 @@ Codex CLI 連携用に `agents/shared/` の配置・`AGENTS.md` の生成・`.co
 CI 等の非対話環境では上書きせず安全に中止する)。
 
 プロジェクト固有の情報(評価コマンド、データの場所など)は、そのプロジェクト直下の
-`CLAUDE.md` に書く(例: `projects/Deep_MIL/CLAUDE.md`)。ドメイン用語が多いプロジェクトは
+`CLAUDE.md` に書く(例: `apps/todo_api/CLAUDE.md`)。ドメイン用語が多いプロジェクトは
 `templates/CONTEXT.md.template` をコピーして `CONTEXT.md`(用語集)も置く。
 
 ### 方法B: プラグインとして導入(実験的・現時点では非推奨)
@@ -218,9 +218,9 @@ chmod +x claude-update.sh && ./claude-update.sh
 ```json
 {
   "env": {
-    "CLAUDE_WORK_SCOPE": "projects/Deep_MIL",
+    "CLAUDE_WORK_SCOPE": "apps/todo_api",
     "CLAUDE_ENFORCE_EVAL": "1",
-    "CLAUDE_EVAL_CMD": "uv run python -m pytest projects/Deep_MIL/tests/ -q"
+    "CLAUDE_EVAL_CMD": "uv run python -m pytest apps/todo_api/tests/ -q"
   }
 }
 ```
@@ -230,7 +230,7 @@ chmod +x claude-update.sh && ./claude-update.sh
 
 このファイルは guard_scope.py の保護対象のため、Claude自身による自動書き込みはできない
 (Claudeが自分の作業スコープや評価強制を自己解除できてしまうのを防ぐ意図的な制限)。
-中身の下書きだけ欲しい場合は「作業スコープをprojects/Deep_MILにして」のように話しかけると
+中身の下書きだけ欲しい場合は「作業スコープをapps/todo_apiにして」のように話しかけると
 config-set スキルが貼り付け用のJSONを提示するので、それを手動で保存する。
 
 一時的に値を変えたい場合は、従来どおり claude 起動前のシェルで
@@ -305,8 +305,8 @@ Stop フックと CI で「全要件PASS+承認+独立監査」を機械検査�
    (exit 2)。push 後は CI の `spec_gate.py --ci` が最終ゲートになる
    (`.github/workflows/spec-gate.yml`、claude-init/update が自動配置)。
    **注意**: CI には CLAUDE_WORK_SCOPE が無いため、設計書を作業スコープ配下
-   (例: `projects/Deep_MIL/docs/active/`)に置く運用では、spec-gate.yml の `env` に
-   `CLAUDE_SPEC_DOCS: projects/Deep_MIL/docs/active` を設定すること。
+   (例: `apps/todo_api/docs/active/`)に置く運用では、spec-gate.yml の `env` に
+   `CLAUDE_SPEC_DOCS: apps/todo_api/docs/active` を設定すること。
    未設定だと CI はリポジトリ直下の `docs/active/` しか見ず、何も検査せずに通る。
 
 `.claude/spec/` はローカル運用のため `.gitignore` に `**/.claude/spec/` として自動追加される
@@ -416,10 +416,10 @@ mainが無傷のまま最初からやり直せる。
 ```bash
 # マージせず捨てる場合
 git checkout main
-git branch -D pipeline/20260722-fix-attention-viz
+git branch -D pipeline/20260722-fix-csv-export
 # 並列実装のサブブランチも削除する場合
-git branch -D pipeline/20260722-fix-attention-viz-group-A
-git branch -D pipeline/20260722-fix-attention-viz-group-B
+git branch -D pipeline/20260722-fix-csv-export-group-A
+git branch -D pipeline/20260722-fix-csv-export-group-B
 ```
 
 ### ブランチ命名規則の自動検出
@@ -534,8 +534,8 @@ plan-reviewer の自動承認、notify.py の完了通知、Remote Control を
 例:
 
 ```
-/ml-pipeline projects/Deep_MIL attention可視化のバグを直したい。
-outputs/に出る画像が真っ黒になる問題を解消したい
+/ml-pipeline apps/todo_api CSVエクスポートのバグを直したい。
+outputs/に出るファイルが空になる問題を解消したい
 ```
 
 作業ディレクトリを冒頭で指定すると、その配下だけを対象に全エージェントが動く。
@@ -616,7 +616,7 @@ docs/drafts/ に設計書を保存 → `/ml-pipeline` に設計書パスを渡�
 ### 2.2 設計書を渡して実装させる
 
 ```
-/ml-pipeline projects/Deep_MIL docs/drafts/20260703_attention_mil.md の設計書に沿って実装したい
+/ml-pipeline apps/todo_api docs/drafts/20260703_csv_export.md の設計書に沿って実装したい
 ```
 
 設計書は3段階のライフサイクルで自動整理される。
@@ -640,7 +640,7 @@ planner → (ユーザー承認) → generator → evaluator / evaluator-standar
 #### @planner — 計画を立てる(opus)
 
 ```
-@planner projects/Deep_MIL で attention の集約を gated attention に変える計画を立てて
+@planner apps/todo_api で CSVエクスポートをバッチ生成からストリーミング書き込みに変える計画を立てて
 ```
 
 - **渡すもの**: やりたいこと + 作業ディレクトリ。設計書があればそのパスも
@@ -653,7 +653,7 @@ planner → (ユーザー承認) → generator → evaluator / evaluator-standar
 #### @generator — 計画通りに実装する(sonnet)
 
 ```
-@generator .claude/plans/20260703-gated-attention.md の計画通りに実装して
+@generator .claude/plans/20260703-streaming-export.md の計画通りに実装して
 ```
 
 - **渡すもの**: 計画ファイルのパス(省略すると `.claude/plans/` から該当するものを探す)
@@ -665,7 +665,7 @@ planner → (ユーザー承認) → generator → evaluator / evaluator-standar
 #### @evaluator — 計画通りに動くか数値で判定する(Spec軸 / sonnet)
 
 ```
-@evaluator 直近の変更を .claude/plans/20260703-gated-attention.md の検証方法で評価して
+@evaluator 直近の変更を .claude/plans/20260703-streaming-export.md の検証方法で評価して
 ```
 
 - **渡すもの**: 計画ファイルのパス。変更ファイル一覧があれば diff の確認範囲が絞られる
@@ -724,7 +724,7 @@ HIGH 指摘が1件以上あるとき `/ml-pipeline` から自動的に呼ばれ�
 #### @plan-premortem — 計画の敵対的レビュー(sonnet)
 
 ```
-@plan-premortem .claude/plans/20260703-gated-attention.md をプレモーテムして
+@plan-premortem .claude/plans/20260703-streaming-export.md をプレモーテムして
 ```
 
 spec-checklist の品質ゲート(手順3.3)を READY で通過した計画に対し
@@ -744,7 +744,7 @@ spec-checklist の品質ゲート(手順3.3)を READY で通過した計画に�
 #### @plan-reviewer — 計画の自動承認判定(sonnet)
 
 ```
-@plan-reviewer .claude/plans/20260703-gated-attention.md を審査して
+@plan-reviewer .claude/plans/20260703-streaming-export.md を審査して
 ```
 
 `CLAUDE_AUTO_APPROVE=1` のとき `/ml-pipeline` から自動で呼ばれる(1節「計画の自動承認」参照)。
@@ -817,14 +817,14 @@ spec-checklist ゲートは設計書の有無に関わらず毎回動く(設計�
 
 ### 実例: アイデア出しから完了まで
 
-「Deep_MIL に attention 可視化を追加したい、が方式は決めきれていない」場合の流れ。
+「todo_api に CSVエクスポート機能を追加したい、が方式は決めきれていない」場合の流れ。
 
 1. **起動**: `.claude/settings.local.json` の `env` に作業スコープ等を設定し、`claude` を起動
-2. **発散**: 「attention 可視化の方式についてブレストしたい」 → brainstorm スキルが
+2. **発散**: 「CSVエクスポートの方式についてブレストしたい」 → brainstorm スキルが
    `ideas/` に候補を列挙。良さそうな方向を1つ選ぶ
 3. **収束**: 「この案を詰めて」 → design-interview スキルが一問一答で仕様を固め、
-   `docs/drafts/20260703_attention_viz.md` を作る
-4. **実装依頼**: `/ml-pipeline projects/Deep_MIL docs/drafts/20260703_attention_viz.md の設計書に沿って実装したい`
+   `docs/drafts/20260703_csv_export.md` を作る
+4. **実装依頼**: `/ml-pipeline apps/todo_api docs/drafts/20260703_csv_export.md の設計書に沿って実装したい`
 5. **計画レビュー**: Planner が `.claude/plans/` に計画を保存して提示してくる。
    内容を確認して承認する(ここが人間の主な介入ポイント)
 6. **実装〜評価**: Generator が実装・コミットし、evaluator(数値)と
@@ -1171,7 +1171,7 @@ Sonnet 1周分以下。検出は並列実行のため実時間も短い。
 スカウト隊をかけられる。
 
 ```
-「src/attention_viz.py をスカウト隊で見て」        → 7体全員
+「src/csv_export.py をスカウト隊で見て」        → 7体全員
 「dataloader.py を命名と重複だけチェックして」      → 2体だけ
 「@scout-deadcode で src/ を見て」                → 1体を直接
 ```
