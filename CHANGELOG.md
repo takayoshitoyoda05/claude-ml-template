@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Changed(2026-08-31)
+- **design-interview に停止条件を追加**: 分岐が解消したかをエージェントの
+  自己判定で終わらせず、確定した決定の一覧を提示してユーザーが「揃った」と
+  答えるまで設計書を書き始めない(手順8.5 を新設。既存の手順番号は不変)。
+  あわせて手順7 を「事実と決定の分離」(環境を調べれば分かる事実は自分で埋め、
+  決定は必ずユーザーに出す)に、手順3 に決定間の依存順を追加。
+  mattpocock/skills の grilling スキルとの差分から取り込んだ
+
 ### Added(2026-07-22)
 - **Codex CLI 連携**: agents/shared/(共有規約)から AGENTS.md を自動生成、
   .codex/(config.toml・skills コピー)を claude-init/update が配置。
