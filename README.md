@@ -6,35 +6,39 @@ Planner / Generator / Evaluator の役割分離パターンを軸に、スキル
 
 ```mermaid
 flowchart TD
-    A[ユーザー: 要件を伝える] --> BR[作業ブランチを自動作成<br>mainは無傷のまま]
+    A[ユーザー: 要件を伝える] --> R{router haiku: 規模S/M/Lと<br>リスク階層を判定 手順0}
+    R -->|S / M| SM[短縮経路: ブランチ作成後 generator へ直行<br>Sはevaluator省略・Mはevaluator付き<br>MはNEEDS_REVISION 2回でフル経路に昇格]
+    R -->|L| H[要件ヒアリング 手順0.5<br>design-interview で曖昧さを解消<br>ユーザーが「揃った」と言うまで質問]
+    H --> BR[作業ブランチを自動作成<br>mainは無傷のまま]
     BR --> B[Planner opus: 調査して実装計画<br>並列化判定つき]
     B --> SC{spec-checklist<br>品質ゲート 手順3.3}
-    SC -->|READY| PM{plan-premortem<br>敵対的レビュー 手順3.4<br>独立コンテキスト}
-    SC -->|NEEDS_WORK 最大2周| DI[design-interview<br>指摘箇所を解消]
+    SC -->|NEEDS_WORK 最大2周| DI[design-interview<br>指摘箇所を1問ずつ解消]
     DI --> B
-    PM -->|HIGH 0件| C{計画の承認<br>CLAUDE_AUTO_APPROVE=1なら<br>plan-reviewerが自動審査}
+    SC -->|READY| PM{plan-premortem<br>敵対的レビュー 手順3.4<br>独立コンテキスト}
     PM -->|HIGH 1件以上 差し戻し最大1回| B
-    C -->|承認| D[Generator sonnet: 実装・コミット<br>並列化可能ならworktree分離で並列実装]
-    D --> X[cross-review: Codexによる<br>別モデルレビュー<br>※CLAUDE_CROSS_REVIEW=1時のみ]
-    D -.->|CLAUDE_CROSS_REVIEW無効時| E
-    D -.->|CLAUDE_CROSS_REVIEW無効時| F
-    X --> E[evaluator: Spec軸 数値で判定]
-    X --> F[evaluator-standards: Standards軸 品質レビュー]
-    E & F --> GV{接地検証 手順6.2<br>+反証濾過 手順6.3<br>※CLAUDE_REFUTE_PASS=1時}
-    GV -->|両方PASS| AD[セキュリティスキャン<br>※CLAUDE_SECURITY_SCAN=1時のみ]
+    PM -->|HIGH 0件| C{計画の承認 手順3.5/4<br>CLAUDE_AUTO_APPROVE=1なら<br>plan-reviewerが自動審査}
+    C -->|承認| D[Generator sonnet: 実装・コミット 手順5<br>並列化可能ならworktree分離で並列実装]
+    D --> X[cross-review: Codexによる別モデルレビュー 手順5.5<br>※CLAUDE_CROSS_REVIEW=1時のみ]
+    X --> EF[2軸レビュー 手順6<br>evaluator: Spec軸 数値で判定<br>evaluator-standards: Standards軸 品質レビュー]
+    EF --> GV{接地検証 手順6.2<br>+反証濾過 手順6.3<br>※CLAUDE_REFUTE_PASS=1かつリスク高でない時}
     GV -->|差し戻し根拠が残る| D
     GV -->|判定不確実| HR[HUMAN_REVIEW<br>停止・人間の判断]
-    E -->|FAIL 3回| B
-    GV -.->|両方PASSかつSECURITY_SCAN無効時| P
-    AD -->|verifiedな指摘なし| P[リファクタリング・パス<br>動作を変えない磨き1周]
+    GV -->|evaluatorのFAIL 3回| B
+    GV -->|両方PASS| AT[原子性チェック 手順6.5<br>並列実装のみ: 全グループPASSで統合]
+    AT --> AD[セキュリティスキャン 手順6.6<br>※CLAUDE_SECURITY_SCAN=1時のみ]
     AD -->|verifiedな指摘あり| D
-    P --> FG[final-gate fable: マージ可否の三択判断<br>※CLAUDE_FINAL_GATE=1時のみ]
-    P -.->|CLAUDE_FINAL_GATE無効時| M
-    FG -->|APPROVE| M{mainにマージしますか?}
+    AD -->|verifiedな指摘なし| P[リファクタリング・パス 手順6.7<br>動作を変えない磨き1周]
+    P --> FG[final-gate fable: マージ可否の三択判断 手順6.8<br>※CLAUDE_FINAL_GATE=1時のみ]
     FG -->|SEND_BACK| D
+    FG -->|APPROVE| SA[spec-auditor: 証拠の独立監査 手順7.5<br>※受け入れ条件テーブル付き設計書がある場合のみ]
+    SA -->|NG要件あり| D
+    SA --> RP[完全レポート生成 手順8.5<br>logs/とtranscriptをdocs/reports/に機械集約]
+    RP --> M{mainにマージしますか? 手順9}
     M -->|はい| G[mainへ--no-ffマージ]
     M -->|いいえ/全部捨てて| K[ブランチ保持または破棄<br>mainは無傷]
 ```
+
+※付きの工程は、対応するフラグが無効なら実行されず次の工程へそのまま進む。
 
 このほか Stop 時には機械ゲート(評価強制 / spec適合 / Codexレビュー必須化 /
 品質チェック / 完了通知)がフラグに応じて働く(3.4節)。
@@ -544,52 +548,59 @@ outputs/に出る画像が真っ黒になる問題を解消したい
 1. **router(haiku)** が依頼内容から規模(S/M/L)とリスク階層(高/中/低)を判定する(手順0)。
    リスク階層が「高」なら規模判定を1段上げ(S→M、M→L)、手順6.3(反証濾過パス)を
    実行しない(リスク階層は強める方向にのみ作用する)
-2. 作業ブランチ `pipeline/YYYYMMDD-<トピック>` を作成する。以降の全コミットはこの上で行い、
+2. **要件ヒアリング**(手順0.5)を規模に応じて行う。S はスキップ、M は曖昧性
+   タクソノミーを基準にリーダーが最大3問だけ質問、L は design-interview スキルを
+   実行して確定要件(受け入れ条件テーブル付きの設計書)を作る。design-interview は
+   ユーザーが「揃った」と答えるまで設計書を書き始めない(design-interview の手順8.5)
+3. 作業ブランチ `pipeline/YYYYMMDD-<トピック>` を作成する。以降の全コミットはこの上で行い、
    main は一切変更されない(「作業ブランチと原子性」の節を参照)
-3. 作業スコープ直下の `CONTEXT.md` をメイン会話が一度だけ読み、要点を各エージェントに渡す。
+4. 作業スコープ直下の `CONTEXT.md` をメイン会話が一度だけ読み、要点を各エージェントに渡す。
    調査範囲が広ければ **Planner(opus)** の前に Explore(haiku)で安価に下調べする
-4. **Planner(opus)** が計画を `.claude/plans/` に保存する
-5. spec-checklist の品質ゲート(手順3.3)を READY で通過した計画に対し、
+5. **Planner(opus)** が計画を `.claude/plans/` に保存する
+6. spec-checklist の品質ゲート(手順3.3)を READY で通過した計画に対し、
    **plan-premortem(sonnet)** が計画ファイルのパスと作業スコープだけを渡された
    独立コンテキストで敵対的にレビューする(手順3.4)。HIGH指摘が1件以上あれば
    planner に差し戻して手順3.3からやり直す(最大1回。2回目はユーザー判断)
-6. 計画を承認する。`CLAUDE_AUTO_APPROVE=1` なら **plan-reviewer(sonnet)** が8条件で審査し、
+7. 計画を承認する。`CLAUDE_AUTO_APPROVE=1` なら **plan-reviewer(sonnet)** が8条件で審査し、
    全て満たせばユーザー承認をスキップする。デフォルト(0)ではユーザーが承認するまで進まない
    (「計画の自動承認」の節を参照)
-7. **Generator(sonnet)** が計画通りに実装・コミット。変更ファイル一覧を両 Evaluator に渡す。
+8. **Generator(sonnet)** が計画通りに実装・コミット。変更ファイル一覧を両 Evaluator に渡す。
    計画が「並列化可能」なら、worktree 分離したチームメイトがグループごとの
    サブブランチで並列実装する(「並列実装」の節を参照。tmux は表示用で必須ではない)
-8. `CLAUDE_CROSS_REVIEW=1` なら cross-review スキルが Codex CLI に別モデル視点の
+9. `CLAUDE_CROSS_REVIEW=1` なら cross-review スキルが Codex CLI に別モデル視点の
    レビューをさせ、その結果を Evaluator への追加情報として渡す
-9. **evaluator(sonnet)** と **evaluator-standards(sonnet)** が並行して2軸レビュー
+10. **evaluator(sonnet)** と **evaluator-standards(sonnet)** が並行して2軸レビュー
    (Spec軸: 動作の正しさ / Standards軸: コード品質)。evaluator は評価コマンドが
    1つでも失敗した場合のみ、分岐元の worktree で同じコマンドを再実行して
    既存の失敗・flaky を差し戻しの根拠から除外する(手順4.5「ベースライン比較実行」)
-10. HIGH/MEDIUM 指摘を**接地検証**する(手順6.2、必須)。file:line 形式は該当行の実在を
+11. HIGH/MEDIUM 指摘を**接地検証**する(手順6.2、必須)。file:line 形式は該当行の実在を
     Read で確認し、再現コマンド形式は実行して再現を確認する。未接地・検証不能の
     指摘は根拠から外す(MEDIUM)か HUMAN_REVIEW 対象にする(HIGH)。判定そのもの
     (PASS/NEEDS_REVISION/FAIL)は書き換えない
-11. `CLAUDE_REFUTE_PASS=1` かつリスク階層が「高」でなければ、接地済み HIGH 指摘を
+12. `CLAUDE_REFUTE_PASS=1` かつリスク階層が「高」でなければ、接地済み HIGH 指摘を
     **refuter(sonnet)** が独立コンテキストで反証する(手順6.3)。反証成功した指摘は
     差し戻し根拠から外れ、反証失敗した指摘は差し戻し根拠に昇格する
-12. 両方 PASS なら次へ。片方でも NEEDS_REVISION なら、手順6.2・6.3を経て残った
+13. 両方 PASS なら次へ。片方でも NEEDS_REVISION なら、手順6.2・6.3を経て残った
     差し戻し根拠だけを Generator に差し戻す。差し戻し根拠が0件、未接地HIGHが残る等
     判定が不確実な場合は差し戻さずパイプラインを一時停止し人間の判断を仰ぐ
     (HUMAN_REVIEW)。evaluator が FAIL を3回出したら Planner まで巻き戻る。
     最大3イテレーションで打ち切り。並列実装では全グループ PASS のときだけ統合する
     (原子性の保証)
-13. `CLAUDE_SECURITY_SCAN=1` なら **claude-security プラグイン**が差分(main...HEAD)を
+14. `CLAUDE_SECURITY_SCAN=1` なら **claude-security プラグイン**が差分(main...HEAD)を
     スキャンし、verification.status が verified の指摘のみを採用する
     (unverified は参考情報に留め差し戻しには使わない)。
     verified な指摘が残れば Generator に差し戻す(手順6.6)
-14. 両方 PASS 後、Generator が動作を一切変えずにコードを磨く「リファクタリング・パス」を
+15. 両方 PASS 後、Generator が動作を一切変えずにコードを磨く「リファクタリング・パス」を
     1周行う(手順6.7)。テストか品質再確認が1つでも壊れたら磨き分だけ破棄して先へ進む
-15. `CLAUDE_FINAL_GATE=1` なら **final-gate(fable)** が最終形を俯瞰し、
+16. `CLAUDE_FINAL_GATE=1` なら **final-gate(fable)** が最終形を俯瞰し、
     APPROVE / SEND_BACK / NEEDS_HUMAN の三択でマージ承認の最終判断を行う(手順6.8)
-16. `CLAUDE_SPEC_CHECK=1` で受け入れ条件テーブルがある設計書を扱っている場合、
-    **spec-auditor(sonnet)** が verdict の証拠を独立コンテキストで再検証する
-17. 全工程の完了後、変更の要約とともに「main にマージしますか?」と確認される
-
+17. 対象に受け入れ条件テーブル付きの設計書(docs/active/)がある場合、
+    **spec-auditor(sonnet)** が verdict の証拠を独立コンテキストで再検証する(手順7.5)。
+    NG の要件があれば Generator に差し戻す
+18. 全レビュー完了後(マージ確認の前)に**完全レポート**を必ず生成する(手順8.5)。
+    `report_gen.py` が logs/ と transcript を `docs/reports/<実行ID>/` に機械集約する
+    (「完全トレース」の節を参照)
+19. 全工程の完了後、変更の要約とともに「main にマージしますか?」と確認される
 ### 設計書を通すかどうかの目安(推奨)
 
 | タスクの規模 | 設計書 | 理由 |
