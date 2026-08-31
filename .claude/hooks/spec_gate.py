@@ -196,6 +196,66 @@ def check_audit(all_rows, spec_dir):
     return reasons
 
 
+# verify 列で実行を禁じる破壊的コマンド名。設計書は承認時にハッシュ照合されるが、
+# 承認前(あるいは承認をすり抜けた)設計書の verify が shell=True で実行されるため、
+# 「そもそも実行してはいけないコマンド」をここで拒否する二重目の歯止めを置く。
+# 連鎖(&&)・置換($())・パイプ(|)そのものは既存の正当な verify が使うので許可し、
+# セグメント先頭に立つ破壊語だけを見る(guard_bash.py と同じ設計)。
+_VERIFY_DESTRUCTIVE_HEADS = frozenset(
+    {
+        "rm", "rmdir", "mv", "dd", "mkfs", "shred", "truncate",
+        "sudo", "chmod", "chown", "chattr",
+        "curl", "wget", "scp", "ssh", "nc", "ncat", "telnet",
+        "kill", "pkill", "reboot", "shutdown", "mkfifo",
+    }
+)
+
+# コマンド境界: 行頭 / 連鎖・パイプ演算子の直後 / コマンド置換の開き。
+# ここで区切られた各セグメントの先頭トークンが破壊語かを見る。
+_VERIFY_SEGMENT_SPLIT = re.compile(r"(?:^|[;&|\n]|\$\(|`)")
+
+# セグメント先頭で読み飛ばす前置き(環境変数代入・env・時間計測など)。
+_VERIFY_PREFIX = frozenset(
+    {"env", "time", "nice", "nohup", "command", "builtin", "exec", "xargs"}
+)
+_VERIFY_ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def verify_forbidden_reason(cmd: str) -> str | None:
+    """verify コマンドに破壊的操作が含まれれば、その理由文字列を返す。
+
+    安全なら None を返す。連鎖・置換・パイプ・プロセス置換は許可し、
+    各コマンド境界の先頭に立つコマンド名だけを破壊語リストと照合する。
+    リダイレクトによる書き込み(`> path`。`/dev/null` と `/dev/stderr` を除く)も拒否する。
+
+    Args:
+        cmd: 設計書の verify 列の文字列。
+
+    Returns:
+        破壊的と判定した理由(日本語1文)。安全なら None。
+    """
+    # /dev/null・/dev/stderr 以外へのリダイレクト書き込みは、verify に正当な用途が
+    # ないうえファイルを破壊しうるので拒否する(2>/dev/null のような無害形は除外)。
+    for m in re.finditer(r">>?\s*(\S+)", cmd):
+        target = m.group(1)
+        if target not in ("/dev/null", "/dev/stderr", "/dev/stdout"):
+            return f"リダイレクト書き込みが含まれます: > {target}"
+
+    for segment in _VERIFY_SEGMENT_SPLIT.split(cmd):
+        tokens = segment.strip().split()
+        while tokens and (
+            _VERIFY_ENV_ASSIGN.match(tokens[0])
+            or os.path.basename(tokens[0].strip("\"'")).lower() in _VERIFY_PREFIX
+        ):
+            tokens = tokens[1:]
+        if not tokens:
+            continue
+        head = os.path.basename(tokens[0].strip("\"'")).lower()
+        if head in _VERIFY_DESTRUCTIVE_HEADS:
+            return f"破壊的コマンドが含まれます: {head}"
+    return None
+
+
 def check_auto_recheck(all_rows, recheck_n, ci_mode):
     """auto要件を抽出・再実行し、(reasons, ログ文字列) を返す。
 
@@ -224,6 +284,10 @@ def check_auto_recheck(all_rows, recheck_n, ci_mode):
         cmd = row["verify"].strip()
         expected = row["expected"].strip()
         if not cmd:
+            continue
+        forbidden = verify_forbidden_reason(cmd)
+        if forbidden:
+            reasons.append(f"{rid}: verify を実行せず拒否しました({forbidden})")
             continue
         try:
             result = subprocess.run(
