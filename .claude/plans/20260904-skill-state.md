@@ -226,3 +226,114 @@ resume_session_state.py の4分岐(既存回帰含む)・settings.json パッチ
 | 7 | handoff/SKILL.md に実行状態スナップショット節を追加 | `.claude/skills/handoff/SKILL.md` | `grep -n '実行状態スナップショット' ...` → 2件ヒット | e03dc21 |
 | 8 | ユーザーへ `_staging_skill_state.py` 適用を依頼 | (ユーザー操作) | 未実施(ユーザー操作待ち) | - |
 | 9 | 適用後の全検証実行 | (検証のみ) | 適用前に実施可能な範囲(gitignore・ml-pipeline/handoff grep・新規3ファイルのRED確認・既存回帰の非劣化確認)のみ完了。サブプロセス経由の GREEN 確認・settings.json実配線確認・R-017目視確認はStep 8後に保留 | - |
+
+## 作業ログ(2026-09-05, レビュー差し戻し対応)
+
+evaluator の verdict(PC-13 冪等性テスト欠落で NEEDS_REVISION、加えて Standards
+指摘2件)を受け、以下3件を修正した。前提として、Step 8(ユーザーによる
+`! uv run python _staging_skill_state.py` 適用)は既にこのブランチで
+一度実施・コミット済み(コミット `68d4882`)であり、`.claude/hooks/state_gate.py`
+等5ファイルは既に実リポジトリへ適用された状態だった。今回の3修正は
+`_staging_skill_state.py` の定数を書き換える方式のため、**実リポジトリへの
+再反映にはユーザーの再適用(`! uv run python _staging_skill_state.py`)が
+必要**(このエージェントは保護パスへ直接書き込めない)。
+
+### 修正1: PC-13 冪等性テストの追加
+
+`tests/test_state_gate.py` に `test_staging_idempotent_apply_twice`
+(`-k idempotent` で選択可能)を追加。`tests/test_data_protection_phase3.py:1031`・
+`tests/test_session_monitor.py:442` と同じ書式(`--root` サンドボックスへ2回
+連続適用し、settings.json + 5フックファイルをバイト単位で比較)。
+
+検出力証明: `apply_settings` の重複チェック(`already = any(...)`判定)を
+一時的に無効化してから同テストを実行すると、2回目の適用で `settings.json`
+に `state_gate.py` の hooks エントリが二重登録され、
+`assert p.read_bytes() == before` が
+`.../settings.json が2回目の適用で変化した(冪等でない)` で FAIL することを
+確認した(バグ注入 → FAIL → 復元 → 再度 GREEN の順で実施し、復元後は
+`diff` でバイト一致を確認)。テストが無条件 GREEN になる作りではないことを
+実証済み。
+
+### 修正2: 未使用 import(`timezone`, ruff F401)の除去
+
+`.claude/hooks/record_session_state.py` の `_age_minutes`/`_freshness_warning`
+のどちらも `timezone` を直接呼んでいない(naive/aware 判定は
+`updated.tzinfo` の有無で分岐している)ことを確認し、`_staging_skill_state.py`
+の `_RECORD_NEW_IMPORT`(`from datetime import datetime, timezone`への変更)
+を削除した。加えて、既にこの不具合入りで適用済みの実ファイルを再適用で
+修正できるよう、`apply_record_session_state` にマーカー判定より先に
+「`from datetime import datetime, timezone` が残っていれば
+`from datetime import datetime` へ戻す」処理を追加した(単純な
+「マーカーがあれば何もしない」early return だと、既に適用済みの
+バグ入りファイルが直らないため)。
+
+### 修正3: `_current_branch`/`_state_section` の共有モジュール化
+
+新規 `.claude/hooks/_state_common.py`(staging スクリプトが配置)に
+`_current_branch()` と `_state_section(slug: str)` を集約し、
+state_gate.py・reinject_after_compact.py・resume_session_state.py の3フックが
+そこから import する形にした。既存の `_common.py`/`_mask.py` の import 方式
+(`sys.path.insert` 後に `from _common import ...`)に倣った。
+
+設計判断: `_state_section` は「slug を受け取って表示セクションを組み立てる」
+関数として切り出し、branch→slug 変換(`plan_gate._slug_from_branch`)自体は
+呼び出し側(3フックそれぞれ)が引き続き直接 import して行う形にした。
+これにより計画の「検証方法」表の「slug 複製禁止」チェック
+(`grep -l 'from plan_gate import _slug_from_branch' .claude/hooks/state_gate.py
+.claude/hooks/reinject_after_compact.py .claude/hooks/resume_session_state.py`
+が3ファイルともヒット)を**変更せずにそのまま満たせる**ことを、実際に
+staging 適用したサンドボックスに対して確認した(3ファイルともヒット、
+`-group-` の正規表現リテラルは0件)。計画・設計書の記述は変更していない。
+
+`resume_session_state.py` は base ファイル自体に(本機能と無関係に)
+`_current_branch` の定義が既にあり、かつ実リポジトリは既に「複製版」が
+適用済みだったため、`apply_resume_session_state` は2経路
+(base ファイルのまま→共有版を新規適用/複製版が適用済み→共有版へ移行)を
+持たせ、どちらから始めても同じ最終バイト列に収束することをサンドボックスで
+確認した(`diff -rq` で両経路の出力ディレクトリが同一)。
+
+### 検証(実施済み・すべてこのセッション内)
+
+- `uv run --with pytest python -m pytest tests/test_state_gate.py -q -k idempotent`
+  → 1 passed, 23 deselected
+- `uv run --with pytest python -m pytest tests/test_state_gate.py -q`
+  → 24 passed(PC-15含む全件)
+- `uv run --with pytest python -m pytest tests/test_reinject_state.py
+  tests/test_state_freshness.py -q` → 16 passed(実リポジトリの既存フック、
+  未再適用でも回帰なし)
+- `uv run --with pytest python -m pytest tests/ -q` → 299 passed, 16 skipped
+- `_staging_skill_state.py --root <サンドボックス>` を(a)実リポジトリの
+  現状(複製適用済み)を複製したケースと(b)機能追加前の base ファイルを
+  複製したケースの両方に適用 → 両方 exit 0、生成物が `diff -rq` で完全一致
+- `uv run ruff check <サンドボックス>/.claude/hooks` →
+  両ケースとも `All checks passed!`(F401解消を確認)
+- サンドボックス上の state_gate.py/reinject_after_compact.py/
+  resume_session_state.py/record_session_state.py を実際に subprocess 起動し、
+  ok/broken/missing_with_plan/silent の4分岐・鮮度警告31分境界・
+  state_gate valid/invalid を個別に確認(全て期待どおり)
+
+### 再適用後にユーザーが実行すべき検証コマンド
+
+1. `! uv run python _staging_skill_state.py`(このブランチは既に一度適用済み
+   のため、`_state_common.py 配置: 適用しました` 等の差分行が出るはず)
+2. `uv run --with pytest python -m pytest tests/ -q` → 全件PASS(既存回帰なし)
+3. `uv run --with pytest python -m pytest tests/test_state_gate.py -q -k idempotent`
+   → PASS
+4. `uv run ruff check .claude/hooks/` → F401 なし(`timezone` 消滅を確認)
+5. `grep -c 'state_gate' .claude/settings.json` → 1(二重登録なし)
+6. `grep -l 'from plan_gate import _slug_from_branch' .claude/hooks/state_gate.py
+   .claude/hooks/reinject_after_compact.py .claude/hooks/resume_session_state.py`
+   → 3ファイルともヒット
+7. `grep -l 'from _state_common import' .claude/hooks/state_gate.py
+   .claude/hooks/reinject_after_compact.py .claude/hooks/resume_session_state.py`
+   → 3ファイルともヒット(今回の集約が反映されたことの確認。計画の検証方法表には
+   無い追加チェックだが、修正3の直接的な検証のため実施を推奨)
+8. `git status --short .claude/hooks/ .claude/settings.json` で差分を確認し、
+   意図した5+1ファイル(a〜f)以外が変化していないことを見る
+
+### 計画ステップ対応表(差し戻し分)
+
+| 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
+|---|---|---|---|---|
+| 5(差し戻し) | PC-13冪等性テスト追加/timezone未使用import除去/_current_branch・_state_section共有化 | `tests/test_state_gate.py`、`_staging_skill_state.py`(gitignore対象・未コミット) | `pytest tests/test_state_gate.py -q -k idempotent` → 1 passed。`pytest tests/ -q` → 299 passed, 16 skipped。サンドボックス適用結果に `ruff check` → All checks passed | ca7e2d0(テストのみ。staging本体はgitignore対象のためコミットなし) |
+| 8(差し戻し後、再) | ユーザーへ `_staging_skill_state.py` 再適用を依頼 | (ユーザー操作) | 未実施(ユーザー操作待ち) | - |
