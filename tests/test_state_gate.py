@@ -12,14 +12,17 @@ Step 5(`_staging_skill_state.py` によるユーザー適用)より前は `.clau
 """
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-HOOKS_DIR = Path(__file__).resolve().parent.parent / ".claude" / "hooks"
+_ROOT = Path(__file__).resolve().parent.parent
+HOOKS_DIR = _ROOT / ".claude" / "hooks"
 STATE_GATE_PATH = HOOKS_DIR / "state_gate.py"
+STAGING_PATH = _ROOT / "_staging_skill_state.py"
 
 _SUBPROCESS_TIMEOUT = 15
 BRANCH = "pipeline/20260904-skill-state"
@@ -389,3 +392,108 @@ def test_pc15_slug_derivation_imported_not_duplicated() -> None:
     source = STATE_GATE_PATH.read_text(encoding="utf-8")
     assert "from plan_gate import _slug_from_branch" in source
     assert "-group-" not in source
+
+
+# ---------------------------------------------------------------------------
+# PC-13: _staging_skill_state.py の冪等性(-k idempotent)
+#
+# `tests/test_data_protection_phase3.py::test_staging_idempotent_p3_apply_twice`
+# (1031行目)・`tests/test_session_monitor.py::test_staging_idempotent_apply_twice`
+# (442行目)の書式に倣う: 実リポジトリの保護ファイル(.claude/hooks/・
+# .claude/settings.json)はガードで書き込めないため、--root で複製した一時
+# ディレクトリに適用し、1回目・2回目の適用結果をバイト単位で比較する。
+# ---------------------------------------------------------------------------
+
+_STAGING_APPLY_TARGETS = (
+    "_state_common.py",
+    "state_gate.py",
+    "record_session_state.py",
+    "reinject_after_compact.py",
+    "resume_session_state.py",
+)
+
+pytestmark_staging = pytest.mark.skipif(
+    not STAGING_PATH.exists(),
+    reason="_staging_skill_state.py が存在しない(gitignore対象。ユーザーの ! 実行待ち)",
+)
+
+
+def _base_env() -> dict[str, str]:
+    return {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", "/tmp"),
+    }
+
+
+def _populate_sandbox_hooks(hooks_dir: Path) -> None:
+    """staging 適用対象(a)〜(e)が読む既存フックを、実リポジトリからサンドボックスへ複製する。"""
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "plan_gate.py",
+        "record_session_state.py",
+        "reinject_after_compact.py",
+        "resume_session_state.py",
+    ):
+        (hooks_dir / name).write_text(
+            (HOOKS_DIR / name).read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
+
+@pytestmark_staging
+def test_staging_idempotent_apply_twice(tmp_path: Path) -> None:
+    """PC-13/R-016: 同一 --root への2回連続適用で、適用先ファイル群がバイト単位で同一。"""
+    root = tmp_path / "fake_root"
+    hooks_dir = root / ".claude" / "hooks"
+    _populate_sandbox_hooks(hooks_dir)
+
+    settings_src = json.loads(
+        (_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
+    (root / ".claude" / "settings.json").write_text(
+        json.dumps(settings_src, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    env = _base_env()
+    result1 = subprocess.run(
+        [sys.executable, str(STAGING_PATH), "--root", str(root)],
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+        env=env,
+    )
+    assert result1.returncode == 0, result1.stdout + result1.stderr
+
+    snapshot_paths = [root / ".claude" / "settings.json"] + [
+        hooks_dir / name for name in _STAGING_APPLY_TARGETS
+    ]
+    for p in snapshot_paths:
+        assert p.exists(), f"1回目の適用後に {p} が無い"
+    snapshot = {p: p.read_bytes() for p in snapshot_paths}
+
+    result2 = subprocess.run(
+        [sys.executable, str(STAGING_PATH), "--root", str(root)],
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+        env=env,
+    )
+    assert result2.returncode == 0, result2.stdout + result2.stderr
+
+    for p, before in snapshot.items():
+        assert p.read_bytes() == before, f"{p} が2回目の適用で変化した(冪等でない)"
+
+    settings_after = json.loads(
+        (root / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
+    edit_matchers = [
+        h
+        for h in settings_after["hooks"]["PreToolUse"]
+        if h.get("matcher") == "Edit|Write|NotebookEdit"
+    ]
+    assert len(edit_matchers) == 1, f"matcherが重複登録された: {edit_matchers}"
+    state_gate_hooks = [
+        h for h in edit_matchers[0]["hooks"] if "state_gate.py" in h.get("command", "")
+    ]
+    assert len(state_gate_hooks) == 1, (
+        f"state_gateがhooks配列に重複登録されている: {state_gate_hooks}"
+    )
