@@ -131,24 +131,14 @@ def test_startup_injects_state_section(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# PC-10: 状態ファイルが無い・壊れている場合は見出しを出さず、1行通知のみ出す
+# PC-10: 状態ファイルが壊れている/不在+計画ありは1行通知、両方不在は沈黙する
+#
+# ユーザー決定(2026-09-04, R-010 の解決): 状態ファイル「不在」を無条件で通知すると
+# 非パイプラインセッションの起動時ノイズになり、かつ tests/test_session_resume.py の
+# 既存「記録なしなら stdout 空」不変条件を壊す(そちらは本計画の変更対象外)。
+# そのため不在時は同ブランチの計画ファイル(`.claude/plans/<slug>.md`)の有無で
+# 3分岐する(設計書 §4 参照)。
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "hook_path, source", [(REINJECT_PATH, "compact"), (RESUME_PATH, "startup")]
-)
-def test_broken_state_missing_shows_notice_only(
-    tmp_path: Path, hook_path: Path, source: str
-) -> None:
-    _init_repo(tmp_path)
-    # 状態ファイルを作らない(missing)
-
-    result = _run_hook(hook_path, tmp_path, {"source": source})
-
-    assert result.returncode == 0
-    assert _STATE_HEADING not in result.stdout
-    assert "状態ファイルが読めない" in result.stdout
 
 
 @pytest.mark.parametrize(
@@ -157,6 +147,7 @@ def test_broken_state_missing_shows_notice_only(
 def test_broken_state_invalid_json_shows_notice_only(
     tmp_path: Path, hook_path: Path, source: str
 ) -> None:
+    """状態ファイルが存在するが JSON 破損: 計画ファイルの有無に関わらず無条件で1行通知。"""
     _init_repo(tmp_path)
     _write_state_file(tmp_path, "not json at all {{{")
 
@@ -165,6 +156,49 @@ def test_broken_state_invalid_json_shows_notice_only(
     assert result.returncode == 0
     assert _STATE_HEADING not in result.stdout
     assert "状態ファイルが読めない" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "hook_path, source", [(REINJECT_PATH, "compact"), (RESUME_PATH, "startup")]
+)
+def test_broken_missing_state_with_plan_shows_notice_only(
+    tmp_path: Path, hook_path: Path, source: str
+) -> None:
+    """状態ファイル不在+同ブランチの計画ファイルあり(パイプラインが動いていた証拠): 1行通知。"""
+    _init_repo(tmp_path)
+    plans_dir = tmp_path / ".claude" / "plans"
+    plans_dir.mkdir(parents=True)
+    (plans_dir / f"{SLUG}.md").write_text("計画本文\n", encoding="utf-8")
+    # 状態ファイルは作らない(missing)
+
+    result = _run_hook(hook_path, tmp_path, {"source": source})
+
+    assert result.returncode == 0
+    assert _STATE_HEADING not in result.stdout
+    assert "状態ファイルが読めない" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "hook_path, source", [(REINJECT_PATH, "compact"), (RESUME_PATH, "startup")]
+)
+def test_broken_missing_state_and_missing_plan_stays_silent(
+    tmp_path: Path, hook_path: Path, source: str
+) -> None:
+    """状態ファイル・計画ファイルとも不在(非パイプラインセッション): 状態セクションも通知も出さない。
+
+    resume_session_state.py(startup)側は、この場合 stdout が完全に空になる
+    既存の不変条件(tests/test_session_resume.py)を壊さないことも併せて確認する。
+    """
+    _init_repo(tmp_path)
+    # 状態ファイル・計画ファイルともに作らない
+
+    result = _run_hook(hook_path, tmp_path, {"source": source})
+
+    assert result.returncode == 0
+    assert _STATE_HEADING not in result.stdout
+    assert "状態ファイルが読めない" not in result.stdout
+    if source == "startup":
+        assert result.stdout == ""
 
 
 # ---------------------------------------------------------------------------
