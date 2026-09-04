@@ -322,14 +322,14 @@ def test_fail_open_edit_ambiguous_old_string(tmp_path: Path) -> None:
     _init_repo(tmp_path)
     state_path = tmp_path / STATE_REL_PATH
     state_path.parent.mkdir(parents=True)
-    state_path.write_text('{"x": 1, "x2": 1}', encoding="utf-8")
+    state_path.write_text('{"a": 1, "b": 1}', encoding="utf-8")
 
     payload = {
         "tool_name": "Edit",
         "tool_input": {
             "file_path": STATE_REL_PATH,
-            "old_string": '"x"',
-            "new_string": '"y"',
+            "old_string": ": 1",
+            "new_string": ": 2",
         },
     }
     result = _run_gate(tmp_path, payload)
