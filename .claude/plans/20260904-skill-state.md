@@ -78,7 +78,7 @@ ml-pipeline の再開が「散文サマリと推定手順番号」に依存し�
 | PC-12 | `.gitignore` | `git check-ignore .claude/state/dummy.json` | exit 0 | R-015 |
 | PC-13 | `_staging_skill_state.py` | 同一 `--root` に対して2回連続実行 | 1回目と2回目で適用先ファイル群がバイト単位で同一(冪等) | R-016 |
 | PC-14 | `.claude/settings.json` | 適用後のファイル | 有効な JSON であり、`state_gate` を含むフックエントリがちょうど1件、PreToolUse の Edit/Write を含む matcher に属する | R-016 |
-| PC-15 | `.claude/hooks/state_gate.py` | 適用後のソース | `from plan_gate import _slug_from_branch` を含み、`-group-` を含む正規表現リテラルを**含まない**(複製禁止) | R-014 |
+| PC-15 | `.claude/hooks/state_gate.py`・`reinject_after_compact.py`・`resume_session_state.py` | 適用後のソース | ブランチ名から状態ファイルパスを導出する処理は3ファイルとも `from plan_gate import _slug_from_branch` の import で行い、いずれも `-group-` を含む正規表現リテラルを**含まない**(複製禁止。premortem MEDIUM 反映: 注入フック側での独自複製もテストで検出する) | R-014 |
 | PC-16 | `.claude/commands/ml-pipeline.md` | ファイル本文 | 手順1.5 節に `.claude/state/` の初期作成指示、`current_step` を含む状態更新規約、手順9 節に状態ファイル削除の指示がある | R-001, R-002, R-013 |
 | PC-17 | `.claude/skills/handoff/SKILL.md` | ファイル本文 | `## 実行状態スナップショット` の見出しと、別マシンでの復元手順がある | R-012 |
 
@@ -94,7 +94,7 @@ ml-pipeline の再開が「散文サマリと推定手順番号」に依存し�
 | 2 | state_gate の受け入れテストを先に書く。`-k` で `valid` / `invalid` / `unknown_key` / `notes_limit` / `fail_open` が選択できるテスト名にする。PC-1〜PC-7・PC-15 を固定。書式は `tests/test_session_resume.py`(`subprocess.run([sys.executable, <絶対パス>], ...)`・`_SUBPROCESS_TIMEOUT`)に倣う(R-003〜R-007, R-014 対応) | `tests/test_state_gate.py` | なし | A |
 | 3 | 注入側の受け入れテストを先に書く。`-k` で `compact` / `startup` / `broken` が選択できるテスト名にする。PC-8〜PC-10 を固定。見出しの**出現順**(状態セクションが先)まで検査する(R-008〜R-010 対応) | `tests/test_reinject_state.py` | なし | A |
 | 4 | 鮮度警告の受け入れテストを先に書く。PC-11 を固定。`updated_at` は naive(`2026-09-04T10:00:00`)と aware(`+09:00` 付き)の両形式で31分前・29分前を検査する。注意: 片方だけだと `datetime` の naive/aware 比較で `TypeError` になり、fail-open に飲まれて警告が永久に出ない事故を検出できない(R-011 対応) | `tests/test_state_freshness.py` | なし | A |
-| 5 | 保護パス配下の変更をまとめて適用する冪等スクリプトを書く。`_staging_data_protection_p3.py` の構成(モジュール docstring に適用内容の一覧、内容を文字列定数として保持、`--root` 引数、`_write_if_different` 相当、適用済み判定のマーカー)に倣う。適用内容: (a) `.claude/hooks/state_gate.py` の新規配置、(b) `record_session_state.py` への鮮度警告、(c) `reinject_after_compact.py` への状態注入、(d) `resume_session_state.py` への状態注入、(e) `.claude/settings.json` の PreToolUse(matcher `Edit\|Write\|NotebookEdit`)への state_gate 追加。注意: (e) は同一コマンド文字列が既にあれば追加しない(二重登録でフックが2回走るのを防ぐ)(R-003〜R-011, R-014, R-016 対応) | `_staging_skill_state.py` | Step 2, 3, 4 | A |
+| 5 | 保護パス配下の変更をまとめて適用する冪等スクリプトを書く。`_staging_data_protection_p3.py` の構成(モジュール docstring に適用内容の一覧、内容を文字列定数として保持、`--root` 引数、`_write_if_different` 相当、適用済み判定のマーカー)に倣う。適用内容: (a) `.claude/hooks/state_gate.py` の新規配置、(b) `record_session_state.py` への鮮度警告、(c) `reinject_after_compact.py` への状態注入、(d) `resume_session_state.py` への状態注入、(e) `.claude/settings.json` の PreToolUse(matcher `Edit\|Write\|NotebookEdit`)への state_gate 追加。注意: (e) は同一コマンド文字列が既にあれば追加しない(二重登録でフックが2回走るのを防ぐ)。(c)(d) の注入フックが現ブランチの状態ファイルパスを特定する処理は、`_slug_from_branch` の import で行う(独自の正規表現複製は PC-15 で禁止)(R-003〜R-011, R-014, R-016 対応) | `_staging_skill_state.py` | Step 2, 3, 4 | A |
 | 6 | ml-pipeline.md に (i) 手順1.5 の末尾へ初期状態ファイル作成、(ii) 手順の節に状態更新規約(各手順完了時に `current_step`・`gates`・`updated_at`・`next_action` を更新)、(iii) 手順9 に状態ファイル削除、を追記する。既存の手順見出し(`### N. タイトル`)と箇条書きの書式に倣い、新設の節は作らない(R-001, R-002, R-013 対応) | `.claude/commands/ml-pipeline.md` | なし | B |
 | 7 | handoff/SKILL.md の「## 含める内容」の後に「## 実行状態スナップショット」節を追加し、状態 JSON の埋め込みを必須と明記、別マシンでの復元手順(`.claude/state/<slug>.json` に書き戻す)を書く。既存節の語り口(短い箇条書き)に倣い、「## 自動記録との違い」節にも状態ファイルとの関係を1〜2行で追記する(R-012 対応) | `.claude/skills/handoff/SKILL.md` | なし | C |
 | 8 | ユーザーへ `_staging_skill_state.py` の適用を依頼する(`! uv run python _staging_skill_state.py`)。適用内容の要約(変更5ファイル)と、適用前は Step 2〜4 のテストが RED であることを併せて伝える。エージェントは自分で適用しない | (ユーザー操作) | Step 5 | A |
@@ -122,7 +122,7 @@ A 内部は Step 2〜4 → 5 → 8 → 9 の順に依存があるので逐次)
 | 鮮度警告 | `uv run python -m pytest tests/test_state_freshness.py -q` | exit 0 |
 | 回帰 | `uv run python -m pytest tests/ -q` | exit 0(既存テストの新規 FAIL なし) |
 | gitignore | `git check-ignore .claude/state/dummy.json` | exit 0 |
-| slug 複製禁止 | `grep -n 'from plan_gate import _slug_from_branch' .claude/hooks/state_gate.py` | 1件以上ヒット |
+| slug 複製禁止 | `grep -l 'from plan_gate import _slug_from_branch' .claude/hooks/state_gate.py .claude/hooks/reinject_after_compact.py .claude/hooks/resume_session_state.py` | 状態ファイルパスをブランチ名から導出する全ファイルがヒット。かつ `grep -n '\-group\-' <同3ファイル>` が正規表現リテラルとして0件 |
 | 配線 | `grep -c 'state_gate' .claude/settings.json` | 1(2件以上なら二重登録) |
 | settings.json 妥当性 | `uv run python -m json.tool .claude/settings.json` | exit 0 |
 | ml-pipeline | `grep -n 'state/' .claude/commands/ml-pipeline.md` | 手順1.5 節と手順9 節の両方にヒット |
@@ -177,7 +177,7 @@ A 内部は Step 2〜4 → 5 → 8 → 9 の順に依存があるので逐次)
 | R-011 | Step 4, 5, 8 | `uv run python -m pytest tests/test_state_freshness.py -q` |
 | R-012 | Step 7 | `grep -n '実行状態スナップショット' .claude/skills/handoff/SKILL.md` |
 | R-013 | Step 6 | `grep -n 'state/' .claude/commands/ml-pipeline.md`(手順9 節にヒット) |
-| R-014 | Step 2, 5, 8 | `grep -n 'from plan_gate import _slug_from_branch' .claude/hooks/state_gate.py` |
+| R-014 | Step 2, 5, 8 | 検証方法「slug 複製禁止」行のとおり(state_gate.py+注入フック2本の3ファイル対象) |
 | R-015 | Step 1 | `git check-ignore .claude/state/dummy.json` |
 | R-016 | Step 5, 8 | `grep -c 'state_gate' .claude/settings.json`(1) |
 | R-017 | Step 9 | (目視)ユーザーが注入文面を確認し承認する |
