@@ -181,3 +181,48 @@ A 内部は Step 2〜4 → 5 → 8 → 9 の順に依存があるので逐次)
 | R-015 | Step 1 | `git check-ignore .claude/state/dummy.json` |
 | R-016 | Step 5, 8 | `grep -c 'state_gate' .claude/settings.json`(1) |
 | R-017 | Step 9 | (目視)ユーザーが注入文面を確認し承認する |
+
+## 作業ログ(2026-09-04, generator)
+
+### R-010 の解決(ユーザー決定)
+
+実装中、`resume_session_state.py` の起動時(startup)注入について、設計書 R-010
+「状態ファイルが存在しない/破損していれば1行通知」を文字どおり実装すると、
+`.claude/state/` を一度も使っていない(非パイプライン)セッションでも毎回
+通知が出るようになり、かつ既存 `tests/test_session_resume.py` の
+「記録なしなら stdout 空」という不変条件(本計画の変更対象外ファイル)を
+壊す実装上の矛盾が判明したため、一旦停止してユーザーに確認した。
+
+ユーザー決定: 状態ファイル不在時は同ブランチの計画ファイル
+(`.claude/plans/<slug>.md`)の有無で分岐する3分岐(破損は無条件通知/
+不在+計画ありは通知/両方不在は沈黙)を採用。設計書 §4 を更新済み
+(`docs/active/20260904-skill-state-spec.md` の該当箇所)。
+`tests/test_reinject_state.py` の `-k broken` 選択でこの3分岐を固定した。
+
+### 検証手段の制約
+
+保護パス(`.claude/hooks/`・`.claude/settings.json`)は Bash 経由でも
+`cp`/`Write` の宛先・参照元いずれもガードでブロックされるため、
+staging スクリプトの適用結果を実ファイルとして書き出して subprocess で
+動作確認することができなかった(サンドボックス実行の試みは権限
+クラシファイアにブロックされた)。代わりに、`_staging_skill_state.py` 内の
+文字列定数をメモリ上で `exec`(実ファイルには一切書き込まない)し、
+state_gate.py の全分岐・reinject_after_compact.py の4分岐・
+resume_session_state.py の4分岐(既存回帰含む)・settings.json パッチの
+冪等性・record_session_state.py の鮮度境界(固定クロック)を個別に検証した
+(詳細は完了報告に記載)。Step 9 の実サブプロセス経由の検証は、
+ユーザーが Step 8 で staging を適用した後に行う。
+
+### 計画ステップ対応表
+
+| 計画ステップ# | 実施内容 | 変更ファイル | 検証コマンドと結果 | コミットID |
+|---|---|---|---|---|
+| 1 | `.claude/state/` を gitignore に追加 | `.gitignore` | `git check-ignore .claude/state/dummy.json` → exit 0 | 924e667 |
+| 2 | state_gate.py の受け入れテストを先に書く(RED) | `tests/test_state_gate.py` | `pytest tests/test_state_gate.py -q` → 23 failed(RED、想定どおり) | 625c57f, 08542f1(曖昧old_stringの検出力修正) |
+| 3 | 注入側の受け入れテストを先に書く(RED)。R-010 の3分岐を反映 | `tests/test_reinject_state.py` | `pytest tests/test_reinject_state.py -q` → 7 failed, 3 passed(RED、想定どおり) | 95f5e6f, d0f6bf0(R-010 3分岐反映) |
+| 4 | 鮮度警告の受け入れテストを先に書く(RED)。ちょうど30分境界を固定クロック単体テストで検証 | `tests/test_state_freshness.py` | `pytest tests/test_state_freshness.py -q` → 3 failed, 3 passed(RED、想定どおり) | 7f7d6f3, 38299a8(境界テストのタイミング欠陥修正) |
+| 5 | 保護パス配下変更の冪等適用スクリプトを作成。state_gate.py新規・record/reinject/resume拡張・settings.json配線 | `_staging_skill_state.py`(gitignore対象・未コミット) | メモリ上exec検証で全分岐・冪等性・境界値を確認(完了報告参照)。実適用はStep 8待ち | (gitignore対象のためコミットなし) |
+| 6 | ml-pipeline.md に手順1.5初期作成・状態更新規約・手順9削除を追記 | `.claude/commands/ml-pipeline.md` | `grep -n 'state/' ...` → 3箇所ヒット(手順1.5/共通規約/手順9)、`grep -c 'current_step'` → 2 | a340c35 |
+| 7 | handoff/SKILL.md に実行状態スナップショット節を追加 | `.claude/skills/handoff/SKILL.md` | `grep -n '実行状態スナップショット' ...` → 2件ヒット | e03dc21 |
+| 8 | ユーザーへ `_staging_skill_state.py` 適用を依頼 | (ユーザー操作) | 未実施(ユーザー操作待ち) | - |
+| 9 | 適用後の全検証実行 | (検証のみ) | 適用前に実施可能な範囲(gitignore・ml-pipeline/handoff grep・新規3ファイルのRED確認・既存回帰の非劣化確認)のみ完了。サブプロセス経由の GREEN 確認・settings.json実配線確認・R-017目視確認はStep 8後に保留 | - |
