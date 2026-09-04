@@ -13,11 +13,13 @@ naive(`2026-09-04T10:00:00`)/ aware(`+09:00` 付き)の両形式を検査する�
 によるユーザー適用)より前は鮮度警告が未実装のため FAIL するのが正しい状態(RED)。
 """
 
+import importlib.util
 import json
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -76,6 +78,21 @@ def _write_state_file(tmp_path: Path, updated_at: str) -> None:
     )
 
 
+def _load_module(path: Path, name: str) -> ModuleType:
+    """指定パスの `.py` をモジュールとして直接読み込む(境界テストで `datetime` を
+    差し替えるための直接呼び出し用。`tests/test_session_resume.py` の
+    `_load_module` と同じ方式)。
+    """
+    hooks_dir = str(path.parent)
+    if hooks_dir not in sys.path:
+        sys.path.insert(0, hooks_dir)
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _run_record(tmp_path: Path) -> subprocess.CompletedProcess[str]:
     stdin = json.dumps({"transcript_path": ""})
     return subprocess.run(
@@ -111,15 +128,33 @@ def test_freshness_29_minutes_no_warning(tmp_path: Path, aware: bool) -> None:
     assert "systemMessage" not in result.stdout
 
 
-def test_freshness_exactly_30_minutes_no_warning(tmp_path: Path) -> None:
-    """境界: ちょうど30分は「30分より古い」に該当しないため警告なし(premortem LOW反映)。"""
-    _init_repo(tmp_path)
-    _write_state_file(tmp_path, _iso_minutes_ago(30, aware=False))
+def test_freshness_exactly_30_minutes_no_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """境界: ちょうど30分は「30分より古い」に該当しないため警告なし(premortem LOW反映)。
 
-    result = _run_record(tmp_path)
+    サブプロセス経由の実時計では、テストが `updated_at` を組み立ててから
+    フックが `datetime.now()` を評価するまでの実行遅延ぶん、実際の経過時間が
+    常にちょうど30分をわずかに超えてしまい、この境界(30分ちょうどは警告なし)を
+    検証できない(常に「31分」側に倒れて誤って FAIL する設計ミス)。
+    そのため record_session_state モジュールを直接ロードし、モジュール内の
+    `datetime` を固定時刻のダミーに差し替えて、経過時間をちょうど30.0分に固定する。
+    """
+    monkeypatch.chdir(tmp_path)
+    # ブランチは _freshness_warning に直接渡すため git 初期化は不要
+    record = _load_module(RECORD_PATH, "record_session_state")
 
-    assert result.returncode == 0
-    assert "systemMessage" not in result.stdout
+    fixed_now = datetime(2026, 9, 4, 11, 0, 0)
+
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.astimezone(tz) if tz is not None else fixed_now
+
+    record.datetime = _FrozenDatetime
+    _write_state_file(tmp_path, (fixed_now - timedelta(minutes=30)).isoformat())
+
+    assert record._freshness_warning(BRANCH) is None
 
 
 def test_freshness_no_state_file_no_warning(tmp_path: Path) -> None:
