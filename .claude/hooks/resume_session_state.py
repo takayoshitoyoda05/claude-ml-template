@@ -19,9 +19,13 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from plan_gate import _slug_from_branch  # noqa: E402
+
 STATE_FILE = Path(".claude/checkpoints/session_state.md")
 _MAX_AGE_HOURS = 72
 _BRANCH_LINE_PREFIX = "## Git ブランチ:"
+_STATE_HEADING = "## 現在の実行状態(検証済み・これを正とする)"
 
 
 def _current_branch() -> str:
@@ -48,6 +52,52 @@ def _recorded_branch(content: str) -> str | None:
         if line.startswith(_BRANCH_LINE_PREFIX):
             return line[len(_BRANCH_LINE_PREFIX) :].strip()
     return None
+
+
+def _state_section() -> tuple[str, str | None]:
+    """状態ファイル(.claude/state/<slug>.json)の注入用セクションを組み立てる。
+
+    reinject_after_compact.py と同じ3分岐(ok / broken / missing_with_plan /
+    silent。設計書 R-010、ユーザー決定 2026-09-04)。ブランチ名からの状態
+    ファイルパス導出は `plan_gate._slug_from_branch` の import で行う
+    (正規表現複製禁止)。
+
+    Returns:
+        (status, section_text) の組。"ok" のときのみ section_text が非 None。
+    """
+    branch = _current_branch()
+    if not branch:
+        return "silent", None
+    slug = _slug_from_branch(branch)
+    state_path = Path(".claude/state") / f"{slug}.json"
+    if state_path.exists():
+        try:
+            content = state_path.read_text(encoding="utf-8")
+            json.loads(content)
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+            return "broken", None
+        section = (
+            f"{_STATE_HEADING}\n"
+            "以下はスキーマ検証済みの構造化状態です。散文サマリより優先して従うこと。\n"
+            "```json\n" + content.strip() + "\n```"
+        )
+        return "ok", section
+
+    plan_path = Path(".claude/plans") / f"{slug}.md"
+    if plan_path.exists():
+        return "missing_with_plan", None
+    return "silent", None
+
+
+def _print_state_section() -> None:
+    """状態セクション(または欠損・破損の1行通知)を出力する。silent なら何も出さない。"""
+    status, section = _state_section()
+    if status == "ok":
+        print(section)
+    elif status in ("broken", "missing_with_plan"):
+        print(
+            "状態ファイルが読めないため、状態セクションは省略します(.claude/state/)。"
+        )
 
 
 def _resume_instructions() -> str:
@@ -77,6 +127,8 @@ def _run() -> None:
     # ユーザーが意図的に文脈を消しているため注入しない
     if data.get("source") != "startup":
         return
+
+    _print_state_section()
 
     try:
         if not STATE_FILE.exists():

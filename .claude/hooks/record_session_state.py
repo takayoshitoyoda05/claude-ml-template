@@ -17,7 +17,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -39,6 +39,7 @@ _MAX_PLAN_TABLE_LINE_CHARS = 120
 _MAX_STATUS_LINES = 40
 _STEP_MENTION_RE = re.compile(r"手順\s*\d+(?:\.\d+)?")
 _TABLE_LINE_RE = re.compile(r"^\| \d+ \|")
+_STALE_MINUTES = 30  # 鮮度警告の閾値(分)。ちょうど30分は「より古い」に該当せず警告なし
 
 
 def _run_git(args: list[str]) -> str:
@@ -246,6 +247,52 @@ def _build_state(branch: str, transcript_path: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _age_minutes(updated_at: str) -> float | None:
+    """`updated_at` から現在までの経過分数を返す。解釈できなければ None。
+
+    naive/aware のどちらでも `now` を同じ awareness で作ることで、片方だけ
+    対応した場合に起きる `datetime` 比較の `TypeError`(fail-open に飲まれて
+    鮮度警告が永久に出なくなる既知の事故)を避ける。
+    """
+    try:
+        updated = datetime.fromisoformat(updated_at)
+    except ValueError:
+        return None
+    now = datetime.now(updated.tzinfo) if updated.tzinfo is not None else datetime.now()
+    return (now - updated).total_seconds() / 60
+
+
+def _freshness_warning(branch: str) -> str | None:
+    """状態ファイル(.claude/state/<slug>.json)が30分より古ければ警告文を返す。
+
+    状態ファイルが無い・読めない・updated_at が解釈できない場合は None
+    (この機能に限り fail-open とする。設計判断は record 全体と同じ)。
+    """
+    if not branch:
+        return None
+    slug = _slug_from_branch(branch)
+    state_path = Path(".claude/state") / f"{slug}.json"
+    if not state_path.exists():
+        return None
+    try:
+        obj = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(obj, dict):
+        return None
+    updated_at = obj.get("updated_at")
+    if not isinstance(updated_at, str):
+        return None
+    age = _age_minutes(updated_at)
+    if age is None or age <= _STALE_MINUTES:
+        return None
+    return (
+        f"[state] .claude/state/{slug}.json の updated_at が約{age:.0f}分前です"
+        "(30分超)。手順完了時に current_step・gates・updated_at・next_action を"
+        "更新してください。"
+    )
+
+
 def _run() -> None:
     if os.environ.get("CLAUDE_SESSION_RESUME", "1") == "0":
         return
@@ -264,6 +311,13 @@ def _run() -> None:
 
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(content, encoding="utf-8")
+
+    warning = _freshness_warning(branch)
+    if warning:
+        # session_monitor.py と同じ書式(systemMessage + 同文をstderr)。
+        # ブロックはしない(この機能に限り fail-open。設計判断は record 全体と同じ)
+        print(json.dumps({"systemMessage": warning}, ensure_ascii=False))
+        print(warning, file=sys.stderr)
 
 
 def main() -> None:
