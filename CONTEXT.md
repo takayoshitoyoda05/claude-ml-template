@@ -4,3 +4,4 @@
 |------|------|
 | SKILL.state | 長時間実行エージェントの実行を、会話履歴でなく検証済みの構造化状態で管理する設計(arXiv:2608.26263)。本テンプレートでは部分採用(ADR-0018) |
 | 実行状態ファイル | `.claude/state/<ブランチslug>.json`。ml-pipeline の進行状態(現在手順・ゲート通過・次の1手)をモデルが更新し、フックが検証する正データ。gitignore 対象 |
+| staging 適用スクリプト | リポジトリルートの `_staging_<topic>.py`。guard_scope の保護パス(`.claude/hooks/`・`settings.json` 等)への変更をエージェントが直接書けないため、冪等な適用スクリプトとして用意し、ユーザーが `!` 実行で手動適用する。gitignore 対象(前例: `_staging_data_protection_p3.py`) |
