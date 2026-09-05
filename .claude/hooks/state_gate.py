@@ -6,6 +6,8 @@
 (`.claude/state/<現在ブランチの slug>.json`)。ブランチ名からの状態ファイル
 パス導出は `plan_gate._slug_from_branch` の import で行う
 (reinject_after_compact.py・resume_session_state.py と同じ規約。正規表現の
+複製禁止)。現在ブランチの取得(`_current_branch`)は `_state_common` から
+import する(reinject_after_compact.py・resume_session_state.py と共有。
 複製禁止)。他ブランチ・他worktree由来と思われる `.claude/state/*.json` は
 このフックの対象外として通す(PC-6「配下でなければ通す」の拡張)。
 
@@ -19,12 +21,12 @@ old_string が1回だけ現れない等)は fail-open で通す(PC-7)。
 
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from plan_gate import _slug_from_branch  # noqa: E402
+from _state_common import _current_branch  # noqa: E402
 
 NOTES_MAX_CHARS = 500
 
@@ -41,24 +43,6 @@ _GATES_ENUM = {
 }
 _ARTIFACT_KEYS = {"plan", "design_doc", "report"}
 _SIZE_ENUM = {"S", "M", "L"}
-
-
-def _current_branch() -> str:
-    """現在のブランチ名を返す。取得できなければ空文字列(resume_session_state.py と同じ規約)。"""
-    try:
-        result = subprocess.run(
-            ["git", "branch", "--show-current"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired, UnicodeError):
-        return ""
-    if result.returncode != 0:
-        return ""
-    return result.stdout.strip()
 
 
 def _expected_state_path() -> str | None:

@@ -12,39 +12,22 @@
 
 ブランチ名からの状態ファイルパス導出は `plan_gate._slug_from_branch` の import
 で行う(state_gate.py・resume_session_state.py と同じ規約。正規表現複製禁止)。
+現在ブランチの取得(`_current_branch`)と状態セクションの組み立て本体
+(`_state_section`)は `_state_common` から共有する(resume_session_state.py と
+複製禁止)。
 """
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from plan_gate import _slug_from_branch  # noqa: E402
-
-_STATE_HEADING = "## 現在の実行状態(検証済み・これを正とする)"
-
-
-def _current_branch() -> str:
-    """現在のブランチ名を返す。取得できなければ空文字列(resume_session_state.py と同じ規約)。"""
-    try:
-        result = subprocess.run(
-            ["git", "branch", "--show-current"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired, UnicodeError):
-        return ""
-    if result.returncode != 0:
-        return ""
-    return result.stdout.strip()
+from _state_common import _current_branch, _state_section as _common_state_section  # noqa: E402
 
 
 def _state_section() -> tuple[str, str | None]:
-    """状態ファイルの注入用セクションを組み立てる。
+    """状態ファイルの注入用セクションを組み立てる(`_state_common` 実装を共有)。
 
     Returns:
         (status, section_text) の組。status は "ok"(状態注入)/
@@ -56,24 +39,7 @@ def _state_section() -> tuple[str, str | None]:
     if not branch:
         return "silent", None
     slug = _slug_from_branch(branch)
-    state_path = Path(".claude/state") / f"{slug}.json"
-    if state_path.exists():
-        try:
-            content = state_path.read_text(encoding="utf-8")
-            json.loads(content)
-        except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
-            return "broken", None
-        section = (
-            f"{_STATE_HEADING}\n"
-            "以下はスキーマ検証済みの構造化状態です。散文サマリより優先して従うこと。\n"
-            "```json\n" + content.strip() + "\n```"
-        )
-        return "ok", section
-
-    plan_path = Path(".claude/plans") / f"{slug}.md"
-    if plan_path.exists():
-        return "missing_with_plan", None
-    return "silent", None
+    return _common_state_section(slug)
 
 
 def main():
