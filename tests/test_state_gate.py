@@ -341,41 +341,27 @@ def test_fail_open_edit_ambiguous_old_string(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# PC-6: `.claude/state/` 配下でない・`.json` でないパスは内容を問わず通す
+# PC-6: `.claude/state/` 配下でない・`.json` でないパス・他ブランチの状態ファイルは
+# 内容を問わず通す
 # ---------------------------------------------------------------------------
 
 
-def test_pc6_non_state_path_allowed_regardless_of_content(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "file_path, content",
+    [
+        ("docs/notes.txt", "not json at all {{{"),
+        (".claude/state/notes.md", "任意の本文"),
+        (".claude/state/other-branch.json", "not json at all {{{"),
+    ],
+    ids=["non_state_path", "non_json_extension", "other_branch_state_file"],
+)
+def test_pc6_out_of_scope_path_allowed_regardless_of_content(
+    tmp_path: Path, file_path: str, content: str
+) -> None:
     _init_repo(tmp_path)
     payload = {
         "tool_name": "Write",
-        "tool_input": {"file_path": "docs/notes.txt", "content": "not json at all {{{"},
-    }
-    result = _run_gate(tmp_path, payload)
-
-    assert result.returncode == 0
-
-
-def test_pc6_non_json_extension_under_state_dir_allowed(tmp_path: Path) -> None:
-    _init_repo(tmp_path)
-    payload = {
-        "tool_name": "Write",
-        "tool_input": {"file_path": ".claude/state/notes.md", "content": "任意の本文"},
-    }
-    result = _run_gate(tmp_path, payload)
-
-    assert result.returncode == 0
-
-
-def test_pc6_other_branch_state_file_allowed(tmp_path: Path) -> None:
-    """PC-6 の拡張: 現在ブランチと異なる slug の状態ファイルは対象外として通す。"""
-    _init_repo(tmp_path)
-    payload = {
-        "tool_name": "Write",
-        "tool_input": {
-            "file_path": ".claude/state/other-branch.json",
-            "content": "not json at all {{{",
-        },
+        "tool_input": {"file_path": file_path, "content": content},
     }
     result = _run_gate(tmp_path, payload)
 
