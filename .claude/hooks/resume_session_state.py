@@ -14,32 +14,17 @@ reinject_after_compact.py(SessionStart, matcher: compact)とは別ファイル�
 
 import json
 import os
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from plan_gate import _slug_from_branch  # noqa: E402
+from _state_common import _current_branch, _state_section as _common_state_section  # noqa: E402
+
 STATE_FILE = Path(".claude/checkpoints/session_state.md")
 _MAX_AGE_HOURS = 72
 _BRANCH_LINE_PREFIX = "## Git ブランチ:"
-
-
-def _current_branch() -> str:
-    """現在のブランチ名を返す。取得できなければ空文字列。"""
-    try:
-        result = subprocess.run(
-            ["git", "branch", "--show-current"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired, UnicodeError):
-        return ""
-    if result.returncode != 0:
-        return ""
-    return result.stdout.strip()
 
 
 def _recorded_branch(content: str) -> str | None:
@@ -48,6 +33,31 @@ def _recorded_branch(content: str) -> str | None:
         if line.startswith(_BRANCH_LINE_PREFIX):
             return line[len(_BRANCH_LINE_PREFIX) :].strip()
     return None
+
+
+def _state_section() -> tuple[str, str | None]:
+    """状態ファイル(.claude/state/<slug>.json)の注入用セクションを組み立てる
+    (`_state_common` 実装を共有。reinject_after_compact.py と複製禁止)。
+
+    Returns:
+        (status, section_text) の組。"ok" のときのみ section_text が非 None。
+    """
+    branch = _current_branch()
+    if not branch:
+        return "silent", None
+    slug = _slug_from_branch(branch)
+    return _common_state_section(slug)
+
+
+def _print_state_section() -> None:
+    """状態セクション(または欠損・破損の1行通知)を出力する。silent なら何も出さない。"""
+    status, section = _state_section()
+    if status == "ok":
+        print(section)
+    elif status in ("broken", "missing_with_plan"):
+        print(
+            "状態ファイルが読めないため、状態セクションは省略します(.claude/state/)。"
+        )
 
 
 def _resume_instructions() -> str:
@@ -77,6 +87,8 @@ def _run() -> None:
     # ユーザーが意図的に文脈を消しているため注入しない
     if data.get("source") != "startup":
         return
+
+    _print_state_section()
 
     try:
         if not STATE_FILE.exists():
