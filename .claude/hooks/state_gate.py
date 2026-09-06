@@ -6,10 +6,16 @@
 (`.claude/state/<現在ブランチの slug>.json`)。ブランチ名からの状態ファイル
 パス導出は `plan_gate._slug_from_branch` の import で行う
 (reinject_after_compact.py・resume_session_state.py と同じ規約。正規表現の
-複製禁止)。現在ブランチの取得(`_current_branch`)は `_state_common` から
-import する(reinject_after_compact.py・resume_session_state.py と共有。
-複製禁止)。他ブランチ・他worktree由来と思われる `.claude/state/*.json` は
-このフックの対象外として通す(PC-6「配下でなければ通す」の拡張)。
+複製禁止)。ブランチ取得(`_current_branch`)・検証本体(`_validate_state`)は
+`_state_common` から import する(reinject_after_compact.py・
+resume_session_state.py と共有。複製禁止)。他ブランチ・他worktree由来と
+思われる `.claude/state/*.json` はこのフックの対象外として通す
+(PC-6「配下でなければ通す」の拡張)。
+
+ブランチ取得・状態パス導出・対象パス判定は全て「実効 cwd」
+(ペイロードの `cwd` があればそれ、無ければプロセス cwd。guard_scope.py と
+同じ規約)基準に統一する。プロセス cwd とペイロード cwd が食い違うケース
+(例: 別 worktree からの呼び出し)で検証がスキップされるのを防ぐため。
 
 検証規則: 必須キー存在+型+enum値+未知キー拒否(未知キー拒否は論文の
 「状態キーの偶発上書き」対策。設計書2節参照)。Edit の場合は old_string の
@@ -26,35 +32,20 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from plan_gate import _slug_from_branch  # noqa: E402
-from _state_common import _current_branch  # noqa: E402
-
-NOTES_MAX_CHARS = 500
-
-_REQUIRED_KEYS = {
-    "schema_version", "branch", "task_summary", "size", "current_step",
-    "gates", "open_findings", "artifacts", "next_action", "notes", "updated_at",
-}
-_GATES_ENUM = {
-    "spec_checklist": {"READY", "NEEDS_WORK"},
-    "plan_premortem": {"PASS", "SEND_BACK"},
-    "plan_approval": {"human", "auto"},
-    "evaluator": {"PASS", "FAIL"},
-    "final_gate": {"APPROVE", "SEND_BACK"},
-}
-_ARTIFACT_KEYS = {"plan", "design_doc", "report"}
-_SIZE_ENUM = {"S", "M", "L"}
+from _state_common import _current_branch, _validate_state  # noqa: E402
 
 
-def _expected_state_path() -> str | None:
-    """現在のブランチに対応する状態ファイルの絶対パス(スラッシュ区切り)を返す。
+def _expected_state_path(effective_cwd: str) -> str | None:
+    """`effective_cwd` 基準で、現在のブランチに対応する状態ファイルの絶対パス
+    (スラッシュ区切り)を返す。
 
     現在ブランチが特定できない場合は None(対象を特定できないため fail-open)。
     """
-    branch = _current_branch()
+    branch = _current_branch(effective_cwd)
     if not branch:
         return None
     slug = _slug_from_branch(branch)
-    path = os.path.join(".claude", "state", f"{slug}.json")
+    path = os.path.join(effective_cwd, ".claude", "state", f"{slug}.json")
     return os.path.abspath(path).replace("\\", "/")
 
 
@@ -64,65 +55,6 @@ def _effective_cwd(data: dict) -> str:
     if isinstance(cwd, str) and cwd.strip():
         return cwd
     return os.getcwd()
-
-
-def _validate_state(obj: object) -> str | None:
-    """状態オブジェクトを検証する。違反理由(str)を返す。問題なければ None。"""
-    if not isinstance(obj, dict):
-        return "state はオブジェクトである必要があります"
-
-    unknown = set(obj.keys()) - _REQUIRED_KEYS
-    if unknown:
-        return f"未知のキー: {', '.join(sorted(unknown))}"
-    missing = _REQUIRED_KEYS - set(obj.keys())
-    if missing:
-        return f"必須キー欠落: {', '.join(sorted(missing))}"
-
-    if not isinstance(obj["schema_version"], int) or isinstance(obj["schema_version"], bool):
-        return "schema_version は整数である必要があります"
-    for key in ("branch", "task_summary", "current_step", "next_action", "notes", "updated_at"):
-        if not isinstance(obj[key], str):
-            return f"{key} は文字列である必要があります"
-    if obj["size"] not in _SIZE_ENUM:
-        return f"size が不正な値です(値: {obj['size']!r})"
-    if len(obj["notes"]) > NOTES_MAX_CHARS:
-        return f"notes は{NOTES_MAX_CHARS}字以内である必要があります(現在{len(obj['notes'])}字)"
-
-    gates = obj["gates"]
-    if not isinstance(gates, dict):
-        return "gates はオブジェクトである必要があります"
-    unknown_gates = set(gates.keys()) - set(_GATES_ENUM)
-    if unknown_gates:
-        return f"gates に未知のキー: {', '.join(sorted(unknown_gates))}"
-    missing_gates = set(_GATES_ENUM) - set(gates.keys())
-    if missing_gates:
-        return f"gates の必須キー欠落: {', '.join(sorted(missing_gates))}"
-    for key, enum_values in _GATES_ENUM.items():
-        value = gates[key]
-        if value is not None and value not in enum_values:
-            return f"gates.{key} が不正な値です(値: {value!r})"
-
-    open_findings = obj["open_findings"]
-    if not isinstance(open_findings, list) or any(
-        not isinstance(item, str) for item in open_findings
-    ):
-        return "open_findings は文字列のリストである必要があります"
-
-    artifacts = obj["artifacts"]
-    if not isinstance(artifacts, dict):
-        return "artifacts はオブジェクトである必要があります"
-    unknown_artifacts = set(artifacts.keys()) - _ARTIFACT_KEYS
-    if unknown_artifacts:
-        return f"artifacts に未知のキー: {', '.join(sorted(unknown_artifacts))}"
-    missing_artifacts = _ARTIFACT_KEYS - set(artifacts.keys())
-    if missing_artifacts:
-        return f"artifacts の必須キー欠落: {', '.join(sorted(missing_artifacts))}"
-    for key in _ARTIFACT_KEYS:
-        value = artifacts[key]
-        if value is not None and not isinstance(value, str):
-            return f"artifacts.{key} は文字列または null である必要があります"
-
-    return None
 
 
 def _resulting_content(tool_name: str, tool_input: dict, abs_path: str) -> str | None:
@@ -173,7 +105,7 @@ def _run() -> None:
     if "/.claude/state/" not in norm_path or not norm_path.endswith(".json"):
         return  # PC-6: 対象外のパスは内容を問わず通す
 
-    expected = _expected_state_path()
+    expected = _expected_state_path(effective_cwd)
     if expected is None or norm_path != expected:
         return  # 現在ブランチの状態ファイルでなければ対象外(PC-6 の拡張)
 

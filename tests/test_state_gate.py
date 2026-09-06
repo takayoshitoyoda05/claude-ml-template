@@ -483,3 +483,125 @@ def test_staging_idempotent_apply_twice(tmp_path: Path) -> None:
     assert len(state_gate_hooks) == 1, (
         f"state_gateがhooks配列に重複登録されている: {state_gate_hooks}"
     )
+
+
+# ---------------------------------------------------------------------------
+# R-001/PC-1,PC-2: 型不一致(スキーマ期待型と不一致)は TypeError を投げず、
+# 通常のスキーマ違反として exit 2・stderr にキー名・Traceback 非出力
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "overrides, expected_key",
+    [
+        pytest.param({"size": ["S"]}, "size", id="size_is_list"),
+        pytest.param(
+            {
+                "gates": {
+                    "spec_checklist": None,
+                    "plan_premortem": None,
+                    "plan_approval": None,
+                    "evaluator": {"v": "PASS"},
+                    "final_gate": None,
+                }
+            },
+            "evaluator",
+            id="gates_evaluator_is_dict",
+        ),
+        pytest.param(
+            {"open_findings": "not a list"}, "open_findings", id="open_findings_is_str"
+        ),
+        pytest.param(
+            {"artifacts": {"plan": 123, "design_doc": None, "report": None}},
+            "plan",
+            id="artifacts_plan_is_number",
+        ),
+        pytest.param(
+            {
+                "size": ["S"],
+                "gates": {
+                    "spec_checklist": None,
+                    "plan_premortem": None,
+                    "plan_approval": None,
+                    "evaluator": {"v": "PASS"},
+                    "final_gate": None,
+                },
+            },
+            "size",
+            id="multiple_keys_simultaneously_invalid",
+        ),
+        pytest.param(
+            {
+                "artifacts": {"plan": ["a"], "design_doc": None, "report": None},
+                "open_findings": [{"note": "問題"}],
+            },
+            "open_findings",
+            id="nested_artifacts_plan_list_and_open_findings_element_dict",
+        ),
+    ],
+)
+def test_invalid_type_mismatch_variations(
+    tmp_path: Path, overrides: dict, expected_key: str
+) -> None:
+    """R-001/PC-1,PC-2: size=list・gates値=dict等の型不一致でも TypeError を投げず
+    通常のスキーマ違反としてブロックする(入れ子・複数キー同時不正を含む)。"""
+    _init_repo(tmp_path)
+    result = _run_gate(tmp_path, _write_payload(_valid_state(**overrides)))
+
+    assert result.returncode == 2
+    assert expected_key in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# R-002/PC-3,PC-4: state_gate の検証はペイロード cwd 基準で行われ、プロセス cwd と
+# 異なっていても検証がスキップされない
+# ---------------------------------------------------------------------------
+
+
+def test_cwd_separation_violation_blocked(tmp_path: Path) -> None:
+    """PC-3: プロセス cwd がリポジトリ外でも、ペイロード cwd 基準でスキーマ違反を検出する。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    payload = _write_payload(_valid_state(size=["S"]))
+    payload["cwd"] = str(repo)
+
+    result = subprocess.run(
+        [sys.executable, str(STATE_GATE_PATH)],
+        cwd=str(elsewhere),
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode == 2
+    assert "size" in result.stderr
+
+
+def test_cwd_separation_compliant_allowed(tmp_path: Path) -> None:
+    """PC-4: cwd 分離下でもスキーマ準拠なら許可される(exit 0・BLOCKED 非出力)。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    payload = _write_payload(_valid_state())
+    payload["cwd"] = str(repo)
+
+    result = subprocess.run(
+        [sys.executable, str(STATE_GATE_PATH)],
+        cwd=str(elsewhere),
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode == 0
+    assert "BLOCKED" not in result.stderr
