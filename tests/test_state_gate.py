@@ -3,6 +3,10 @@
 対象: `.claude/plans/20260904-skill-state.md` の PC-1〜PC-7・PC-15。
 設計書: `docs/active/20260904-skill-state-spec.md` §4.5(状態スキーマ)。
 
+末尾には `.claude/plans/20260906-state-hardening.md`(R-001・R-002 の型不一致・cwd
+分離)のテストも追加されている。PC-1〜PC-7 は上記20260904計画のラベルであり、
+20260906計画側のテストは同一ラベルとの混同を避けるため R-番号のみで参照する。
+
 書式は `tests/test_session_resume.py`(`subprocess.run([sys.executable, <絶対パス>], ...)`・
 `_SUBPROCESS_TIMEOUT`)に倣う。
 
@@ -483,3 +487,396 @@ def test_staging_idempotent_apply_twice(tmp_path: Path) -> None:
     assert len(state_gate_hooks) == 1, (
         f"state_gateがhooks配列に重複登録されている: {state_gate_hooks}"
     )
+
+
+# ---------------------------------------------------------------------------
+# R-001: 型不一致(スキーマ期待型と不一致)は TypeError を投げず、
+# 通常のスキーマ違反として exit 2・stderr にキー名・Traceback 非出力
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "overrides, expected_key",
+    [
+        pytest.param({"size": ["S"]}, "size", id="size_is_list"),
+        pytest.param(
+            {
+                "gates": {
+                    "spec_checklist": None,
+                    "plan_premortem": None,
+                    "plan_approval": None,
+                    "evaluator": {"v": "PASS"},
+                    "final_gate": None,
+                }
+            },
+            "evaluator",
+            id="gates_evaluator_is_dict",
+        ),
+        pytest.param(
+            {"open_findings": "not a list"}, "open_findings", id="open_findings_is_str"
+        ),
+        pytest.param(
+            {"artifacts": {"plan": 123, "design_doc": None, "report": None}},
+            "plan",
+            id="artifacts_plan_is_number",
+        ),
+        pytest.param(
+            {
+                "size": ["S"],
+                "gates": {
+                    "spec_checklist": None,
+                    "plan_premortem": None,
+                    "plan_approval": None,
+                    "evaluator": {"v": "PASS"},
+                    "final_gate": None,
+                },
+            },
+            "size",
+            id="multiple_keys_simultaneously_invalid",
+        ),
+        pytest.param(
+            {
+                "artifacts": {"plan": ["a"], "design_doc": None, "report": None},
+                "open_findings": [{"note": "問題"}],
+            },
+            "open_findings",
+            id="nested_artifacts_plan_list_and_open_findings_element_dict",
+        ),
+    ],
+)
+def test_invalid_type_mismatch_variations(
+    tmp_path: Path, overrides: dict, expected_key: str
+) -> None:
+    """R-001: size=list・gates値=dict等の型不一致でも TypeError を投げず
+    通常のスキーマ違反としてブロックする(入れ子・複数キー同時不正を含む)。"""
+    _init_repo(tmp_path)
+    result = _run_gate(tmp_path, _write_payload(_valid_state(**overrides)))
+
+    assert result.returncode == 2
+    assert expected_key in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# R-002: state_gate の検証はペイロード cwd 基準で行われ、プロセス cwd と
+# 異なっていても検証がスキップされない
+# ---------------------------------------------------------------------------
+
+
+def test_cwd_separation_violation_blocked(tmp_path: Path) -> None:
+    """R-002: プロセス cwd がリポジトリ外でも、ペイロード cwd 基準でスキーマ違反を検出する。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    payload = _write_payload(_valid_state(size=["S"]))
+    payload["cwd"] = str(repo)
+
+    result = subprocess.run(
+        [sys.executable, str(STATE_GATE_PATH)],
+        cwd=str(elsewhere),
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode == 2
+    assert "size" in result.stderr
+
+
+def test_cwd_separation_compliant_allowed(tmp_path: Path) -> None:
+    """R-002: cwd 分離下でもスキーマ準拠なら許可される(exit 0・BLOCKED 非出力)。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    payload = _write_payload(_valid_state())
+    payload["cwd"] = str(repo)
+
+    result = subprocess.run(
+        [sys.executable, str(STATE_GATE_PATH)],
+        cwd=str(elsewhere),
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode == 0
+    assert "BLOCKED" not in result.stderr
+
+
+def test_cwd_payload_subdirectory_violation_blocked(tmp_path: Path) -> None:
+    """回帰(Codexクロスレビュー指摘): ペイロード cwd がリポジトリのサブディレクトリ
+    (例: tests/)でも、リポジトリルート直下の状態ファイルへの絶対パス書き込みは検証
+    がスキップされずスキーマ違反をブロックする。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    subdir = repo / "tests"
+    subdir.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    state_abs_path = str((repo / STATE_REL_PATH).resolve())
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": state_abs_path,
+            "content": json.dumps(_valid_state(size=["S"]), ensure_ascii=False),
+        },
+        "cwd": str(subdir),
+    }
+
+    result = subprocess.run(
+        [sys.executable, str(STATE_GATE_PATH)],
+        cwd=str(elsewhere),
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode == 2
+    assert "size" in result.stderr
+
+
+def test_cwd_payload_subdirectory_compliant_allowed(tmp_path: Path) -> None:
+    """同構成でスキーマ準拠なら許可される(exit 0・BLOCKED 非出力)。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    subdir = repo / "tests"
+    subdir.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    state_abs_path = str((repo / STATE_REL_PATH).resolve())
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": state_abs_path,
+            "content": json.dumps(_valid_state(), ensure_ascii=False),
+        },
+        "cwd": str(subdir),
+    }
+
+    result = subprocess.run(
+        [sys.executable, str(STATE_GATE_PATH)],
+        cwd=str(elsewhere),
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode == 0
+    assert "BLOCKED" not in result.stderr
+
+
+def test_cwd_symlink_violation_blocked(tmp_path: Path) -> None:
+    """回帰(Codexクロスレビュー指摘): cwd/file_path がシンボリックリンク経由でも
+    リンク先の実リポジトリ基準で検証がスキップされずスキーマ違反をブロックする。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    alias = tmp_path / "repo-alias"
+    alias.symlink_to(repo, target_is_directory=True)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    state_abs_path = str(alias / STATE_REL_PATH)
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": state_abs_path,
+            "content": json.dumps(_valid_state(size=["S"]), ensure_ascii=False),
+        },
+        "cwd": str(alias),
+    }
+
+    result = subprocess.run(
+        [sys.executable, str(STATE_GATE_PATH)],
+        cwd=str(elsewhere),
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode == 2
+    assert "size" in result.stderr
+
+
+def test_cwd_symlink_compliant_allowed(tmp_path: Path) -> None:
+    """同構成でスキーマ準拠なら許可される(exit 0・BLOCKED 非出力)。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    alias = tmp_path / "repo-alias"
+    alias.symlink_to(repo, target_is_directory=True)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    state_abs_path = str(alias / STATE_REL_PATH)
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": state_abs_path,
+            "content": json.dumps(_valid_state(), ensure_ascii=False),
+        },
+        "cwd": str(alias),
+    }
+
+    result = subprocess.run(
+        [sys.executable, str(STATE_GATE_PATH)],
+        cwd=str(elsewhere),
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode == 0
+    assert "BLOCKED" not in result.stderr
+
+
+def test_state_dir_symlink_violation_blocked(tmp_path: Path) -> None:
+    """回帰(Codexクロスレビュー指摘・3件目): `.claude/state` ディレクトリ自体が
+    シンボリックリンクでも、対象パス判定の早期returnが誤って対象外にせず
+    スキーマ違反をブロックする。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    real_state_dir = tmp_path / "real-state"
+    real_state_dir.mkdir()
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "state").symlink_to(real_state_dir, target_is_directory=True)
+
+    result = _run_gate(repo, _write_payload(_valid_state(size=["S"])))
+
+    assert result.returncode == 2
+    assert "size" in result.stderr
+
+
+def test_state_dir_symlink_compliant_allowed(tmp_path: Path) -> None:
+    """同構成でスキーマ準拠なら許可される(exit 0・BLOCKED 非出力)。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    real_state_dir = tmp_path / "real-state"
+    real_state_dir.mkdir()
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "state").symlink_to(real_state_dir, target_is_directory=True)
+
+    result = _run_gate(repo, _write_payload(_valid_state()))
+
+    assert result.returncode == 0
+    assert "BLOCKED" not in result.stderr
+
+
+def test_reverse_symlink_to_state_dir_violation_blocked(tmp_path: Path) -> None:
+    """回帰(Codexクロスレビュー指摘・4件目、前回の鏡像): repo 直下の別名
+    (state-link)が `.claude/state` を指すシンボリックリンクの場合(未解決パスには
+    マーカーが無く、解決後にのみ現れる)でも対象外にせずブロックする。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    (repo / ".claude" / "state").mkdir(parents=True)
+    (repo / "state-link").symlink_to(
+        repo / ".claude" / "state", target_is_directory=True
+    )
+
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": f"state-link/{SLUG}.json",
+            "content": json.dumps(_valid_state(size=["S"]), ensure_ascii=False),
+        },
+    }
+    result = _run_gate(repo, payload)
+
+    assert result.returncode == 2
+    assert "size" in result.stderr
+
+
+def test_reverse_symlink_to_state_dir_compliant_allowed(tmp_path: Path) -> None:
+    """同構成でスキーマ準拠なら許可される(exit 0・BLOCKED 非出力)。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    (repo / ".claude" / "state").mkdir(parents=True)
+    (repo / "state-link").symlink_to(
+        repo / ".claude" / "state", target_is_directory=True
+    )
+
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": f"state-link/{SLUG}.json",
+            "content": json.dumps(_valid_state(), ensure_ascii=False),
+        },
+    }
+    result = _run_gate(repo, payload)
+
+    assert result.returncode == 0
+    assert "BLOCKED" not in result.stderr
+
+
+def test_chained_symlink_to_state_dir_violation_blocked(tmp_path: Path) -> None:
+    """回帰(Codexクロスレビュー指摘・5件目): state-link → .claude/state → 別実体
+    ディレクトリ、と2段階リンクした場合(未解決・完全解決後のどちらにも
+    "/.claude/state/" が現れない)でも、期待パスとの実体一致で対象と判定しブロックする。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    real_state_dir = tmp_path / "real-state"
+    real_state_dir.mkdir()
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "state").symlink_to(real_state_dir, target_is_directory=True)
+    (repo / "state-link").symlink_to(
+        repo / ".claude" / "state", target_is_directory=True
+    )
+
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": f"state-link/{SLUG}.json",
+            "content": json.dumps(_valid_state(size=["S"]), ensure_ascii=False),
+        },
+    }
+    result = _run_gate(repo, payload)
+
+    assert result.returncode == 2
+    assert "size" in result.stderr
+
+
+def test_chained_symlink_to_state_dir_compliant_allowed(tmp_path: Path) -> None:
+    """同構成でスキーマ準拠なら許可される(exit 0・BLOCKED 非出力)。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    real_state_dir = tmp_path / "real-state"
+    real_state_dir.mkdir()
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "state").symlink_to(real_state_dir, target_is_directory=True)
+    (repo / "state-link").symlink_to(
+        repo / ".claude" / "state", target_is_directory=True
+    )
+
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": f"state-link/{SLUG}.json",
+            "content": json.dumps(_valid_state(), ensure_ascii=False),
+        },
+    }
+    result = _run_gate(repo, payload)
+
+    assert result.returncode == 0
+    assert "BLOCKED" not in result.stderr

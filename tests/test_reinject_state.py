@@ -215,3 +215,47 @@ def test_reinject_startup_source_unaffected(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert result.stdout == ""
+
+
+# ---------------------------------------------------------------------------
+# R-003: JSON としては妥当だがスキーマ違反の状態ファイルは、破損時と同様に
+# 注入せず1行通知する(専用文言は設けず broken 分岐に合流)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "hook_path, source", [(REINJECT_PATH, "compact"), (RESUME_PATH, "startup")]
+)
+def test_schema_invalid_missing_required_key_shows_notice_only(
+    tmp_path: Path, hook_path: Path, source: str
+) -> None:
+    """必須キー欠落(current_step 欠落)は注入せず1行通知する。"""
+    _init_repo(tmp_path)
+    state = _valid_state()
+    del state["current_step"]
+    _write_state_file(tmp_path, json.dumps(state, ensure_ascii=False))
+
+    result = _run_hook(hook_path, tmp_path, {"source": source})
+
+    assert result.returncode == 0
+    assert _STATE_HEADING not in result.stdout
+    assert "状態ファイルが読めない" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "hook_path, source", [(REINJECT_PATH, "compact"), (RESUME_PATH, "startup")]
+)
+def test_schema_invalid_gates_enum_shows_notice_only(
+    tmp_path: Path, hook_path: Path, source: str
+) -> None:
+    """gates.evaluator が不正 enum 値でも注入せず1行通知する。"""
+    _init_repo(tmp_path)
+    state = _valid_state()
+    state["gates"]["evaluator"] = "OK"
+    _write_state_file(tmp_path, json.dumps(state, ensure_ascii=False))
+
+    result = _run_hook(hook_path, tmp_path, {"source": source})
+
+    assert result.returncode == 0
+    assert _STATE_HEADING not in result.stdout
+    assert "状態ファイルが読めない" in result.stdout
