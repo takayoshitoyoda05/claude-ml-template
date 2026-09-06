@@ -132,16 +132,20 @@ def _run() -> None:
     effective_cwd = _effective_cwd(data)
     abs_path = os.path.abspath(os.path.join(effective_cwd, file_path))
     abs_norm_path = abs_path.replace("\\", "/")
-
-    if "/.claude/state/" not in abs_norm_path or not abs_norm_path.endswith(".json"):
-        return  # PC-6: 対象外のパスは内容を問わず通す(未解決のabs_pathで判定。
-        # .claude/state/ ディレクトリ自体がシンボリックリンクの場合、realpath 後は
-        # "/.claude/state/" が消えて誤って対象外判定されるため、ここは解決前で見る)
-
     # _expected_state_path 側は git rev-parse --show-toplevel 経由でシンボリックリンク
     # 解決済みのパスを返すため、最終一致判定だけは realpath で揃える(回帰:
     # cwd/file_path がシンボリックリンク経由だと不一致になり検証がスキップされていた)
     norm_path = os.path.realpath(abs_path).replace("\\", "/")
+
+    def _looks_like_state_path(path: str) -> bool:
+        return "/.claude/state/" in path and path.endswith(".json")
+
+    # 未解決(abs_norm_path)・解決後(norm_path)のどちらかにマーカーがあれば対象とする
+    # OR 判定。片方だけでの判定だと、.claude/state/ 自体がシンボリックリンクの場合
+    # (未解決側にのみマーカーがある)と、別名リンク→.claude/state の場合(解決後
+    # 側にのみマーカーが現れる)のどちらかで誤って対象外判定される
+    if not (_looks_like_state_path(abs_norm_path) or _looks_like_state_path(norm_path)):
+        return  # PC-6: 対象外のパスは内容を問わず通す
 
     expected = _expected_state_path(effective_cwd)
     if expected is None or norm_path != expected:

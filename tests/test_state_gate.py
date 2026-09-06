@@ -774,3 +774,51 @@ def test_state_dir_symlink_compliant_allowed(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert "BLOCKED" not in result.stderr
+
+
+def test_reverse_symlink_to_state_dir_violation_blocked(tmp_path: Path) -> None:
+    """回帰(Codexクロスレビュー指摘・4件目、前回の鏡像): repo 直下の別名
+    (state-link)が `.claude/state` を指すシンボリックリンクの場合(未解決パスには
+    マーカーが無く、解決後にのみ現れる)でも対象外にせずブロックする。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    (repo / ".claude" / "state").mkdir(parents=True)
+    (repo / "state-link").symlink_to(
+        repo / ".claude" / "state", target_is_directory=True
+    )
+
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": f"state-link/{SLUG}.json",
+            "content": json.dumps(_valid_state(size=["S"]), ensure_ascii=False),
+        },
+    }
+    result = _run_gate(repo, payload)
+
+    assert result.returncode == 2
+    assert "size" in result.stderr
+
+
+def test_reverse_symlink_to_state_dir_compliant_allowed(tmp_path: Path) -> None:
+    """同構成でスキーマ準拠なら許可される(exit 0・BLOCKED 非出力)。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    (repo / ".claude" / "state").mkdir(parents=True)
+    (repo / "state-link").symlink_to(
+        repo / ".claude" / "state", target_is_directory=True
+    )
+
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": f"state-link/{SLUG}.json",
+            "content": json.dumps(_valid_state(), ensure_ascii=False),
+        },
+    }
+    result = _run_gate(repo, payload)
+
+    assert result.returncode == 0
+    assert "BLOCKED" not in result.stderr
