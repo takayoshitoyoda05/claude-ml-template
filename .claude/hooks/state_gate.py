@@ -131,13 +131,17 @@ def _run() -> None:
 
     effective_cwd = _effective_cwd(data)
     abs_path = os.path.abspath(os.path.join(effective_cwd, file_path))
+    abs_norm_path = abs_path.replace("\\", "/")
+
+    if "/.claude/state/" not in abs_norm_path or not abs_norm_path.endswith(".json"):
+        return  # PC-6: 対象外のパスは内容を問わず通す(未解決のabs_pathで判定。
+        # .claude/state/ ディレクトリ自体がシンボリックリンクの場合、realpath 後は
+        # "/.claude/state/" が消えて誤って対象外判定されるため、ここは解決前で見る)
+
     # _expected_state_path 側は git rev-parse --show-toplevel 経由でシンボリックリンク
-    # 解決済みのパスを返すため、比較対象もここで realpath して揃える(回帰:
+    # 解決済みのパスを返すため、最終一致判定だけは realpath で揃える(回帰:
     # cwd/file_path がシンボリックリンク経由だと不一致になり検証がスキップされていた)
     norm_path = os.path.realpath(abs_path).replace("\\", "/")
-
-    if "/.claude/state/" not in norm_path or not norm_path.endswith(".json"):
-        return  # PC-6: 対象外のパスは内容を問わず通す
 
     expected = _expected_state_path(effective_cwd)
     if expected is None or norm_path != expected:

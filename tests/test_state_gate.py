@@ -740,3 +740,37 @@ def test_cwd_symlink_compliant_allowed(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert "BLOCKED" not in result.stderr
+
+
+def test_state_dir_symlink_violation_blocked(tmp_path: Path) -> None:
+    """回帰(Codexクロスレビュー指摘・3件目): `.claude/state` ディレクトリ自体が
+    シンボリックリンクでも、対象パス判定の早期returnが誤って対象外にせず
+    スキーマ違反をブロックする。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    real_state_dir = tmp_path / "real-state"
+    real_state_dir.mkdir()
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "state").symlink_to(real_state_dir, target_is_directory=True)
+
+    result = _run_gate(repo, _write_payload(_valid_state(size=["S"])))
+
+    assert result.returncode == 2
+    assert "size" in result.stderr
+
+
+def test_state_dir_symlink_compliant_allowed(tmp_path: Path) -> None:
+    """同構成でスキーマ準拠なら許可される(exit 0・BLOCKED 非出力)。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    real_state_dir = tmp_path / "real-state"
+    real_state_dir.mkdir()
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "state").symlink_to(real_state_dir, target_is_directory=True)
+
+    result = _run_gate(repo, _write_payload(_valid_state()))
+
+    assert result.returncode == 0
+    assert "BLOCKED" not in result.stderr
