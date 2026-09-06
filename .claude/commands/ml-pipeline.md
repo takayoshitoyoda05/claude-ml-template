@@ -143,8 +143,33 @@ main ブランチには一切コミットしない(並列実装時のサブブ�
 ブランチ作成後、`.claude/state/<slug>.json` に初期状態を作成する
 (既存なら上書きしない)。`<slug>` は決定したブランチ名の最終セグメントから
 `-group-<英数字>` を除いたもの(plan_gate.py の `_slug_from_branch` と同じ規約)。
-スキーマは docs/active/20260904-skill-state-spec.md §4.5 に従う。
 `current_step` は "1"、`gates` は全キー null、`updated_at` は現在時刻(ISO 8601)とする。
+
+```json
+{
+  "schema_version": 1,
+  "branch": "pipeline/YYYYMMDD-<トピック>",
+  "task_summary": "<依頼内容の1行要約>",
+  "size": "L",
+  "current_step": "1",
+  "gates": {
+    "spec_checklist": null,
+    "plan_premortem": null,
+    "plan_approval": null,
+    "evaluator": null,
+    "final_gate": null
+  },
+  "open_findings": [],
+  "artifacts": {
+    "plan": null,
+    "design_doc": null,
+    "report": null
+  },
+  "next_action": "<次にやること1行>",
+  "notes": "",
+  "updated_at": "2026-01-01T00:00:00+09:00"
+}
+```
 
 ### 2. 事前調査
 - 作業スコープ直下に CONTEXT.md があればここで一度だけ読み、用語の要点を
@@ -345,6 +370,8 @@ git worktree add -b pipeline/YYYYMMDD-<トピック>-group-B .worktrees/group-B
   ペイロード値→os.getcwd() の二段構えで解決し、作業スコープ直下の .worktrees/<名前>
   配下と確定できない場合のみゲートを適用しない安全側の補助線)
 - 全工程が完了したら `git worktree remove` で後片付けする
+- `.claude/state/<slug>.json`(状態ファイル)は統合ブランチ上のリーダー(ml-pipeline 実行者)
+  のみが更新し、worktree 内の generator は読み書きしない(1ファイル1書き手)
 
 各チームメイトが実装完了したら手順5.5へ進む。
 
