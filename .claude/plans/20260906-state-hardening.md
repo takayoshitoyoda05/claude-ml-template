@@ -81,7 +81,7 @@ experiment: false
 | 1 | 型不一致テスト(関数名に `type_mismatch` を含む)を追加。`size` が list / `gates` の値が dict / `open_findings` が str / `artifacts.plan` が数値 等を parametrize し、exit 2・stderr にキー名・`Traceback` 非出力を検証(R-001 / PC-1, PC-2)。書式は同ファイル既存の `test_pc6_...` の parametrize に倣う | `tests/test_state_gate.py` | なし | A |
 | 2 | cwd 分離テスト(関数名に `cwd` を含む)を追加。`tmp_path/repo` を `_init_repo` し、`subprocess.run(cwd=tmp_path/"elsewhere")`(git リポジトリでない別ディレクトリ)+ ペイロード `"cwd": str(repo)` で、違反 JSON は exit 2、準拠 JSON は exit 0 を検証(R-002 / PC-3, PC-4)。注意: `file_path` は相対のまま渡し、実効 cwd 基準で解決されることを確かめる | `tests/test_state_gate.py` | Step 1 | A |
 | 3 | スキーマ違反注入テスト(関数名に `schema_invalid` を含む)を追加。JSON としては妥当だがスキーマ違反(必須キー欠落・`gates.evaluator` が不正 enum)の状態ファイルを置き、compact 経路と startup 経路の双方で見出し不在+1行通知を検証(R-003 / PC-5)。書式は既存 `test_broken_state_invalid_json_shows_notice_only` に倣う | `tests/test_reinject_state.py` | なし | A |
-| 4 | Step 1〜3 が RED(FAIL)であることを確認して記録する。GREEN で始まるテストがあれば、それは検出力が無いテストなので書き直す | (実行のみ) | Step 1,2,3 | A |
+| 4 | **不具合を再現するケース**(`size` が list・`gates` の値が dict の型不一致、cwd 分離での検証スキップ、スキーマ違反ファイルの注入)が RED(FAIL)であることを確認して記録する。既存動作の回帰確認ケース(`open_findings` が str・`artifacts.plan` が数値など既存 isinstance 検査で捕捉済みのもの、cwd 分離の正常系 exit 0)は修正前でも GREEN で正しい(Codex レビュー指摘: 全ケース RED 要求は回帰テストを歪める)。不具合再現ケースが GREEN の場合のみ検出力が無いとして書き直す | (実行のみ) | Step 1,2,3 | A |
 | 5 | `STATE_COMMON_CONTENT` を改修: (a) `state_gate.py` の `_validate_state` とその定数群(`_REQUIRED_KEYS` / `_GATES_ENUM` / `_ARTIFACT_KEYS` / `_SIZE_ENUM` / `NOTES_MAX_CHARS`)を移設し、`size` は `isinstance(str)` を確認してから enum 判定、`gates` の各値は `None` または `str` を確認してから enum 判定に変える(R-001 / PC-1, PC-2)。(b) `_current_branch(cwd: str \| None = None)` に拡張し `subprocess.run(..., cwd=cwd)` を渡す(既定 None = 現行挙動を保持。reinject/resume は引数なし呼び出しのまま)(R-002)。(c) `_state_section` で `json.loads` 後に `_validate_state` を呼び、違反なら `"broken"` を返す(R-003 / PC-5)。注意: 通知文言(「状態ファイルが読めないため…」)は両フック側にあり marker 適用済みのため変更しない | `_staging_skill_state.py` | Step 4 | A |
 | 6 | `STATE_GATE_CONTENT` を改修: `_validate_state` と関連定数の定義を削除し `from _state_common import _current_branch, _validate_state` に変更(R-005 / PC-7)。`_expected_state_path(effective_cwd)` へ引数を追加して `_current_branch(effective_cwd)` と `os.path.join(effective_cwd, ".claude", "state", ...)` を使い、`_run()` で実効 cwd を先に決めてから渡す(R-002 / PC-3, PC-4)。モジュール docstring の検証規則・cwd 規約の記述も実装に合わせて更新する | `_staging_skill_state.py` | Step 5 | A |
 | 7 | ユーザーに `! uv run python _staging_skill_state.py` の実行を依頼して適用する(保護パスのため自動適用不可)。適用後に `.claude/hooks/state_gate.py` と `_state_common.py` が更新されたことを確認 | `.claude/hooks/state_gate.py`, `.claude/hooks/_state_common.py` | Step 6 | A |
@@ -92,7 +92,10 @@ experiment: false
 | 12 | `$ignoreEntries` の基本リストに `".claude/state/"` を sh 版と同じ位置に追加する(R-008, R-009 / PC-10, PC-11)。注意: 対の位置がずれても `sort -u` 後の diff は通るが、可読性のため sh 版と同順に置く | `claude-init.ps1`, `claude-update.ps1` | Step 11 | C |
 
 並列化判定: 並列化可能(グループ A / B / C。A はフック+テスト+staging、B は `ml-pipeline.md`、C は導入スクリプト4本で、対象ファイルが完全に分離しており依存も無いため)。
-ただしグループ A の Step 7 はユーザーの `!` 実行を挟むため、A 単独では途中で待ちが入る。
+ただし**グループ A は worktree に出さず、統合ブランチ上でリーダー(または統合ブランチ上の generator)が直接実行する**
+(Codex レビュー指摘: `_staging_skill_state.py` は Git 管理外(`.gitignore:19` の `/_staging_*`)のため worktree に存在せず、
+Step 7 の適用先フックも統合側リポジトリの `.claude/hooks/` であるため)。worktree 並列にしてよいのは B・C のみ。
+また A の Step 7 はユーザーの `!` 実行を挟むため、A は途中で待ちが入る。
 
 ## 検証方法
 
@@ -107,7 +110,9 @@ experiment: false
 4. R-004: `uv run --with pytest python -m pytest tests/test_reinject_state.py -q` → exit 0
 5. R-005: `grep -rn 'def _validate_state' .claude/hooks/` → ヒット1件のみ(`_state_common.py`)。
    `__pycache__` のバイナリ一致が報告された場合は `--include='*.py'` を付けて再確認する
-6. R-006: `grep -n 'docs/active' .claude/commands/ml-pipeline.md` → 手順1.5 節(現行 :124-147 相当)の行が0件。
+6. R-006: `grep -n '20260904-skill-state-spec' .claude/commands/ml-pipeline.md` → 0件
+   (手順1.5 節の参照は親設計書ファイル名を含む唯一の行のため、ファイル全体 grep で機械判定できる。
+   `docs/active` 自体は他節に無関係な既存ヒットが3行あり件数判定に使えない — premortem 指摘)。
    加えて `grep -n 'schema_version' .claude/commands/ml-pipeline.md` が手順1.5 節でヒットする
 7. R-007: `grep -n '状態ファイル' .claude/commands/ml-pipeline.md` → 並列実装節(現行 :314-349 相当)でヒット
 8. R-008: `grep -l '\.claude/state/' claude-init.sh claude-update.sh claude-init.ps1 claude-update.ps1` → 4ファイル全て
@@ -162,7 +167,7 @@ experiment: false
 | R-003 | Step 3, 4, 5, 8 | `uv run --with pytest python -m pytest tests/test_reinject_state.py -q -k schema_invalid` |
 | R-004 | Step 5, 8 | `uv run --with pytest python -m pytest tests/test_reinject_state.py -q` |
 | R-005 | Step 5, 6, 8 | `grep -rn 'def _validate_state' .claude/hooks/` |
-| R-006 | Step 9 | `grep -n 'docs/active' .claude/commands/ml-pipeline.md`(手順1.5 節で0件)+ `schema_version` の JSON ブロック確認 |
+| R-006 | Step 9 | `grep -n '20260904-skill-state-spec' .claude/commands/ml-pipeline.md`(0件)+ `schema_version` の JSON ブロック確認 |
 | R-007 | Step 10 | `grep -n '状態ファイル' .claude/commands/ml-pipeline.md`(並列実装節でヒット) |
 | R-008 | Step 11, 12 | `grep -l '\.claude/state/' claude-init.sh claude-update.sh claude-init.ps1 claude-update.ps1` |
 | R-009 | Step 11, 12 | 検証方法9(consistency.md 標準形 diff、init 対・update 対) |
