@@ -605,3 +605,71 @@ def test_cwd_separation_compliant_allowed(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert "BLOCKED" not in result.stderr
+
+
+def test_cwd_payload_subdirectory_violation_blocked(tmp_path: Path) -> None:
+    """回帰(Codexクロスレビュー指摘): ペイロード cwd がリポジトリのサブディレクトリ
+    (例: tests/)でも、リポジトリルート直下の状態ファイルへの絶対パス書き込みは検証
+    がスキップされずスキーマ違反をブロックする。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    subdir = repo / "tests"
+    subdir.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    state_abs_path = str((repo / STATE_REL_PATH).resolve())
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": state_abs_path,
+            "content": json.dumps(_valid_state(size=["S"]), ensure_ascii=False),
+        },
+        "cwd": str(subdir),
+    }
+
+    result = subprocess.run(
+        [sys.executable, str(STATE_GATE_PATH)],
+        cwd=str(elsewhere),
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode == 2
+    assert "size" in result.stderr
+
+
+def test_cwd_payload_subdirectory_compliant_allowed(tmp_path: Path) -> None:
+    """同構成でスキーマ準拠なら許可される(exit 0・BLOCKED 非出力)。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    subdir = repo / "tests"
+    subdir.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    state_abs_path = str((repo / STATE_REL_PATH).resolve())
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": state_abs_path,
+            "content": json.dumps(_valid_state(), ensure_ascii=False),
+        },
+        "cwd": str(subdir),
+    }
+
+    result = subprocess.run(
+        [sys.executable, str(STATE_GATE_PATH)],
+        cwd=str(elsewhere),
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode == 0
+    assert "BLOCKED" not in result.stderr

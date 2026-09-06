@@ -16,6 +16,9 @@ resume_session_state.py と共有。複製禁止)。他ブランチ・他worktre
 (ペイロードの `cwd` があればそれ、無ければプロセス cwd。guard_scope.py と
 同じ規約)基準に統一する。プロセス cwd とペイロード cwd が食い違うケース
 (例: 別 worktree からの呼び出し)で検証がスキップされるのを防ぐため。
+実効 cwd がリポジトリのサブディレクトリの場合、状態ファイルの起点は
+`git rev-parse --show-toplevel` で解決したリポジトリルートを使う
+(状態ファイルは常にルート直下の `.claude/state/` にあるため)。
 
 検証規則: 必須キー存在+型+enum値+未知キー拒否(未知キー拒否は論文の
 「状態キーの偶発上書き」対策。設計書2節参照)。Edit の場合は old_string の
@@ -27,12 +30,39 @@ old_string が1回だけ現れない等)は fail-open で通す(PC-7)。
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from plan_gate import _slug_from_branch  # noqa: E402
 from _state_common import _current_branch, _validate_state  # noqa: E402
+
+
+def _repo_root(effective_cwd: str) -> str:
+    """`effective_cwd` からリポジトリルートを解決する。
+
+    状態ファイルは常にリポジトリルート直下の `.claude/state/` に置かれるため、
+    ペイロード `cwd` がサブディレクトリ(例: `tests/`)の場合、
+    `effective_cwd` をそのまま状態ファイルの起点にすると対象外判定になり
+    検証がスキップされる(回帰: Codexクロスレビュー指摘)。git が失敗する
+    場合(リポジトリ外)は従来どおり `effective_cwd` 自身を返す。
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=effective_cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired, UnicodeError):
+        return effective_cwd
+    if result.returncode != 0:
+        return effective_cwd
+    return result.stdout.strip() or effective_cwd
 
 
 def _expected_state_path(effective_cwd: str) -> str | None:
@@ -45,7 +75,8 @@ def _expected_state_path(effective_cwd: str) -> str | None:
     if not branch:
         return None
     slug = _slug_from_branch(branch)
-    path = os.path.join(effective_cwd, ".claude", "state", f"{slug}.json")
+    repo_root = _repo_root(effective_cwd)
+    path = os.path.join(repo_root, ".claude", "state", f"{slug}.json")
     return os.path.abspath(path).replace("\\", "/")
 
 
