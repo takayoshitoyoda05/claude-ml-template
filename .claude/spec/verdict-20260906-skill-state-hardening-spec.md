@@ -4,16 +4,17 @@
 計画: `.claude/plans/20260906-state-hardening.md`
 
 評価時点: `pipeline/20260906-state-hardening` ブランチ、フック2本は staging スクリプト経由で
-適用済み。加えて Codex クロスレビュー起因の追加修正3コミット
+適用済み。加えて Codex クロスレビュー起因の追加修正5コミット
 (`bf6a295`〜`7093e56`: cwd サブディレクトリ解決・symlink 2方向+連鎖・対象判定の realpath
-実体一致化)と回帰テスト計8件を含む。全体テストは
+実体一致化。`git log bf6a295^..7093e56 --oneline | wc -l` → 5)と追加テスト10件
+(`git diff bf6a295^..7093e56 -- tests/ | grep -c '^+def test_'` → 10)を含む。全体テストは
 `uv run --with pytest python -m pytest tests/ -q` で **321 passed, 16 skipped**
 (`logs/runs/r010_full.log`)。失敗0。
 
 | ID | 判定 | 実行コマンド | 実測値 | 証拠(file:line) |
 |---|---|---|---|---|
 | R-001 | PASS | `uv run --with pytest python -m pytest tests/test_state_gate.py -q -k type_mismatch` | 8 passed, 34 deselected, exit 0(`logs/runs/r001_type_mismatch.log`) | `.claude/hooks/_state_common.py:83`(`if not isinstance(obj["size"], str) or obj["size"] not in _SIZE_ENUM`)、`:99`(`gates` の値の型検査) |
-| R-002 | PASS | `uv run --with pytest python -m pytest tests/test_state_gate.py -q -k cwd` | 6 passed, 36 deselected, exit 0(`logs/runs/r002_cwd.log`) | `.claude/hooks/state_gate.py:78`(`_effective_cwd`)、`:113`(`_run` 内 `effective_cwd = _effective_cwd(data)`) |
+| R-002 | PASS | `uv run --with pytest python -m pytest tests/test_state_gate.py -q -k cwd` | 6 passed, 36 deselected, exit 0(`logs/runs/r002_cwd.log`) | `.claude/hooks/state_gate.py:83`(`_effective_cwd`)、`:132`(`_run` 内 `effective_cwd = _effective_cwd(data)`) |
 | R-003 | PASS | `uv run --with pytest python -m pytest tests/test_reinject_state.py -q -k schema_invalid` | 4 passed, 10 deselected, exit 0(`logs/runs/r003_schema_invalid.log`) | `.claude/hooks/_state_common.py:145`(`if _validate_state(obj) is not None: return "broken", None`) |
 | R-004 | PASS | `uv run --with pytest python -m pytest tests/test_reinject_state.py -q` | 14 passed, exit 0(`logs/runs/r004_reinject_all.log`) | `.claude/hooks/_state_common.py:125`(`_state_section` 関数、ok分岐) |
 | R-005 | PASS | `grep -rn 'def _validate_state' .claude/hooks/` | ヒット1件のみ | `.claude/hooks/_state_common.py:66` |
@@ -29,11 +30,11 @@
 - Codexクロスレビュー起因の追加修正の回帰テスト:
   `uv run --with pytest python -m pytest tests/ -q -k "symlink or subdirectory"` →
   **10 passed**, exit 0(`logs/runs/codex_regression_symlink_subdir.log`)。
-  cwdサブディレクトリ解決(`.claude/hooks/state_gate.py:35` `_repo_root`)、symlink双方向/連鎖、
-  対象判定の realpath 一本化(`.claude/hooks/state_gate.py:157`
+  cwdサブディレクトリ解決(`.claude/hooks/state_gate.py:42` `_repo_root`)、symlink双方向/連鎖、
+  対象判定の realpath 一本化(`.claude/hooks/state_gate.py:140`
   `os.path.realpath(abs_path).replace("\\", "/") != expected`)の全ケースで検出漏れなし。
 - コード確認: `.claude/hooks/_state_common.py:41`(`_current_branch(cwd: str | None = None)`)、
-  `.claude/hooks/state_gate.py:65`(`_expected_state_path` が `_current_branch(effective_cwd)` と
+  `.claude/hooks/state_gate.py:68`(`_expected_state_path` が `_current_branch(effective_cwd)` と
   `_repo_root(effective_cwd)` を使用)で、計画の変更内容(ブランチ取得・状態パス導出・対象判定の
   実効cwd統一)と一致することを確認。
 - 例外捕捉: `_current_branch`・`_repo_root` は `(OSError, subprocess.TimeoutExpired, UnicodeError)`、
