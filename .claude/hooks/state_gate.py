@@ -77,7 +77,7 @@ def _expected_state_path(effective_cwd: str) -> str | None:
     slug = _slug_from_branch(branch)
     repo_root = _repo_root(effective_cwd)
     path = os.path.join(repo_root, ".claude", "state", f"{slug}.json")
-    return os.path.abspath(path).replace("\\", "/")
+    return os.path.realpath(path).replace("\\", "/")
 
 
 def _effective_cwd(data: dict) -> str:
@@ -131,7 +131,10 @@ def _run() -> None:
 
     effective_cwd = _effective_cwd(data)
     abs_path = os.path.abspath(os.path.join(effective_cwd, file_path))
-    norm_path = abs_path.replace("\\", "/")
+    # _expected_state_path 側は git rev-parse --show-toplevel 経由でシンボリックリンク
+    # 解決済みのパスを返すため、比較対象もここで realpath して揃える(回帰:
+    # cwd/file_path がシンボリックリンク経由だと不一致になり検証がスキップされていた)
+    norm_path = os.path.realpath(abs_path).replace("\\", "/")
 
     if "/.claude/state/" not in norm_path or not norm_path.endswith(".json"):
         return  # PC-6: 対象外のパスは内容を問わず通す
