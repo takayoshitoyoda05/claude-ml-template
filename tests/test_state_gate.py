@@ -3,6 +3,10 @@
 対象: `.claude/plans/20260904-skill-state.md` の PC-1〜PC-7・PC-15。
 設計書: `docs/active/20260904-skill-state-spec.md` §4.5(状態スキーマ)。
 
+末尾には `.claude/plans/20260906-state-hardening.md`(R-001・R-002 の型不一致・cwd
+分離)のテストも追加されている。PC-1〜PC-7 は上記20260904計画のラベルであり、
+20260906計画側のテストは同一ラベルとの混同を避けるため R-番号のみで参照する。
+
 書式は `tests/test_session_resume.py`(`subprocess.run([sys.executable, <絶対パス>], ...)`・
 `_SUBPROCESS_TIMEOUT`)に倣う。
 
@@ -486,7 +490,7 @@ def test_staging_idempotent_apply_twice(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# R-001/PC-1,PC-2: 型不一致(スキーマ期待型と不一致)は TypeError を投げず、
+# R-001: 型不一致(スキーマ期待型と不一致)は TypeError を投げず、
 # 通常のスキーマ違反として exit 2・stderr にキー名・Traceback 非出力
 # ---------------------------------------------------------------------------
 
@@ -543,7 +547,7 @@ def test_staging_idempotent_apply_twice(tmp_path: Path) -> None:
 def test_invalid_type_mismatch_variations(
     tmp_path: Path, overrides: dict, expected_key: str
 ) -> None:
-    """R-001/PC-1,PC-2: size=list・gates値=dict等の型不一致でも TypeError を投げず
+    """R-001: size=list・gates値=dict等の型不一致でも TypeError を投げず
     通常のスキーマ違反としてブロックする(入れ子・複数キー同時不正を含む)。"""
     _init_repo(tmp_path)
     result = _run_gate(tmp_path, _write_payload(_valid_state(**overrides)))
@@ -554,13 +558,13 @@ def test_invalid_type_mismatch_variations(
 
 
 # ---------------------------------------------------------------------------
-# R-002/PC-3,PC-4: state_gate の検証はペイロード cwd 基準で行われ、プロセス cwd と
+# R-002: state_gate の検証はペイロード cwd 基準で行われ、プロセス cwd と
 # 異なっていても検証がスキップされない
 # ---------------------------------------------------------------------------
 
 
 def test_cwd_separation_violation_blocked(tmp_path: Path) -> None:
-    """PC-3: プロセス cwd がリポジトリ外でも、ペイロード cwd 基準でスキーマ違反を検出する。"""
+    """R-002: プロセス cwd がリポジトリ外でも、ペイロード cwd 基準でスキーマ違反を検出する。"""
     repo = tmp_path / "repo"
     repo.mkdir()
     _init_repo(repo)
@@ -584,7 +588,7 @@ def test_cwd_separation_violation_blocked(tmp_path: Path) -> None:
 
 
 def test_cwd_separation_compliant_allowed(tmp_path: Path) -> None:
-    """PC-4: cwd 分離下でもスキーマ準拠なら許可される(exit 0・BLOCKED 非出力)。"""
+    """R-002: cwd 分離下でもスキーマ準拠なら許可される(exit 0・BLOCKED 非出力)。"""
     repo = tmp_path / "repo"
     repo.mkdir()
     _init_repo(repo)
