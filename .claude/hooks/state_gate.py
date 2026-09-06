@@ -131,25 +131,14 @@ def _run() -> None:
 
     effective_cwd = _effective_cwd(data)
     abs_path = os.path.abspath(os.path.join(effective_cwd, file_path))
-    abs_norm_path = abs_path.replace("\\", "/")
-    # _expected_state_path 側は git rev-parse --show-toplevel 経由でシンボリックリンク
-    # 解決済みのパスを返すため、最終一致判定だけは realpath で揃える(回帰:
-    # cwd/file_path がシンボリックリンク経由だと不一致になり検証がスキップされていた)
-    norm_path = os.path.realpath(abs_path).replace("\\", "/")
 
-    def _looks_like_state_path(path: str) -> bool:
-        return "/.claude/state/" in path and path.endswith(".json")
-
-    # 未解決(abs_norm_path)・解決後(norm_path)のどちらかにマーカーがあれば対象とする
-    # OR 判定。片方だけでの判定だと、.claude/state/ 自体がシンボリックリンクの場合
-    # (未解決側にのみマーカーがある)と、別名リンク→.claude/state の場合(解決後
-    # 側にのみマーカーが現れる)のどちらかで誤って対象外判定される
-    if not (_looks_like_state_path(abs_norm_path) or _looks_like_state_path(norm_path)):
-        return  # PC-6: 対象外のパスは内容を問わず通す
-
+    # 対象判定は「期待パスとの実体一致」に一本化する(文字列マーカーによる
+    # 早期returnは、symlinkの向き・連鎖(例: state-link → .claude/state →
+    # 別実体ディレクトリ)次第で未解決・解決後のどちらにも "/.claude/state/" が
+    # 現れないケースを原理的に塞げないため廃止。expected 側も realpath 済み)
     expected = _expected_state_path(effective_cwd)
-    if expected is None or norm_path != expected:
-        return  # 現在ブランチの状態ファイルでなければ対象外(PC-6 の拡張)
+    if expected is None or os.path.realpath(abs_path).replace("\\", "/") != expected:
+        return  # 現在ブランチの状態ファイルでなければ対象外(PC-6)
 
     content = _resulting_content(tool_name, tool_input, abs_path)
     if content is None:

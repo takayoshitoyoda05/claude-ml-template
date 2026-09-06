@@ -822,3 +822,57 @@ def test_reverse_symlink_to_state_dir_compliant_allowed(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert "BLOCKED" not in result.stderr
+
+
+def test_chained_symlink_to_state_dir_violation_blocked(tmp_path: Path) -> None:
+    """回帰(Codexクロスレビュー指摘・5件目): state-link → .claude/state → 別実体
+    ディレクトリ、と2段階リンクした場合(未解決・完全解決後のどちらにも
+    "/.claude/state/" が現れない)でも、期待パスとの実体一致で対象と判定しブロックする。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    real_state_dir = tmp_path / "real-state"
+    real_state_dir.mkdir()
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "state").symlink_to(real_state_dir, target_is_directory=True)
+    (repo / "state-link").symlink_to(
+        repo / ".claude" / "state", target_is_directory=True
+    )
+
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": f"state-link/{SLUG}.json",
+            "content": json.dumps(_valid_state(size=["S"]), ensure_ascii=False),
+        },
+    }
+    result = _run_gate(repo, payload)
+
+    assert result.returncode == 2
+    assert "size" in result.stderr
+
+
+def test_chained_symlink_to_state_dir_compliant_allowed(tmp_path: Path) -> None:
+    """同構成でスキーマ準拠なら許可される(exit 0・BLOCKED 非出力)。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    real_state_dir = tmp_path / "real-state"
+    real_state_dir.mkdir()
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "state").symlink_to(real_state_dir, target_is_directory=True)
+    (repo / "state-link").symlink_to(
+        repo / ".claude" / "state", target_is_directory=True
+    )
+
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": f"state-link/{SLUG}.json",
+            "content": json.dumps(_valid_state(), ensure_ascii=False),
+        },
+    }
+    result = _run_gate(repo, payload)
+
+    assert result.returncode == 0
+    assert "BLOCKED" not in result.stderr
