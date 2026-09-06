@@ -85,7 +85,7 @@ if [ -f "$TMP/.claude/settings.json" ]; then
   cp "$TMP/.claude/settings.json" .claude/settings.json
   echo "OK: .claude/settings.json を更新しました"
   # .gitignore に除外エントリを追加(冪等。既存の .gitignore は上書きせず追記のみ)
-  IGNORE_ENTRIES=(".claude/checkpoints/" ".claude/settings.local.json" "**/.claude/spec/")
+  IGNORE_ENTRIES=(".claude/checkpoints/" ".claude/settings.local.json" "**/.claude/spec/" ".claude/state/")
   # CLAUDE_TEMPLATE_GITIGNORE_ALL=1 なら、テンプレートが配布・生成する一式を
   # 導入先の git 管理外にする(テンプレートのファイルをリポジトリに載せたくない場合)
   if [ "${CLAUDE_TEMPLATE_GITIGNORE_ALL:-0}" = "1" ]; then
