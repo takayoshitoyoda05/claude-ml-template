@@ -88,7 +88,7 @@ try {
         Write-Host "OK: .claude/settings.json を更新しました"
         # .gitignore に除外エントリを追加(冪等。既存の .gitignore は上書きせず追記のみ)
         $gitignorePath = ".gitignore"
-        $ignoreEntries = @(".claude/checkpoints/", ".claude/settings.local.json", "**/.claude/spec/")
+        $ignoreEntries = @(".claude/checkpoints/", ".claude/settings.local.json", "**/.claude/spec/", ".claude/state/")
         # CLAUDE_TEMPLATE_GITIGNORE_ALL=1 なら、テンプレートが配布・生成する一式を
         # 導入先の git 管理外にする(テンプレートのファイルをリポジトリに載せたくない場合)
         if ($env:CLAUDE_TEMPLATE_GITIGNORE_ALL -eq "1") {
