@@ -333,8 +333,9 @@ plan-reviewer に計画を審査させる。
   質問だけを出力して終了せよ**と必ず指示する(単発実行で対話できないため。
   質問が返ったらリーダーが解消して再実行)
 - **コミットは Codex にさせない**: 完了後、リーダーが
-  `git status --short` と `git diff HEAD --name-only` の**和集合**(未追跡・
-  ステージ済みを含む全変更)が割当ファイル集合の部分集合であることを機械確認し、
+  `git status --porcelain=v1 -uall`(未追跡をディレクトリ単位でまとめず
+  ファイル単位で列挙)からパス部分を取り出した集合が割当ファイル集合の
+  部分集合であることを機械確認し、
   diff を確認してからリーダーがコミットする(`git diff --name-only` だけでは
   未追跡の新規ファイルとステージ済み変更を見逃す)。範囲逸脱があれば当該変更を
   破棄して修正指示を出す
@@ -433,7 +434,8 @@ git worktree add -b pipeline/YYYYMMDD-<トピック>-group-B .worktrees/group-B
 - 全工程が完了したら `git worktree remove` で後片付けする
 - **Codex 委譲グループ**(CLAUDE_CODEX_IMPL=1 で「設計判断を含む」印の無いグループ):
   チームメイトは起動せず、リーダーが割当 worktree を cwd に
-  `codex exec -m $CODEX_IMPL_MODEL --sandbox workspace-write` をバックグラウンド実行で
+  `codex exec --sandbox workspace-write`(CODEX_IMPL_MODEL が非空なら
+  `-m "$CODEX_IMPL_MODEL"` を付ける)をバックグラウンド実行で
   起動する(手順5「実装主体の選択」の作法: 自己完結の依頼文・コミット禁止・
   範囲確認とコミットはリーダー・規律の代行・フォールバック)。Claude generator の
   グループと並行して走らせてよい。同時に走らせる Codex グループは
