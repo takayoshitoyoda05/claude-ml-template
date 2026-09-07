@@ -195,11 +195,13 @@ def test_quoted_untracked_checkpoint_path_excluded(tmp_path: Path) -> None:
     """
     hook, repo = _setup(tmp_path)
     (repo / "a.txt").write_text("changed\n", encoding="utf-8")
+    first = _run_gate(hook, repo)
+    assert first.returncode == 2
+    # 初回ブロックの後に引用形式の untracked を checkpoints 配下へ追加する。
+    # 除外が壊れていると指紋が変わり2回目がブロックされるため、退行を検出できる
     checkpoints = repo / ".claude" / "checkpoints"
     checkpoints.mkdir(parents=True, exist_ok=True)
     (checkpoints / "指紋メモ.txt").write_text("x\n", encoding="utf-8")
-    first = _run_gate(hook, repo)
-    assert first.returncode == 2
     second = _run_gate(hook, repo)
     assert second.returncode == 0, second.stderr
 
