@@ -929,7 +929,7 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5�
 |---|---|---|
 | guard_scope.py | PreToolUse (Edit/Write/NotebookEdit) | スコープ外・生成物(`.pth` 等)・秘密情報ファイル・APIキーらしき内容・フック/設定自身への書き込みをブロック |
 | guard_bash.py | PreToolUse (Bash/PowerShell) | 危険コマンド(`rm -rf /` / `Remove-Item -Recurse -Force` 等の表記ゆれ、強制push等)、作業スコープ外への再帰削除(相対パス含む。一時ディレクトリは除外)、一括ステージ(`git add .` / `-A` / `-u`)、秘密情報の `git add`、フック/設定/承認記録を変更するコマンド(`cp`/`mv`/`sed -i`/`rm`/`touch` や `Copy-Item`/`Move-Item`/`Set-Content`/`Remove-Item`/`New-Item` 等のPowerShell変更系コマンド、リダイレクト/tee 等)、`spec_approve.py` のエージェント経由実行(grep/cat 等の読み取り専用コマンドは許可)、コミット規約(フラグON時)をブロック。コマンド名の判定は大文字小文字を区別しない(PowerShellのエイリアス対応) |
-| state_gate.py | PreToolUse (Edit/Write/NotebookEdit) | `.claude/state/<現在ブランチのslug>.json`(構造化実行状態ファイル。3.22節)への書き込みをスキーマ検証し、違反(必須キー欠落・未知キー・型不一致・enum外・notes 500字超)をブロック。対象判定は期待パスとの realpath 実体一致(symlink の向き・連鎖に依存しない)。フック内部エラーは fail-open(通す) |
+| state_gate.py | PreToolUse (Edit/Write/NotebookEdit) | `.claude/state/<現在ブランチのslug>.json`(構造化実行状態ファイル。3.22節)への Write / Edit をスキーマ検証し、違反(必須キー欠落・未知キー・型不一致・enum外・notes 500字超)をブロック。対象判定は期待パスとの realpath 実体一致(symlink の向き・連鎖に依存しない)。フック内部エラーは fail-open(通す) |
 | auto_format.py | PostToolUse (Edit/Write/NotebookEdit) | `.py` 編集後に `ruff format`(ruff が無ければスルー) |
 | action_log.py | PostToolUse | 全ツール実行を logs/actions/ に JSONL 自動記録(マスキング済み、duration付き) |
 | agent_log.py | SubagentStop | サブエージェントの委譲チェーンを logs/agents/ に記録(モデル・使用量) |
@@ -1048,13 +1048,16 @@ cross-review スキルがレビュー完了時に、レビュー時点の HEAD �
 確認して通過させる。同じコミット上にいる限り再レビューは要求されない。
 **レビュー後にコミットを進める(HEAD が変わる)か、ファイルを変更・追加したままにすると
 ゲートが再び閉じる**(再度「クロスレビューして」で開く)。つまり「レビューを通っていない
-変更を残したまま完了できない」ことを保証する仕組み。git で照合できない場合は
-安全側に倒してブロックする。
+変更を残したまま、警告なしに完了することはできない」仕組み(下記の抑制により、警告は
+状態ごとに1回で、2回目以降の停止は通る。毎回の停止を阻止する強制ではなく、必ず一度は
+知らせる補助線)。git で照合できない場合は安全側に倒してブロックする。
 
-**再発火の抑制**: ブロック時に(ブロック種別 + HEAD + git status 出力)の指紋を
-`.claude/checkpoints/codex_gate_last_block.txt` に記録し、状態が変わらないままの
-再停止では警告を繰り返さない(警告は状態ごとに1回。並列実装の待機ターンで同一警告が
-連続発火するのを防ぐ)。状態が変われば再びブロックし、正常通過時に指紋は破棄される。
+**再発火の抑制**: ブロック時に(ブロック種別 + HEAD + `git status --porcelain` 出力)の
+指紋を `.claude/checkpoints/codex_gate_last_block.txt` に記録し、指紋が変わらないままの
+再停止では警告を繰り返さず通す(並列実装の待機ターンで同一警告が連続発火するのを防ぐ)。
+再ブロックの条件は指紋の変化 — HEAD の移動、変更・追加ファイルの**パスやステータス表示**の
+変化 — であり、既に変更済みのファイルをさらに編集しても status 表示が同じなら再警告は
+出ない(内容までは見ない)。正常通過時に指紋は破棄される。
 長時間の意図的な dirty 状態(並列実装の待機など)は、ユーザーが
 `! touch .claude/checkpoints/codex_gate_pause` でゲートを一時停止できる
 (`! rm` で再開。エージェントによる作成はセンチネルと同じく規律で禁止)。
@@ -1597,8 +1600,10 @@ sensitive 相当で運用する場合はこの限界を踏まえて運用で補�
   マージ後に削除する。スキーマは11キー固定(schema_version / branch / task_summary /
   size / current_step / gates / open_findings / artifacts / next_action / notes /
   updated_at)。実例は `.claude/commands/ml-pipeline.md` 手順1.5 に埋め込まれている
-- **書き込み側の検証**: state_gate.py(3.4節)が全ての書き込みをスキーマ検証し、
-  違反をブロックする。並列実装時は統合ブランチ上のリーダーだけが更新する
+- **書き込み側の検証**: state_gate.py(3.4節)が**現在ブランチの状態ファイルへの
+  Write / Edit** をスキーマ検証し、違反をブロックする(NotebookEdit・Bash 経由の
+  書き込みと、適用結果を再現できない Edit は検証対象外=通す。フックは補助線)。
+  並列実装時は統合ブランチ上のリーダーだけが更新する
   (1ファイル1書き手。worktree 内の generator は読み書きしない)
 - **読み込み側の検証**: 圧縮直後(reinject_after_compact.py)と起動時
   (resume_session_state.py)に、スキーマ検証を通った状態だけを
@@ -1608,8 +1613,9 @@ sensitive 相当で運用する場合はこの限界を踏まえて運用で補�
 - **handoff との関係**: handoff スキルのスナップショットにも実行状態セクションが
   含まれ、状態ファイルが壊れた場合の復旧元になる
 
-検証ロジックは `_state_common.py` の1箇所に集約されている。スキーマの機械的な正は
-state_gate.py のコードが唯一持ち、スキーマファイルの別配布はしない(2重管理の禁止)。
+検証ロジックとスキーマ定数は `_state_common.py` の1箇所に集約されている(state_gate.py は
+それを import する)。スキーマの機械的な正は `_state_common.py` のコードが唯一持ち、
+スキーマファイルの別配布はしない(2重管理の禁止)。
 
 ---
 
