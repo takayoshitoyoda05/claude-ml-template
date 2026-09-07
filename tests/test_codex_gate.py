@@ -10,8 +10,17 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STAGING = REPO_ROOT / "_staging_codex_gate.py"
+
+# staging スクリプトは gitignore 対象(/_staging_*)のためクリーン checkout には
+# 存在しない。test_state_gate.py の pytestmark_staging と同じ扱いで skip する
+pytestmark = pytest.mark.skipif(
+    not STAGING.exists(),
+    reason="_staging_codex_gate.py が無い環境(クリーン checkout / CI)ではスキップ",
+)
 
 
 def _apply_staging(root: Path) -> Path:
@@ -161,6 +170,36 @@ def test_no_sentinel_block_also_suppressed(tmp_path: Path) -> None:
     first = _run_gate(hook, repo)
     assert first.returncode == 2
     assert "まだ実行されていません" in first.stderr
+    second = _run_gate(hook, repo)
+    assert second.returncode == 0, second.stderr
+
+
+def test_garbled_last_block_file_still_blocks(tmp_path: Path) -> None:
+    """指紋ファイルが UTF-8 として不正でも例外にせず通常のブロックに倒す。"""
+    hook, repo = _setup(tmp_path)
+    (repo / "a.txt").write_text("changed\n", encoding="utf-8")
+    last_block = repo / ".claude" / "checkpoints" / "codex_gate_last_block.txt"
+    last_block.parent.mkdir(parents=True, exist_ok=True)
+    last_block.write_bytes(b"\xff\xfe\x00garbled")
+    result = _run_gate(hook, repo)
+    assert result.returncode == 2
+    assert "Traceback" not in result.stderr
+    assert "未コミット変更" in result.stderr
+
+
+def test_quoted_untracked_checkpoint_path_excluded(tmp_path: Path) -> None:
+    """git が引用形式で出す checkpoints 配下の untracked も状態から除外される。
+
+    非 ASCII ファイル名は porcelain 出力で `?? "..."` と引用されるため、
+    引用剥がしが無いと指紋が安定せず抑制が効かない。
+    """
+    hook, repo = _setup(tmp_path)
+    (repo / "a.txt").write_text("changed\n", encoding="utf-8")
+    checkpoints = repo / ".claude" / "checkpoints"
+    checkpoints.mkdir(parents=True, exist_ok=True)
+    (checkpoints / "指紋メモ.txt").write_text("x\n", encoding="utf-8")
+    first = _run_gate(hook, repo)
+    assert first.returncode == 2
     second = _run_gate(hook, repo)
     assert second.returncode == 0, second.stderr
 

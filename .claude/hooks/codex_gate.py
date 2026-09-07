@@ -71,11 +71,17 @@ def worktree_status():
     # ゲート自身の記録(.claude/checkpoints/ 配下: センチネル・抑制指紋・
     # 一時停止ファイル)は「レビューすべき変更」ではないため状態から除外する。
     # 実リポジトリでは gitignore 済みでそもそも現れないが、除外を明示することで
-    # 指紋の安定性(自分の書き込みで状態が変わる自己言及)を環境に依存させない
+    # 指紋の安定性(自分の書き込みで状態が変わる自己言及)を環境に依存させない。
+    # 除外は untracked(`?? `)行に限定する: checkpoints は gitignore 前提で
+    # 追跡されないため rename 表記(`R  a -> b`)には現れず、追跡済みの
+    # checkpoints 変更という異常系はあえて dirty 扱いのままにする(安全側)
     lines = [
         line
         for line in result.stdout.splitlines()
-        if not line[3:].startswith(".claude/checkpoints/")
+        if not (
+            line.startswith("?? ")
+            and line[3:].strip().strip('"').startswith(".claude/checkpoints/")
+        )
     ]
     return "\n".join(lines)
 
@@ -89,7 +95,9 @@ def _read_last_block():
     try:
         with open(LAST_BLOCK, encoding="utf-8-sig") as f:
             return f.read().strip()
-    except OSError:
+    except (OSError, UnicodeError):
+        # UnicodeDecodeError は OSError で捕まらない(python-style.md の契約)。
+        # 読めない指紋は記録なしとして扱う(=ブロック側へ倒れる安全側)
         return None
 
 
@@ -145,7 +153,8 @@ def main():
             # utf-8-sig: PowerShell の Out-File -Encoding utf8 が付ける BOM を許容
             with open(SENTINEL, encoding="utf-8-sig") as f:
                 recorded = f.read().strip()
-        except OSError:
+        except (OSError, UnicodeError):
+            # UnicodeDecodeError は OSError で捕まらない(python-style.md の契約)
             recorded = None
 
     if not recorded:
