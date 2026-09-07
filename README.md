@@ -936,7 +936,7 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5�
 | record_session_state.py | Stop | 各ターン終了時にブランチ・git status・対応する計画の手順表・直近の会話末尾を `.claude/checkpoints/session_state.md` へ上書き記録(世代管理なし、会話由来テキストはマスキング済み)。状態ファイル(3.22節)が30分超前のまま更新されていなければ鮮度警告を出す。`CLAUDE_SESSION_RESUME=0` で無効化 |
 | enforce_eval.py | Stop | 評価コマンドを実行し失敗なら続行を促す(フラグON時のみ)。前回PASSから状態が変わっていなければ再実行をスキップ |
 | spec_gate.py | Stop | `CLAUDE_SPEC_CHECK=1` のとき、設計書の受け入れ条件テーブルを全要件PASS・承認・監査OK・設計書ハッシュ一致(計画承認時点からの改変検知)で検査し、欠けがあればブロック(`--ci` でCIモード: auto再実行+coverageのみ) |
-| codex_gate.py | Stop | CLAUDE_CROSS_REVIEW=1 のとき Codexレビュー未完了ならブロック。センチネル(`.claude/checkpoints/codex_review_done.txt`)の HEAD ハッシュを現在の HEAD と照合し、レビュー後にコミットが進んだ場合と未コミット変更(未追跡含む)が残っている場合は再レビューを要求する。同一状態での警告は1回のみ(状態指紋を記録し、変化がない再停止は黙って通す)。`.claude/checkpoints/codex_gate_pause` が存在すれば無条件通過(ユーザーの `!` 実行でのみ作成・削除する)。(詳細は 3.10 節) |
+| codex_gate.py | Stop | CLAUDE_CROSS_REVIEW=1 のとき Codexレビュー未完了ならブロック。センチネル(`.claude/checkpoints/codex_review_done.txt`)の HEAD ハッシュを現在の HEAD と照合し、レビュー後にコミットが進んだ場合と未コミット変更(未追跡含む)が残っている場合は再レビューを要求する。同一指紋(ブロック種別+HEAD+status)の再停止は警告を繰り返さず通す。`.claude/checkpoints/codex_gate_pause` が存在すれば無条件通過(ユーザーの `!` 実行でのみ作成・削除する)。(詳細は 3.10 節) |
 | quality_gate.py | Stop | CLAUDE_QUALITY_GATE=1 のとき、ruff/radon/mypyの機械チェックで閾値超過ならブロック。CLAUDE_DIFF_COVERAGE=1 なら変更行カバレッジ(pytest-cov + diff-cover)も4番目のチェックとして追加 |
 | session_monitor.py | Stop | CLAUDE_SESSION_MONITOR=1 のとき、transcript の usage実測値と auto-compact 回数からコンテキスト使用量が重くなったことを警告し handoff を推奨(警告のみ、ブロックしない。一度警告したら使用量が+10%増えるまで再警告しない) |
 | notify.py | Stop | CLAUDE_NOTIFY=1 のとき、セッション停止時にデスクトップ通知(Windows/macOS/Linux対応) |
@@ -1048,21 +1048,24 @@ cross-review スキルがレビュー完了時に、レビュー時点の HEAD �
 確認して通過させる。同じコミット上にいる限り再レビューは要求されない。
 **レビュー後にコミットを進める(HEAD が変わる)か、ファイルを変更・追加したままにすると
 ゲートが再び閉じる**(再度「クロスレビューして」で開く)。つまり「レビューを通っていない
-変更を残したまま、警告なしに完了することはできない」仕組み(下記の抑制により、警告は
-状態ごとに1回で、2回目以降の停止は通る。毎回の停止を阻止する強制ではなく、必ず一度は
-知らせる補助線)。git で照合できない場合は安全側に倒してブロックする。
+変更を残したまま、警告なしに完了することはできない」仕組み(下記の抑制により、同一指紋の
+再停止は通る。毎回の停止を阻止する強制ではなく、必ず一度は知らせる補助線)。
+git で照合できない場合は安全側に倒してブロックする。
 
 **再発火の抑制**: ブロック時に(ブロック種別 + HEAD + `git status --porcelain` 出力)の
-指紋を `.claude/checkpoints/codex_gate_last_block.txt` に記録し、指紋が変わらないままの
+指紋を `.claude/checkpoints/codex_gate_last_block.txt` に記録し、**同一指紋**の
 再停止では警告を繰り返さず通す(並列実装の待機ターンで同一警告が連続発火するのを防ぐ)。
 再ブロックの条件は指紋の変化 — HEAD の移動、変更・追加ファイルの**パスやステータス表示**の
-変化 — であり、既に変更済みのファイルをさらに編集しても status 表示が同じなら再警告は
+変化、**ブロック種別の変化**(例: レビュー後にコミットが進むと、初回は HEAD 不一致で
+センチネルが破棄され、次回はセンチネル不在という別種別になるため 2→2→0 と2回警告される)—
+であり、既に変更済みのファイルをさらに編集しても status 表示が同じなら再警告は
 出ない(内容までは見ない)。正常通過時に指紋は破棄される。
 長時間の意図的な dirty 状態(並列実装の待機など)は、ユーザーが
 `! touch .claude/checkpoints/codex_gate_pause` でゲートを一時停止できる
 (`! rm` で再開。エージェントによる作成はセンチネルと同じく規律で禁止)。
 前提: `.claude/checkpoints/` が gitignore されていること(claude-init が自動設定する。
-されていないとセンチネル自体が未追跡変更と見なされ、ゲートが開かない)。
+ゲート自身は checkpoints 配下の未追跡ファイルを判定から除外するため開閉には影響しないが、
+チェックポイント・センチネル類が誤ってコミット対象に混ざるのを防ぐ運用前提)。
 
 #### MCP経由の呼び出し
 
