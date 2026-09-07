@@ -929,20 +929,21 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5�
 |---|---|---|
 | guard_scope.py | PreToolUse (Edit/Write/NotebookEdit) | スコープ外・生成物(`.pth` 等)・秘密情報ファイル・APIキーらしき内容・フック/設定自身への書き込みをブロック |
 | guard_bash.py | PreToolUse (Bash/PowerShell) | 危険コマンド(`rm -rf /` / `Remove-Item -Recurse -Force` 等の表記ゆれ、強制push等)、作業スコープ外への再帰削除(相対パス含む。一時ディレクトリは除外)、一括ステージ(`git add .` / `-A` / `-u`)、秘密情報の `git add`、フック/設定/承認記録を変更するコマンド(`cp`/`mv`/`sed -i`/`rm`/`touch` や `Copy-Item`/`Move-Item`/`Set-Content`/`Remove-Item`/`New-Item` 等のPowerShell変更系コマンド、リダイレクト/tee 等)、`spec_approve.py` のエージェント経由実行(grep/cat 等の読み取り専用コマンドは許可)、コミット規約(フラグON時)をブロック。コマンド名の判定は大文字小文字を区別しない(PowerShellのエイリアス対応) |
+| state_gate.py | PreToolUse (Edit/Write/NotebookEdit) | `.claude/state/<現在ブランチのslug>.json`(構造化実行状態ファイル。3.22節)への書き込みをスキーマ検証し、違反(必須キー欠落・未知キー・型不一致・enum外・notes 500字超)をブロック。対象判定は期待パスとの realpath 実体一致(symlink の向き・連鎖に依存しない)。フック内部エラーは fail-open(通す) |
 | auto_format.py | PostToolUse (Edit/Write/NotebookEdit) | `.py` 編集後に `ruff format`(ruff が無ければスルー) |
 | action_log.py | PostToolUse | 全ツール実行を logs/actions/ に JSONL 自動記録(マスキング済み、duration付き) |
 | agent_log.py | SubagentStop | サブエージェントの委譲チェーンを logs/agents/ に記録(モデル・使用量) |
-| record_session_state.py | Stop | 各ターン終了時にブランチ・git status・対応する計画の手順表・直近の会話末尾を `.claude/checkpoints/session_state.md` へ上書き記録(世代管理なし、会話由来テキストはマスキング済み)。`CLAUDE_SESSION_RESUME=0` で無効化 |
+| record_session_state.py | Stop | 各ターン終了時にブランチ・git status・対応する計画の手順表・直近の会話末尾を `.claude/checkpoints/session_state.md` へ上書き記録(世代管理なし、会話由来テキストはマスキング済み)。状態ファイル(3.22節)が30分超前のまま更新されていなければ鮮度警告を出す。`CLAUDE_SESSION_RESUME=0` で無効化 |
 | enforce_eval.py | Stop | 評価コマンドを実行し失敗なら続行を促す(フラグON時のみ)。前回PASSから状態が変わっていなければ再実行をスキップ |
 | spec_gate.py | Stop | `CLAUDE_SPEC_CHECK=1` のとき、設計書の受け入れ条件テーブルを全要件PASS・承認・監査OK・設計書ハッシュ一致(計画承認時点からの改変検知)で検査し、欠けがあればブロック(`--ci` でCIモード: auto再実行+coverageのみ) |
-| codex_gate.py | Stop | CLAUDE_CROSS_REVIEW=1 のとき Codexレビュー未完了ならブロック。センチネル(`.claude/checkpoints/codex_review_done.txt`)の HEAD ハッシュを現在の HEAD と照合し、レビュー後にコミットが進んだ場合と未コミット変更(未追跡含む)が残っている場合は再レビューを要求する(詳細は 3.10 節) |
+| codex_gate.py | Stop | CLAUDE_CROSS_REVIEW=1 のとき Codexレビュー未完了ならブロック。センチネル(`.claude/checkpoints/codex_review_done.txt`)の HEAD ハッシュを現在の HEAD と照合し、レビュー後にコミットが進んだ場合と未コミット変更(未追跡含む)が残っている場合は再レビューを要求する。同一状態での警告は1回のみ(状態指紋を記録し、変化がない再停止は黙って通す)。`.claude/checkpoints/codex_gate_pause` が存在すれば無条件通過(ユーザーの `!` 実行でのみ作成・削除する)。(詳細は 3.10 節) |
 | quality_gate.py | Stop | CLAUDE_QUALITY_GATE=1 のとき、ruff/radon/mypyの機械チェックで閾値超過ならブロック。CLAUDE_DIFF_COVERAGE=1 なら変更行カバレッジ(pytest-cov + diff-cover)も4番目のチェックとして追加 |
 | session_monitor.py | Stop | CLAUDE_SESSION_MONITOR=1 のとき、transcript の usage実測値と auto-compact 回数からコンテキスト使用量が重くなったことを警告し handoff を推奨(警告のみ、ブロックしない。一度警告したら使用量が+10%増えるまで再警告しない) |
 | notify.py | Stop | CLAUDE_NOTIFY=1 のとき、セッション停止時にデスクトップ通知(Windows/macOS/Linux対応) |
 | plan_gate.py | Stop | 現在のブランチ名に対応する計画のリソース超過(invariants の resources 比)・goal 未定義・読めない見積もりをブロック |
 | checkpoint_before_compact.py | PreCompact | 圧縮直前に git 状態・トランスクリプトを `.claude/checkpoints/` にバックアップ(直近10世代のみ保持)。auto-compact のトリガー時はセッション別の compact 回数も記録(session_monitor.py が使用) |
-| reinject_after_compact.py | SessionStart (compact) | 圧縮直後にチェックポイントと注意事項を会話に再注入 |
-| resume_session_state.py | SessionStart (startup) | 起動時、記録されたブランチが現在と一致し72時間以内なら状態と再開指示を会話に注入(自動続行はしない)。`source=compact` では何もしない(reinject_after_compact.py と二重注入しない)。`CLAUDE_SESSION_RESUME=0` で無効化 |
+| reinject_after_compact.py | SessionStart (compact) | 圧縮直後にチェックポイントと注意事項を会話に再注入。現在ブランチの状態ファイル(3.22節)がスキーマ検証を通れば「検証済み実行状態」として併せて注入する(違反・破損時は注入せず1行通知) |
+| resume_session_state.py | SessionStart (startup) | 起動時、記録されたブランチが現在と一致し72時間以内なら状態と再開指示を会話に注入(自動続行はしない)。状態ファイル(3.22節)の検証済み注入も reinject_after_compact.py と同様に行う。`source=compact` では何もしない(reinject_after_compact.py と二重注入しない)。`CLAUDE_SESSION_RESUME=0` で無効化 |
 
 `spec_approve.py` はフックとして配線されず、ユーザーが `!` で手動実行する
 専用スクリプト(manual要件の承認記録と設計書ハッシュの計画承認記録用)。
@@ -954,6 +955,8 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5�
 (evidence/ の機械集約用)。
 
 秘密情報・生成物・保護パスの検知パターンは `_common.py` に一元化されており、guard 系フックで共有される。
+状態ファイルのスキーマ検証・ブランチ取得・状態セクション生成は `_state_common.py` に一元化されており、
+state_gate / reinject_after_compact / resume_session_state の3フックで共有される(検証ロジックの複製禁止)。
 
 `.claude/hooks/` と `settings.json` / `settings.local.json` はガード自身の自己書き換え防止のため、
 Claude 経由では編集できない(Edit/Write・リダイレクト・tee・`cp`/`mv`/`sed -i` 等をブロック)。
@@ -1047,6 +1050,14 @@ cross-review スキルがレビュー完了時に、レビュー時点の HEAD �
 ゲートが再び閉じる**(再度「クロスレビューして」で開く)。つまり「レビューを通っていない
 変更を残したまま完了できない」ことを保証する仕組み。git で照合できない場合は
 安全側に倒してブロックする。
+
+**再発火の抑制**: ブロック時に(ブロック種別 + HEAD + git status 出力)の指紋を
+`.claude/checkpoints/codex_gate_last_block.txt` に記録し、状態が変わらないままの
+再停止では警告を繰り返さない(警告は状態ごとに1回。並列実装の待機ターンで同一警告が
+連続発火するのを防ぐ)。状態が変われば再びブロックし、正常通過時に指紋は破棄される。
+長時間の意図的な dirty 状態(並列実装の待機など)は、ユーザーが
+`! touch .claude/checkpoints/codex_gate_pause` でゲートを一時停止できる
+(`! rm` で再開。エージェントによる作成はセンチネルと同じく規律で禁止)。
 前提: `.claude/checkpoints/` が gitignore されていること(claude-init が自動設定する。
 されていないとセンチネル自体が未追跡変更と見なされ、ゲートが開かない)。
 
@@ -1575,6 +1586,31 @@ sensitive 相当で運用する場合はこの限界を踏まえて運用で補�
 (個別変数が優先)。guard_bash と同様、**コマンド文字列の静的判定であり補助線**に
 すぎない(変数展開やスクリプト経由の送信は検知できない)。
 
+### 3.22 構造化実行状態ファイル(SKILL.state 部分採用)
+
+長い /ml-pipeline 実行では、進行状態が会話履歴(散文)にしか残らず、コンテキスト圧縮の
+たびに劣化コピーが作られていく。この対策として、arXiv 2608.26263(SKILL.state)の
+「追記専用の履歴ではなく、検証つきで更新される明示的な状態」を部分採用している。
+
+- **状態ファイル**: `.claude/state/<ブランチslug>.json`(gitignore 対象・ローカルのみ)。
+  ml-pipeline の手順1.5 でリーダーが初期作成し、工程が進むたびに更新、手順9 の
+  マージ後に削除する。スキーマは11キー固定(schema_version / branch / task_summary /
+  size / current_step / gates / open_findings / artifacts / next_action / notes /
+  updated_at)。実例は `.claude/commands/ml-pipeline.md` 手順1.5 に埋め込まれている
+- **書き込み側の検証**: state_gate.py(3.4節)が全ての書き込みをスキーマ検証し、
+  違反をブロックする。並列実装時は統合ブランチ上のリーダーだけが更新する
+  (1ファイル1書き手。worktree 内の generator は読み書きしない)
+- **読み込み側の検証**: 圧縮直後(reinject_after_compact.py)と起動時
+  (resume_session_state.py)に、スキーマ検証を通った状態だけを
+  「検証済み・これを正とする」見出しつきで会話に注入する。検証を通らない
+  ファイルは注入せず1行通知に留める(見出しの保証を虚偽にしないため)。
+  30分超更新が無いと record_session_state.py が鮮度警告を出す
+- **handoff との関係**: handoff スキルのスナップショットにも実行状態セクションが
+  含まれ、状態ファイルが壊れた場合の復旧元になる
+
+検証ロジックは `_state_common.py` の1箇所に集約されている。スキーマの機械的な正は
+state_gate.py のコードが唯一持ち、スキーマファイルの別配布はしない(2重管理の禁止)。
+
 ---
 
 ## 4. テンプレートの育て方
@@ -1765,6 +1801,8 @@ claude-ml-template/
       fable-like.md                 Fable 5行動様式のoutput style(メインセッション用)
     hooks/
       _common.py                    guard系で共有する検知パターン・保護パス定義
+      _state_common.py              状態ファイルのスキーマ検証・状態セクション生成の共有モジュール(3.22節)
+      state_gate.py                 PreToolUse: .claude/state/<slug>.json への書き込みをスキーマ検証(3.22節)
       _logutil.py                   ログ系フック共通のローテーション処理
       _mask.py                      ログ書き込み前の秘密情報マスキング
       guard_scope.py                スコープ外・秘密情報・フック自己書き換えのブロック
@@ -1776,17 +1814,17 @@ claude-ml-template/
       agent_log.py                  サブエージェント委譲チェーンの記録(logs/agents/)
       plan_gate.py                  Stop: 計画のリソース超過・goal未定義をブロック
       report_gen.py                 完全レポートの evidence/ 機械集約(手順8.5で手動実行)
-      record_session_state.py       Stop: 各ターン終了時に進行状態を .claude/checkpoints/session_state.md へ上書き記録
+      record_session_state.py       Stop: 各ターン終了時に進行状態を .claude/checkpoints/session_state.md へ上書き記録(状態ファイルの鮮度警告つき)
       enforce_eval.py               評価コマンド実行強制(状態不変ならスキップ)
       spec_gate.py                  Stop: 設計書の受け入れ条件を機械検査(--ci でCIモード)
       spec_approve.py               manual要件の承認・設計書ハッシュの計画承認記録(ユーザーの`!`実行専用。エージェント経由の実行はguard_bashがブロック)
-      codex_gate.py                 Stop: CLAUDE_CROSS_REVIEW=1 のときCodexレビュー未完了ならブロック
+      codex_gate.py                 Stop: CLAUDE_CROSS_REVIEW=1 のときCodexレビュー未完了ならブロック(同一状態の警告は1回・pause ファイルで一時停止可)
       quality_gate.py               Stop: CLAUDE_QUALITY_GATE=1 のときruff/radon/mypyの機械チェックでブロック(CLAUDE_DIFF_COVERAGE=1 で変更行カバレッジも検査)
       session_monitor.py            Stop: CLAUDE_SESSION_MONITOR=1 のときコンテキスト使用量の重量化を警告しhandoffを推奨(警告のみ)
       notify.py                     Stop: CLAUDE_NOTIFY=1 のときセッション停止時にデスクトップ通知(Windows/macOS/Linux対応)
       checkpoint_before_compact.py  圧縮前バックアップ(直近10世代のみ保持)
-      reinject_after_compact.py     圧縮後の再注入
-      resume_session_state.py       SessionStart(startup): 記録があれば起動時に注入し再開を促す
+      reinject_after_compact.py     圧縮後の再注入(検証済み実行状態の注入つき。3.22節)
+      resume_session_state.py       SessionStart(startup): 記録があれば起動時に注入し再開を促す(検証済み実行状態の注入つき)
     settings.json                   フックの配線・許可コマンド・エージェントチーム設定
   .github/workflows/
     verify-hooks.yml                CI: push/PR時のフック・インストーラ自動テスト
