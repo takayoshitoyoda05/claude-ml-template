@@ -76,6 +76,17 @@ Claude(Sonnet)が実装したコードを、Codex CLI(OpenAIモデル)に独立�
    git rev-parse HEAD | Out-File -FilePath ".claude\checkpoints\codex_review_done.txt" -Encoding utf8
    ```
 
+## ドキュメントレビュー(diff 以外を対象にする場合)
+/ml-pipeline の手順3.4(計画・設計書のレビュー)など、コード diff ではなく
+ドキュメントを対象にする場合は以下だけを変える。
+
+- 手順2 の diff 取得の代わりに、対象ファイルの内容(cat)を渡す
+- 手順2.4 の送信前検疫(data_scan)は同様に必須
+- 手順6 のセンチネルは**作成・更新しない**(センチネルはコード diff のレビュー記録。
+  ドキュメントレビューで更新すると codex_gate の保証が空洞化する)
+- プロンプトには「対象は実装計画/設計書の Markdown」であることと、
+  レビュー観点(実行可能性・検証方法の機械照合性・ファイル間整合など)を明示する
+
 ## 注意
 - Codex のレビュー結果は参考情報。最終判定は evaluator が行う。
 - Codex が問題なしでも evaluator の NEEDS_REVISION は覆さない。
