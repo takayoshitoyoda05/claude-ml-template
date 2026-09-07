@@ -24,7 +24,8 @@ flowchart TD
     GV -->|差し戻し根拠が残る| D
     GV -->|判定不確実| HR[HUMAN_REVIEW<br>停止・人間の判断]
     GV -->|evaluatorのFAIL 3回| B
-    GV -->|両方PASS| AT[原子性チェック 手順6.5<br>並列実装のみ: 全グループPASSで統合]
+    GV -->|両方PASS| CH[反例ハンター 手順6.4<br>※CLAUDE_COUNTEREXAMPLE=1かつ設計書あり・判定/解決/変換系の時]
+    CH --> AT[原子性チェック 手順6.5<br>並列実装のみ: 全グループPASSで統合]
     AT --> AD[セキュリティスキャン 手順6.6<br>※CLAUDE_SECURITY_SCAN=1時のみ]
     AD -->|verifiedな指摘あり| D
     AD -->|verifiedな指摘なし| P[リファクタリング・パス 手順6.7<br>動作を変えない磨き1周]
@@ -260,6 +261,7 @@ config-set スキルが貼り付け用のJSONを提示するので、それを�
 | CLAUDE_SECURITY_SCAN | `1` でclaude-securityプラグインによる差分スキャンを2軸レビュー後に実行(起動にはユーザー本人のコスト承諾明記が別途必要。3.17節参照) | 無効(0) |
 | CLAUDE_FINAL_GATE | `1` でFableによる最終ゲート判断をリファクタパス後に実行 | 無効(0) |
 | CLAUDE_REFUTE_PASS | `1` で接地済みHIGH指摘をrefuterが反証する反証濾過パスを有効にする(手順6.3。リスク階層が高の依頼では実行しない) | 無効(0) |
+| CLAUDE_COUNTEREXAMPLE | `1` で反例ハンターを有効にする(手順6.4。設計書の不変条件・同値クラス表への反例入力を GREEN 後に敵対的探索。設計書があり判定・解決・変換系ロジックを含む場合のみ実行) | 無効(0) |
 | CLAUDE_ACTION_LOG | `1`(または未設定)で全ツール実行・エージェントの自動記録を有効化、`0` で無効化 | 有効(1) |
 | CLAUDE_SESSION_RESUME | `1`(または未設定)でセッション上限からの自動再開(Stopでの記録+起動時の注入)を有効化、`0` で無効化 | 有効(1) |
 | CLAUDE_REFACTOR_SWARM | `1` でリファクタパスの検出を Haiku 7体の並列スカウトで行う(エージェントチーム機能が必要) | 無効(0) |
@@ -864,6 +866,7 @@ spec-checklist ゲートは設計書の有無に関わらず毎回動く(設計�
 | evaluator | sonnet | Spec軸: 計画通りに動くか。評価コマンドを実行し数値で判定 |
 | evaluator-standards | sonnet | Standards軸: 規約・可読性・型安全性・コードスメル |
 | refuter | sonnet | 接地済みHIGH指摘を反証専任でレビュー。反証成功で差し戻し根拠から除外(手順6.3、CLAUDE_REFUTE_PASS=1時のみ。リスク階層が高の依頼では実行しない) |
+| counterexample-hunter | sonnet | 設計書の不変条件・同値クラス表への反例入力を GREEN 後に敵対的探索(実行して確認した反例のみ報告)。反例は接地確認の上 HIGH として差し戻し根拠に加える(手順6.4、CLAUDE_COUNTEREXAMPLE=1時のみ) |
 | spec-auditor | sonnet | spec-compliance の独立監査: verdict の証拠検証・スコープ外変更の列挙 |
 | improvement-reviewer | opus | retrospectiveの改善案を不変条件に基づいて審査・適用(テスト失敗時は自動revert) |
 | final-gate | fable | 最終形を俯瞰しマージ承認の三択判断のみ(第3層。CLAUDE_FINAL_GATE=1で有効、APPROVE/SEND_BACK/NEEDS_HUMAN) |
