@@ -7,3 +7,4 @@
 | staging 適用スクリプト | リポジトリルートの `_staging_<topic>.py`。guard_scope の保護パス(`.claude/hooks/`・`settings.json` 等)への変更をエージェントが直接書けないため、冪等な適用スクリプトとして用意し、ユーザーが `!` 実行で手動適用する。gitignore 対象(前例: `_staging_data_protection_p3.py`) |
 | deep-research | Web を多段調査し検証済み引用つきレポートを返すスキル。並列調査団+引用の接地検証・反証検索が特徴(ADR-0020) |
 | 独立ソース | 登録ドメイン(eTLD+1)が異なり、転載・同一発生源(プレスリリースと報道等)でない情報源どうし。deep-research の二重ソース規約の判定基準(表記でなく発生源で判定) |
+| テスト改変ゲート | CLAUDE_TDD_GATE=1 のとき、Red 記録(センチネル)済みテストファイルへの Green 中の編集を PreToolUse でブロックする補助線。解除はテスト緑の機械検証つき、テスト修正は「Red やり直し」(--rearm)が正規経路 |
