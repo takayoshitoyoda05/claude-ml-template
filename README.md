@@ -262,6 +262,7 @@ config-set スキルが貼り付け用のJSONを提示するので、それを�
 | CLAUDE_FINAL_GATE | `1` でFableによる最終ゲート判断をリファクタパス後に実行 | 無効(0) |
 | CLAUDE_REFUTE_PASS | `1` で接地済みHIGH指摘をrefuterが反証する反証濾過パスを有効にする(手順6.3。リスク階層が高の依頼では実行しない) | 無効(0) |
 | CLAUDE_COUNTEREXAMPLE | `1` で反例ハンターを有効にする(手順6.4。設計書の不変条件・同値クラス表への反例入力を GREEN 後に敵対的探索。設計書があり判定・解決・変換系ロジックを含む場合のみ実行) | 無効(0) |
+| CLAUDE_TDD_GATE | `1` で TDD のテスト改変ゲートを有効にする(Red 記録済みテストファイルへの Green 中の編集を PreToolUse でブロック。解除はテスト緑の検証つき、テスト修正は `tdd_red.py --rearm` の Red やり直し)。テストコマンドは記録時の OS のシェルで実行され、別 OS での再実行は保証外 | 無効(0) |
 | CLAUDE_CODEX_IMPL | `1` で実装の既定主体を Codex に委譲する(手順5。計画の実装主体判定で「設計判断を含む」印が付いたステップ/グループのみ Claude generator が担当。品質ゲートは同一) | 無効(0) |
 | CODEX_IMPL_MODEL | 実装委譲に使う Codex モデル(例: `gpt-5.6-luna`)。レビュー用(CODEX_MODEL / config)とは別指定 | 空(.codex/config.tomlの設定) |
 | CLAUDE_ACTION_LOG | `1`(または未設定)で全ツール実行・エージェントの自動記録を有効化、`0` で無効化 | 有効(1) |
@@ -929,13 +930,14 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5�
 
 プロンプトの「お願い」と違い、ツール呼び出しのたびに確定的に実行されるガード
 (ただし全経路を塞ぐものではない。守備範囲と限界は 3.6 節)。
-`.claude/settings.json` で配線され、全て `uv run python` 経由で OS を問わず動く。
+`.claude/settings.json` で配線され、全て `uv run python` 経由で OS を問わず動く(tdd_gate.py のみ既定offの実験フックで、`_staging_tdd_gate.py` の適用後に配線される)。
 
 | フック | イベント | 役割 |
 |---|---|---|
 | guard_scope.py | PreToolUse (Edit/Write/NotebookEdit) | スコープ外・生成物(`.pth` 等)・秘密情報ファイル・APIキーらしき内容・フック/設定自身への書き込みをブロック |
 | guard_bash.py | PreToolUse (Bash/PowerShell) | 危険コマンド(`rm -rf /` / `Remove-Item -Recurse -Force` 等の表記ゆれ、強制push等)、作業スコープ外への再帰削除(相対パス含む。一時ディレクトリは除外)、一括ステージ(`git add .` / `-A` / `-u`)、秘密情報の `git add`、フック/設定/承認記録を変更するコマンド(`cp`/`mv`/`sed -i`/`rm`/`touch` や `Copy-Item`/`Move-Item`/`Set-Content`/`Remove-Item`/`New-Item` 等のPowerShell変更系コマンド、リダイレクト/tee 等)、`spec_approve.py` のエージェント経由実行(grep/cat 等の読み取り専用コマンドは許可)、コミット規約(フラグON時)をブロック。コマンド名の判定は大文字小文字を区別しない(PowerShellのエイリアス対応) |
 | state_gate.py | PreToolUse (Edit/Write/NotebookEdit) | `.claude/state/<現在ブランチのslug>.json`(構造化実行状態ファイル。3.22節)への Write / Edit をスキーマ検証し、違反(必須キー欠落・未知キー・型不一致・enum外・notes 500字超)をブロック。対象判定は期待パスとの realpath 実体一致(symlink の向き・連鎖に依存しない)。フック内部エラーは fail-open(通す) |
+| tdd_gate.py | PreToolUse (Edit/Write/NotebookEdit) | CLAUDE_TDD_GATE=1 のとき、`tdd_red.py` が記録した Red 状態のテストファイルへの Green 中の編集をブロック(センチネル照合不能時は対象ツールの全編集を fail-closed でブロック)。解除は `tdd_unlock.py`(テスト緑の検証つき)、テスト修正は `tdd_red.py --rearm` による Red やり直し。既定off で settings.json への配線は `_staging_tdd_gate.py` の適用後のみ有効 |
 | auto_format.py | PostToolUse (Edit/Write/NotebookEdit) | `.py` 編集後に `ruff format`(ruff が無ければスルー) |
 | action_log.py | PostToolUse | 全ツール実行を logs/actions/ に JSONL 自動記録(マスキング済み、duration付き) |
 | agent_log.py | SubagentStop | サブエージェントの委譲チェーンを logs/agents/ に記録(モデル・使用量) |
@@ -1835,6 +1837,9 @@ claude-ml-template/
       _common.py                    guard系で共有する検知パターン・保護パス定義
       _state_common.py              状態ファイルのスキーマ検証・状態セクション生成の共有モジュール(3.22節)
       state_gate.py                 PreToolUse: .claude/state/<slug>.json への書き込みをスキーマ検証(3.22節)
+      tdd_red.py                    Red 記録(テストコマンドと対象テストファイルをセンチネルに保存。`--rearm` で記録を削除しRedやり直し。手動実行)
+      tdd_gate.py                   PreToolUse (Edit/Write/NotebookEdit): CLAUDE_TDD_GATE=1 のときRed記録済みテストファイルへのGreen中の編集をブロック(照合不能時はfail-closedで対象ツールの全編集を停止)
+      tdd_unlock.py                 記録した cwd でテストコマンドを再実行し、緑ならRed記録(センチネル)を削除して解除(手動実行)
       _logutil.py                   ログ系フック共通のローテーション処理
       _mask.py                      ログ書き込み前の秘密情報マスキング
       guard_scope.py                スコープ外・秘密情報・フック自己書き換えのブロック

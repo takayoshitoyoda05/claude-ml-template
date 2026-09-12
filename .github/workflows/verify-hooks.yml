@@ -24,3 +24,15 @@ jobs:
         run: |
           chmod +x verify-installers.sh
           ./verify-installers.sh
+
+      - name: Check verify-hooks.ps1 syntax
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:GITHUB_WORKSPACE "verify-hooks.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Host $_ }
+            exit 1
+          }

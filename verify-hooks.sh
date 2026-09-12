@@ -582,6 +582,207 @@ PG_F_INV=$'resources:\n  max_train_minutes: 120\n  max_epochs: 100\n  max_datase
 test_plan_gate "plan_gate: blocks when train_minutes exceeds the resource limit" \
   "pipeline/20260726-vh-f" "20260726-vh-f.md" "$PG_F_TEXT" "$PG_F_INV" 2
 
+# --- tdd: テスト改変ゲート(CLAUDE_TDD_GATE)。R-002〜R-012・R-016・R-017 ---
+# 実物は叩かず、mktemp -d したサンドボックスの .claude/hooks/ に写しを置いて
+# 実行する(パス解決がフック自身の配置基準のため、実物を叩くと実リポジトリの
+# .claude/checkpoints/ を汚す。PC-19 の番人)。写し元は2経路:
+# staging(_staging_tdd_gate.py --root --hooks-only)があればそれを適用し、
+# 無ければ追跡済み .claude/hooks/tdd_*.py を写す。どちらも無ければ SKIP する。
+TDD_STAGING="$(pwd)/_staging_tdd_gate.py"
+TDD_TRACKED_GATE_HOOK="$(pwd)/.claude/hooks/tdd_gate.py"
+TDD_TMP=$(mktemp -d)
+mkdir -p "$TDD_TMP/.claude/hooks" "$TDD_TMP/.claude/checkpoints"
+TDD_AVAILABLE=0
+if [ -f "$TDD_STAGING" ]; then
+  if uv run python "$TDD_STAGING" --root "$TDD_TMP" --hooks-only >/dev/null 2>&1; then
+    TDD_AVAILABLE=1
+  fi
+elif [ -f "$TDD_TRACKED_GATE_HOOK" ]; then
+  TDD_SRC_HOOKS_DIR="$(pwd)/.claude/hooks"
+  for name in tdd_red.py tdd_gate.py tdd_unlock.py; do
+    cp "$TDD_SRC_HOOKS_DIR/$name" "$TDD_TMP/.claude/hooks/$name"
+  done
+  TDD_AVAILABLE=1
+fi
+
+if [ "$TDD_AVAILABLE" -ne 1 ]; then
+  echo "SKIP: tdd テスト改変ゲート(staging も追跡済みフックも無いためスキップ)"
+else
+  TDD_RED="$TDD_TMP/.claude/hooks/tdd_red.py"
+  TDD_GATE="$TDD_TMP/.claude/hooks/tdd_gate.py"
+  TDD_UNLOCK="$TDD_TMP/.claude/hooks/tdd_unlock.py"
+  TDD_BLOCKS_LOG="$TDD_TMP/.claude/checkpoints/tdd_gate_blocks.log"
+  mkdir -p "$TDD_TMP/tests" "$TDD_TMP/src"
+  printf 'def test_x():\n    assert False\n' > "$TDD_TMP/tests/test_x.py"
+  printf 'def test_y():\n    assert True\n' > "$TDD_TMP/tests/test_y.py"
+  printf 'x = 1\n' > "$TDD_TMP/src/train.py"
+
+  tdd_set_command() {
+    # $1 = 新しい test_command。JSON エスケープは python 側に任せる。
+    uv run python - "$TDD_TMP/.claude/checkpoints/tdd_red.json" "$1" <<'PYEOF'
+import json
+import sys
+
+path, newcmd = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as f:
+    data = json.load(f)
+data["test_command"] = newcmd
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(data, f)
+PYEOF
+  }
+
+  test_tdd_gate() {
+    local description="$1"
+    local json_input="$2"
+    local expected_exit="$3"
+    local gate_env="$4"
+    local actual
+    (cd "$TDD_TMP" && echo "$json_input" | CLAUDE_TDD_GATE="$gate_env" uv run python "$TDD_GATE" >/dev/null 2>&1)
+    actual=$?
+    if [ "$actual" -eq "$expected_exit" ]; then
+      echo "OK: $description (exit $actual)"
+    else
+      echo "NG: $description (expected $expected_exit, got $actual)"
+      failed=$((failed+1))
+    fi
+  }
+
+  # R-002: 失敗するコマンドで記録するとセンチネル・失敗ログができる
+  (cd "$TDD_TMP" && uv run python "$TDD_RED" --cmd 'python3 -c "import sys; sys.exit(1)"' --files tests/test_x.py) >/dev/null 2>&1
+  if [ -f "$TDD_TMP/.claude/checkpoints/tdd_red.json" ]; then
+    echo "OK: tdd_red: 失敗コマンドでセンチネルを記録する"
+  else
+    echo "NG: tdd_red: 失敗コマンドでセンチネルを記録する"
+    failed=$((failed+1))
+  fi
+
+  # R-003: 緑コマンドはセンチネルを作らない(既存センチネルは退避してから確認)
+  mv "$TDD_TMP/.claude/checkpoints/tdd_red.json" "$TDD_TMP/.claude/checkpoints/tdd_red.json.bak"
+  (cd "$TDD_TMP" && uv run python "$TDD_RED" --cmd 'python3 -c "import sys; sys.exit(0)"' --files tests/test_x.py) >/dev/null 2>&1
+  if [ ! -f "$TDD_TMP/.claude/checkpoints/tdd_red.json" ]; then
+    echo "OK: tdd_red: 緑コマンドはセンチネルを作らない"
+  else
+    echo "NG: tdd_red: 緑コマンドはセンチネルを作らない"
+    failed=$((failed+1))
+  fi
+  mv "$TDD_TMP/.claude/checkpoints/tdd_red.json.bak" "$TDD_TMP/.claude/checkpoints/tdd_red.json"
+
+  # R-004: --files 省略は非0終了
+  (cd "$TDD_TMP" && uv run python "$TDD_RED" --cmd 'python3 -c "import sys; sys.exit(1)"') >/dev/null 2>&1
+  if [ $? -ne 0 ]; then
+    echo "OK: tdd_red: --files 省略は非0終了"
+  else
+    echo "NG: tdd_red: --files 省略は非0終了"
+    failed=$((failed+1))
+  fi
+
+  # R-005: ゲート有効+記録済みテストファイル(file_path・notebook_path とも)はブロック
+  test_tdd_gate "tdd_gate: recorded test file is blocked" '{"tool_input":{"file_path":"tests/test_x.py"}}' 2 1
+  test_tdd_gate "tdd_gate: recorded test via notebook_path is blocked" '{"tool_input":{"notebook_path":"tests/test_x.py"}}' 2 1
+  # 過剰ブロック無し: 無関係ソース・記録に無いテストは通す
+  test_tdd_gate "tdd_gate: unrelated source passes" '{"tool_input":{"file_path":"src/train.py"}}' 0 1
+  test_tdd_gate "tdd_gate: unrecorded test file passes" '{"tool_input":{"file_path":"tests/test_y.py"}}' 0 1
+  # R-007: env off は常に素通り
+  test_tdd_gate "tdd_gate: env empty string passes" '{"tool_input":{"file_path":"tests/test_x.py"}}' 0 ""
+  test_tdd_gate "tdd_gate: env=0 passes" '{"tool_input":{"file_path":"tests/test_x.py"}}' 0 0
+  # R-006: 表記変形(絶対パス・冗長表記)でも判定不変
+  test_tdd_gate "tdd_gate: absolute path is blocked" "{\"tool_input\":{\"file_path\":\"$TDD_TMP/tests/test_x.py\"}}" 2 1
+  test_tdd_gate "tdd_gate: redundant notation is blocked" '{"tool_input":{"file_path":"./tests/../tests/test_x.py"}}' 2 1
+  # symlink 迂回(既存の symlink ケースと同じ書式: 残骸検査つき)
+  if [ -e "$TDD_TMP/tests_link" ] && [ ! -L "$TDD_TMP/tests_link" ]; then
+    echo "NG: tdd_gate: tests_link の位置に symlink 以外のファイルが存在します(手動で退避してください)"
+    failed=$((failed+1))
+  else
+    rm -f "$TDD_TMP/tests_link"
+    if ln -s tests "$TDD_TMP/tests_link" 2>/dev/null; then
+      test_tdd_gate "tdd_gate: symlinked path to recorded test is blocked" '{"tool_input":{"file_path":"tests_link/test_x.py"}}' 2 1
+      rm -f "$TDD_TMP/tests_link"
+    else
+      echo "SKIP: tdd symlink 迂回テストをスキップします(symlink を作成できない環境)"
+    fi
+  fi
+
+  # R-009: 壊れたセンチネル(不正JSON)は fail-closed で無関係ソースも含め全編集ブロック
+  cp "$TDD_TMP/.claude/checkpoints/tdd_red.json" "$TDD_TMP/.claude/checkpoints/tdd_red.json.bak"
+  printf '{not json' > "$TDD_TMP/.claude/checkpoints/tdd_red.json"
+  test_tdd_gate "tdd_gate: broken sentinel (invalid json) blocks unrelated source too" '{"tool_input":{"file_path":"src/train.py"}}' 2 1
+  TDD_BROKEN_MSG=$(cd "$TDD_TMP" && echo '{"tool_input":{"file_path":"src/train.py"}}' | CLAUDE_TDD_GATE=1 uv run python "$TDD_GATE" 2>&1 >/dev/null)
+  if echo "$TDD_BROKEN_MSG" | grep -q "全編集を停止中" && ! echo "$TDD_BROKEN_MSG" | grep -q "Traceback"; then
+    echo "OK: tdd_gate: 壊れたセンチネルの案内文に脱出路が含まれ traceback が無い"
+  else
+    echo "NG: tdd_gate: 壊れたセンチネルの案内文に脱出路が含まれ traceback が無い"
+    failed=$((failed+1))
+  fi
+  mv "$TDD_TMP/.claude/checkpoints/tdd_red.json.bak" "$TDD_TMP/.claude/checkpoints/tdd_red.json"
+
+  # R-010: blocks.log がブロックのたびに増える
+  TDD_BEFORE_LINES=0
+  [ -f "$TDD_BLOCKS_LOG" ] && TDD_BEFORE_LINES=$(wc -l < "$TDD_BLOCKS_LOG")
+  (cd "$TDD_TMP" && echo '{"tool_input":{"file_path":"tests/test_x.py"}}' | CLAUDE_TDD_GATE=1 uv run python "$TDD_GATE" >/dev/null 2>&1)
+  TDD_AFTER_LINES=$(wc -l < "$TDD_BLOCKS_LOG")
+  if [ "$TDD_AFTER_LINES" -eq $((TDD_BEFORE_LINES+1)) ]; then
+    echo "OK: tdd_gate: ブロックのたびに blocks.log が1行増える"
+  else
+    echo "NG: tdd_gate: ブロックのたびに blocks.log が1行増える(before=$TDD_BEFORE_LINES after=$TDD_AFTER_LINES)"
+    failed=$((failed+1))
+  fi
+
+  # R-011: 検証つき解除(赤のままは非0でセンチネル保持、緑になれば0で削除)
+  (cd "$TDD_TMP" && uv run python "$TDD_UNLOCK") >/dev/null 2>&1
+  if [ $? -ne 0 ] && [ -f "$TDD_TMP/.claude/checkpoints/tdd_red.json" ]; then
+    echo "OK: tdd_unlock: 赤のままは非0終了でセンチネルを保持する"
+  else
+    echo "NG: tdd_unlock: 赤のままは非0終了でセンチネルを保持する"
+    failed=$((failed+1))
+  fi
+  tdd_set_command 'python3 -c "import sys; sys.exit(0)"'
+  (cd "$TDD_TMP" && uv run python "$TDD_UNLOCK") >/dev/null 2>&1
+  if [ $? -eq 0 ] && [ ! -f "$TDD_TMP/.claude/checkpoints/tdd_red.json" ]; then
+    echo "OK: tdd_unlock: 緑になれば解除してセンチネルを削除する"
+  else
+    echo "NG: tdd_unlock: 緑になれば解除してセンチネルを削除する"
+    failed=$((failed+1))
+  fi
+
+  # 記録 cwd での解除(sub ディレクトリで記録し、リポジトリルートから解除しても
+  # 記録された cwd(sub)で再実行される)
+  mkdir -p "$TDD_TMP/sub/tests"
+  printf 'def test_rel():\n    assert False\n' > "$TDD_TMP/sub/tests/test_rel.py"
+  (cd "$TDD_TMP/sub" && uv run python "$TDD_RED" --cmd 'python3 -c "import sys; sys.exit(1)"' --files tests/test_rel.py) >/dev/null 2>&1
+  tdd_set_command 'test "$(basename "$PWD")" = "sub"'
+  (cd "$TDD_TMP" && uv run python "$TDD_UNLOCK") >/dev/null 2>&1
+  if [ $? -eq 0 ] && [ ! -f "$TDD_TMP/.claude/checkpoints/tdd_red.json" ]; then
+    echo "OK: tdd_unlock: 記録された実行ディレクトリ(recorded_cwd)で再実行される"
+  else
+    echo "NG: tdd_unlock: 記録された実行ディレクトリ(recorded_cwd)で再実行される"
+    failed=$((failed+1))
+  fi
+
+  # サブディレクトリ起動でも同一センチネルを参照する(ルート直下にしか
+  # .claude/checkpoints/ が作られない)
+  mkdir -p "$TDD_TMP/src_sub"
+  (cd "$TDD_TMP/src_sub" && uv run python "$TDD_RED" --cmd 'python3 -c "import sys; sys.exit(1)"' --files ../tests/test_x.py) >/dev/null 2>&1
+  if [ -f "$TDD_TMP/.claude/checkpoints/tdd_red.json" ] && [ ! -d "$TDD_TMP/src_sub/.claude" ]; then
+    echo "OK: tdd_red: サブディレクトリ起動でもリポジトリルート直下のセンチネルを参照する"
+  else
+    echo "NG: tdd_red: サブディレクトリ起動でもリポジトリルート直下のセンチネルを参照する"
+    failed=$((failed+1))
+  fi
+
+  # R-012: --rearm はセンチネルを削除し blocks.log に rearm を記録する
+  TDD_BEFORE_LINES2=$(wc -l < "$TDD_BLOCKS_LOG")
+  (cd "$TDD_TMP" && uv run python "$TDD_RED" --rearm) >/dev/null 2>&1
+  TDD_AFTER_LINES2=$(wc -l < "$TDD_BLOCKS_LOG")
+  if [ ! -f "$TDD_TMP/.claude/checkpoints/tdd_red.json" ] && [ "$TDD_AFTER_LINES2" -eq $((TDD_BEFORE_LINES2+1)) ] && tail -n1 "$TDD_BLOCKS_LOG" | grep -q rearm; then
+    echo "OK: tdd_red: --rearm はセンチネルを削除し rearm を記録する"
+  else
+    echo "NG: tdd_red: --rearm はセンチネルを削除し rearm を記録する"
+    failed=$((failed+1))
+  fi
+fi
+rm -rf "$TDD_TMP"
+
 echo ""
 if [ "$failed" -gt 0 ]; then
   echo "$failed 件のテストが失敗しました"
