@@ -1117,8 +1117,10 @@ def test_pc16_template_and_readme_document_claude_tdd_gate() -> None:
     readme_path = REPO_ROOT / "README.md"
 
     template_data = json.loads(template_path.read_text(encoding="utf-8"))
-    assert template_data.get("CLAUDE_TDD_GATE") == "0"
-    assert len(template_data) >= 1  # 既存キーが残っていること(空になっていない)
+    assert template_data.get("env", {}).get("CLAUDE_TDD_GATE") == "0"
+    assert (
+        len(template_data.get("env", {})) > 1
+    )  # 既存キーが残っていること(空になっていない)
 
     readme_text = readme_path.read_text(encoding="utf-8")
     assert "CLAUDE_TDD_GATE" in readme_text
