@@ -780,6 +780,42 @@ def test_pc22_invocation_from_subdirectory_uses_same_sentinel(sandbox: Path) -> 
 
 
 # --------------------------------------------------------------------------
+# 実リポジトリ配線の検査(レビュー指摘: サンドボックス検査のみで実配線が無検査だった)
+# --------------------------------------------------------------------------
+
+
+def test_review_real_settings_json_wires_tdd_gate() -> None:
+    """実リポジトリの `.claude/settings.json` を直接検査する(サンドボックスの写しではない)。
+
+    `.claude/hooks/tdd_gate.py` が未配置(クリーン clone / staging 未適用)なら
+    skip する。配置済みなら、PreToolUse(`Edit|Write|NotebookEdit`)の hooks が
+    guard_scope → requirements_gate → state_gate → tdd_gate の4本で、
+    tdd_gate はちょうど1回登録されていることを検査する。
+    """
+    if not (TRACKED_HOOKS_DIR / "tdd_gate.py").exists():
+        pytest.skip(
+            "追跡済み .claude/hooks/tdd_gate.py が無い環境ではスキップ"
+            "(staging が未適用)"
+        )
+    data = json.loads(
+        (REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
+    entry = next(
+        e
+        for e in data["hooks"]["PreToolUse"]
+        if e.get("matcher") == "Edit|Write|NotebookEdit"
+    )
+    commands = [h["command"] for h in entry["hooks"]]
+    assert [c.split("/")[-1] for c in commands] == [
+        "guard_scope.py",
+        "requirements_gate.py",
+        "state_gate.py",
+        "tdd_gate.py",
+    ]
+    assert sum(c.endswith("/tdd_gate.py") for c in commands) == 1
+
+
+# --------------------------------------------------------------------------
 # staging 固有(PC-14・PC-15・PC-23・PC-24・PC-26・PC-29)
 # --------------------------------------------------------------------------
 
@@ -819,7 +855,14 @@ def _sandbox_with_real_settings(tmp_path: Path) -> Path:
     (root / ".claude" / "hooks").mkdir(parents=True)
     (root / ".claude" / "checkpoints").mkdir(parents=True)
     settings_path = root / ".claude" / "settings.json"
-    text = (REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8")
+    real_settings_path = REPO_ROOT / ".claude" / "settings.json"
+    # umask 対策(レビュー指摘): write_text() で新規作成すると mode が umask 依存に
+    # なり、staging の一時ファイル(_write_tmp が 0644 固定)と食い違って PC-29 の
+    # ツリーマニフェスト比較が umask 077 等の環境で偽陽性になる。先に実ファイルを
+    # shutil.copy で複製して mode を引き継ぎ(既存ファイルへの write_text は mode を
+    # 変えない)、そのうえで内容だけ書き換える。
+    shutil.copy(real_settings_path, settings_path)
+    text = real_settings_path.read_text(encoding="utf-8")
     if "tdd_gate.py" in text:
         stripped = text.replace(_APPLIED_TDD_GATE_BLOCK, "", 1)
         assert "tdd_gate.py" not in stripped, (
