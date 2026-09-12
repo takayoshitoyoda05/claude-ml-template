@@ -119,20 +119,55 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # TOCTOU 対策: テストコマンド実行中(最大 TEST_TIMEOUT_SECONDS 秒)に別プロセスが
-    # tdd_red.py で Red を再記録した場合、実行前に読んだバイト列と一致するときだけ
-    # 削除する(不一致なら再記録された Red を消してしまうため、削除せず中断する)。
+    # TOCTOU 対策(rename 方式): 照合とunlinkの間に別プロセスの tdd_red.py 再記録が
+    # 割り込む窓を塞ぐため、まずセンチネルを os.replace で一時名へ原子的に退避してから
+    # 実行前バイト列と照合する。一致すれば退避ファイルを削除(解除成功)。不一致なら
+    # 退避ファイルを元の位置へ書き戻す(実行中に別プロセスが再記録した内容を消さない)。
+    # ただし書き戻し先に既に新センチネルが存在する場合(退避後にさらに再記録された
+    # 場合)は書き戻さず退避ファイルを破棄し、新しい記録を優先する。
+    unlocking_path = SENTINEL_PATH.with_name(SENTINEL_PATH.name + ".unlocking")
     try:
-        current_bytes = SENTINEL_PATH.read_bytes()
+        os.replace(str(SENTINEL_PATH), str(unlocking_path))
     except OSError as e:
         print(
-            f"[tdd_unlock] テストは緑でしたが、センチネルの再読込に失敗しました: {e}\n"
+            f"[tdd_unlock] テストは緑でしたが、センチネルの退避に失敗しました: {e}\n"
             "センチネルは保持します。",
             file=sys.stderr,
         )
         sys.exit(1)
 
+    try:
+        current_bytes = unlocking_path.read_bytes()
+    except OSError as e:
+        print(
+            f"[tdd_unlock] テストは緑でしたが、退避したセンチネルの再読込に失敗しました: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     if current_bytes != raw_bytes:
+        if SENTINEL_PATH.exists():
+            try:
+                unlocking_path.unlink()
+            except OSError:
+                pass  # 退避ファイルの削除に失敗しても新センチネルの優先は成立している
+            print(
+                "[tdd_unlock] テスト実行中に Red が再記録されました"
+                "(センチネルの内容が変化しています)。退避後にさらに新しい記録が"
+                "現れたため、退避した旧センチネルは破棄し新しい記録を優先します。",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        try:
+            os.replace(str(unlocking_path), str(SENTINEL_PATH))
+        except OSError as e:
+            print(
+                f"[tdd_unlock] テスト実行中に Red が再記録されましたが、"
+                f"センチネルの書き戻しに失敗しました: {e}\n"
+                f"退避先に残っています: {unlocking_path}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         print(
             "[tdd_unlock] テスト実行中に Red が再記録されました"
             "(センチネルの内容が変化しています)。センチネルは保持します。"
@@ -142,10 +177,11 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        SENTINEL_PATH.unlink()
+        unlocking_path.unlink()
     except OSError as e:
         print(
-            f"[tdd_unlock] テストは緑でしたが、センチネルの削除に失敗しました: {e}",
+            f"[tdd_unlock] テストは緑でしたが、退避したセンチネルの削除に失敗しました: {e}\n"
+            f"退避先に残っています: {unlocking_path}",
             file=sys.stderr,
         )
         sys.exit(1)

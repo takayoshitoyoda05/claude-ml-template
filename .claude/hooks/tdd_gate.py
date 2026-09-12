@@ -47,10 +47,13 @@ def _utcnow_iso() -> str:
 
 
 def _append_blocks_log(target: str, reason: str) -> None:
+    # target は編集対象パス(payload 由来で攻撃者が制御しうる)。改行を含むと
+    # 1ブロックが複数行に分かれてログの行数集計が壊れるため、書く前にエスケープする。
+    safe_target = target.replace("\r", "\\r").replace("\n", "\\n")
     try:
         CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
         with open(BLOCKS_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(f"{_utcnow_iso()} block {target} {reason}\n")
+            f.write(f"{_utcnow_iso()} block {safe_target} {reason}\n")
     except OSError:
         pass  # ログできなくてもブロック自体は行う(記録漏れのみの影響)
 
