@@ -10,6 +10,17 @@
 再実施(実リポジトリの `.claude/checkpoints/` は未使用)。
 R-001・R-015・R-021 は他グループ(B/C/D)担当ファイルで本 worktree に未統合のため UNVERIFIABLE。
 
+## 2026-09-13 独立監査による再検証(統合ブランチ pipeline/20260911-tdd-gate 上)
+
+R-001・R-015・R-021 は全グループ統合後のブランチ上で `grep` と対応する pytest ケース
+(test_pc16/17/30)を再実行し、UNVERIFIABLE から PASS に更新した(いずれもPASS、退行なし)。
+併せて `uv run --with pytest python -m pytest tests/test_tdd_gate.py -q -rs` を統合ブランチで
+再実行し **100 passed**(前回の3 failed・37 skippedが解消)、`tests/ -q` は **406 passed, 41 skipped**
+(失敗なし)を確認。`bash verify-hooks.sh` は exit 1・NG 1件(`codex_gate: untracked blocked even
+with showUntrackedFiles=no`)のみで、独立に merge-base(main, 9eb356d)のみを checkout した
+detached worktree でも同一のNGが再現したため、本diffと無関係の既存環境問題と確認した
+(tdd関連は20ケース全OK・NG/SKIP 0件)。詳細は `.claude/spec/audit-tdd-gate-spec.md` を参照。
+
 ## 2026-09-12 再レビュー(fix-A: コミット 90db09a・afe1d6e、`_staging_tdd_gate.py` 更新)
 
 前回 FAIL とした R-009・R-011・R-020 を、前回と同じ再現コマンドで再検証した。
@@ -19,7 +30,7 @@ R-001・R-015・R-021 は他グループ(B/C/D)担当ファイルで本 worktree
 
 | ID | 判定 | 実行コマンド | 実測値 | 証拠(file:line) |
 |---|---|---|---|---|
-| R-001 | UNVERIFIABLE | `pytest tests/test_tdd_gate.py -k skill_doc`(PC-17) | Group B 担当の `.claude/skills/tdd/SKILL.md` が本 worktree に未統合のため FAIL(RED)。想定内(計画の検証方法表に明記) | tests/test_tdd_gate.py:1005-1026(test_pc17) |
+| R-001 | PASS | `grep -c "失敗ログ" .claude/skills/tdd/SKILL.md` + `pytest tests/test_tdd_gate.py -k skill_doc`(PC-17) | grep結果 1(≥1)。`test_pc17_skill_doc_documents_red_discipline` PASSED | .claude/skills/tdd/SKILL.md、tests/test_tdd_gate.py::test_pc17_skill_doc_documents_red_discipline |
 | R-002 | PASS | `pytest -k "red_records or invocation_from_subdirectory"` + `bash verify-hooks.sh` | pytest 50 passed中に含まれ失敗なし。verify-hooks: `OK: tdd_red: 失敗コマンドでセンチネルを記録する` | logs/runs/evalA_verify_hooks.log、_staging_tdd_gate.py:161-170(TDD_RED_SOURCE内センチネル書込み) |
 | R-003 | PASS | 同上 `-k red_refuses_green` | verify-hooks: `OK: tdd_red: 緑コマンドはセンチネルを作らない` | logs/runs/evalA_verify_hooks.log、_staging_tdd_gate.py:142-148 |
 | R-004 | PASS | 同上 `-k red_requires_files` | verify-hooks: `OK: tdd_red: --files 省略は非0終了` | logs/runs/evalA_verify_hooks.log、_staging_tdd_gate.py:122-124 |
@@ -33,13 +44,13 @@ R-001・R-015・R-021 は他グループ(B/C/D)担当ファイルで本 worktree
 | R-012 | PASS | 同上 `-k rearm` | verify-hooks: `OK: tdd_red: --rearm はセンチネルを削除し rearm を記録する` | logs/runs/evalA_verify_hooks.log |
 | R-013 | PASS | `pytest -k settings_registration`(PC-14) | pytest 50 passed 中(FAILED一覧に無し) | _staging_tdd_gate.py:684-694 |
 | R-014 | PASS | `pytest -k staging_idempotent`(PC-15) | pytest 50 passed 中(FAILED一覧に無し) | _staging_tdd_gate.py:668(スキップ契約) |
-| R-015 | UNVERIFIABLE | `grep -l "CLAUDE_TDD_GATE" templates/settings.local.json.template README.md` | Group C 担当ファイルが本 worktree に未統合のため PC-16 が FAIL(RED)。想定内 | tests/test_tdd_gate.py:984-1005(test_pc16) |
+| R-015 | PASS | `grep -l "CLAUDE_TDD_GATE" templates/settings.local.json.template README.md` + `pytest tests/test_tdd_gate.py -k pc16` | 2ファイルとも一致(templates/settings.local.json.template, README.md)。`test_pc16_template_and_readme_document_claude_tdd_gate` PASSED | templates/settings.local.json.template:23、README.md:265,940,1841、tests/test_tdd_gate.py::test_pc16_template_and_readme_document_claude_tdd_gate |
 | R-016 | PASS | `.claude/rules/consistency.md` 標準形を tdd マーカーに適用(`test_pc18_verify_hooks_markers_match` と同一ロジック) | sh: raw=33/unique=33、ps1: raw=33/unique=33、差分0件(`sh_set - ps1_set = set()`、`ps1_set - sh_set = set()`)。pytest 側 `test_pc18_verify_hooks_markers_match` も PASS | tests/test_tdd_gate.py:1029-1066(`_tdd_markers`)、verify-hooks.sh:585-793、verify-hooks.ps1(tdd節) |
 | R-017 | PASS | `bash verify-hooks.sh`(再検証: logs/runs/evalA2_verify_hooks.log) | exit 1・NG 1件のみで前回と同一(`codex_gate: untracked blocked even with showUntrackedFiles=no`、本diff無関係・既存環境問題)。tdd関連は `NG:` 0件・`SKIP: tdd` 0件(20ケース全OK、`python3`→`uv run python -c` 修正後の ps1 側は pwsh 不在のため本環境では未実行) | logs/runs/evalA2_verify_hooks.log:83(該当NG行)、verify-hooks.ps1(afe1d6e で `python3` 依存を全7箇所解消) |
 | R-018 | PASS(自動化範囲) | verify-hooks の `env empty string` / `env=0` ケース(R-007と同一証跡) | 既定(env未設定相当)でブロックが起きないことを確認。ただし実リポジトリへの staging 適用(Step 7・ユーザーの `!` 実行)は本レビュー時点で未実施のため、本番環境での目視確認(R-018 の manual 部分)は未完了 | logs/runs/evalA_verify_hooks.log(`env empty string passes`) |
 | R-019 | PASS | `pytest -k "staging_rejects_ambiguous_settings or staging_failure_is_atomic or hooks_only"` | pytest 50 passed 中(FAILED一覧に無し) | _staging_tdd_gate.py:606-648(前検証) |
 | R-020 | PASS(修正確認・R-020改訂版に合致) | 前回と同じ二重失敗注入(settings.json 本体置換=実処理完了後に失敗、かつ復元(バックアップからの書き戻し)も実処理前に失敗)を importlib 経由で再実行 | `apply()` は **exit 3** を返し、stderr に「自動復旧できません。手動で復旧してください」+バックアップの実パス(`cp "<backup>" "<settings.json>"`)+`git checkout -- "<settings.json>"` を出力。バックアップファイル(`settings.json.tdd_gate_backup`)は消費されずディスクに残存(手動復旧が実際に可能)。`.claude/hooks/tdd_gate.py` 等3本のフック実体も削除されず残留(改訂 R-020 の「フック実体は残す」に合致)。settings.json 自体は tdd_gate.py 参照が残った状態(=復元不能なので当然、改訂 R-020 が許容する結果)。単一失敗(call_index 1〜5)のみを注入した場合は非0終了+適用前と完全一致(バックアップも消費されて残らない)を別途確認 | _staging_tdd_gate.py:636-647(docstring で exit 3/バックアップ/フック残置を明記)、712-784(`apply()` のバックアップ作成・復元・exit 3 分岐)。設計書更新: `docs/active/tdd-gate-spec.md:139`(R-020 改訂文) |
-| R-021 | UNVERIFIABLE | `grep -c "ParseFile" .github/workflows/verify-hooks.yml` | Group D 担当ファイルが本 worktree に未統合のため PC-30 が FAIL(RED)。想定内 | tests/test_tdd_gate.py:1069-1087(test_pc30) |
+| R-021 | PASS | `grep -c "ParseFile" .github/workflows/verify-hooks.yml` + `pytest tests/test_tdd_gate.py -k pc30` | grep結果 1(≥1)。`test_pc30_ci_has_ps1_syntax_check` PASSED | .github/workflows/verify-hooks.yml:34、tests/test_tdd_gate.py::test_pc30_ci_has_ps1_syntax_check |
 
 ## 補足(初回レビュー、2026-09-12 午前)
 
