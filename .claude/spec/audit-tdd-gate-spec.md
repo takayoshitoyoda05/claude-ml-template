@@ -21,13 +21,13 @@ verdict-tdd-gate-spec.md に記載の実行コマンド・file:line 証拠を独
 | R-011 | OK | `pytest -k "pc12"` (`test_pc12_unlock_requires_green`・`test_pc12_unlock_toctou_preserves_reappeared_sentinel`)を独立実行し両方PASSEDを確認。ただし verdict の証拠引用(469-489は「再読込+バイト比較」の記述)は、その後のコミット `e2ad223`(`unlockのrename方式`)により実装が「原子的rename→比較→書き戻し/破棄」方式へ進化しており、verdict本文の機構説明は現在のコードと完全一致しない(挙動そのものはテストで再確認しPASS)。詳細は本監査の「スコープ外変更」節ではなく下記の注記を参照 |
 | R-012 | OK | verify-hooks.sh で `OK: tdd_red: --rearm はセンチネルを削除し rearm を記録する`。`pytest -k pc13` PASSED |
 | R-013 | OK | `grep -c "tdd_gate" .claude/settings.json` → 1。`json.load` でパースし、`PreToolUse` の `matcher: "Edit|Write|NotebookEdit"` エントリの `hooks[].command` に `tdd_gate.py` が含まれることを直接確認(単なる文字列一致でなく配線位置まで検証) |
-| R-014 | OK | `pytest -k pc26`(`test_pc26_staging_hooks_only_skips_settings`)PASSED。1回適用・2回適用後の `_tree_manifest` がバイト単位一致することをテストが直接検証 |
+| R-014 | OK | `pytest -k pc15`(`test_pc15_staging_idempotent_apply_twice`)PASSED(通常適用の settings.json 込み冪等)。補助として `-k pc26`(--hooks-only の冪等)も PASSED。1回適用・2回適用後の `_tree_manifest` がバイト単位一致することをテストが直接検証 |
 | R-015 | OK | `grep -l "CLAUDE_TDD_GATE" templates/settings.local.json.template README.md` → 2ファイルとも一致(独立実測)。`pytest -k pc16` PASSED。verdictは統合前UNVERIFIABLEのまま残っていたため、本監査で再検証しPASSに更新済み |
 | R-016 | OK | consistency.md 標準形の diff コマンドを独立に再実行: sh raw=33/unique=33、ps1 raw=33/unique=33、diff結果0行(完全一致)。`pytest -k pc18` PASSED。ただし verdict の証拠引用 `tests/test_tdd_gate.py:1029-1066` は誤り(統合後のマージで行がずれ、実際は `_tdd_markers` 関数は1231-1249行、テスト本体は1252-1268行)。`verify-hooks.sh:585-793` の引用は行番号どおり正確(tdd節の開始行〜ファイル末尾と一致) |
 | R-017 | OK(留保付き) | `bash verify-hooks.sh` を独立実行 → exit 1、NG 1件のみ(`codex_gate: untracked blocked even with showUntrackedFiles=no`)、tdd関連は20件全OK・NG/SKIP 0件。設計書の期待結果は文字どおりには「exit 0」だが実測は exit 1。この食い違いが本diffと無関係の既存問題であることを、mainのmerge-base(9eb356d)のみをdetached worktreeでcheckoutし同一コマンドを実行して独立に確認(同じNGが同様に再現)。verdictの実測値の記載(NG1件・既存環境問題)と食い違いなし |
 | R-018 | 承認待ち(manual) | verify-hooks.sh の `env empty string`/`env=0` ケースで自動化範囲は確認済み。ただし実リポジトリへの staging 適用(ユーザーの `!` 実行)後の目視確認は未実施のまま。ユーザー承認待ちの状態を維持 |
 | R-019 | OK | `pytest -k pc23_pc24` の `test_pc23_pc24_staging_rejects_ambiguous_settings`(non_unique_matcher/matcher_absent/hooks_not_array)・`test_pc23_pc24_staging_rejects_invalid_json`・`test_pc23_pc24_staging_rejects_missing_settings_without_flag` を独立実行し全PASSED |
-| R-020 | OK | `pytest -k pc29` の `test_pc29_staging_write_failure_restores`(単一失敗、call_index 1〜5、_write_tmp/_replace 各)と `test_pc29_staging_persistent_failure_prints_manual_recovery`(二重失敗)を独立実行し全PASSED。docstring(`_staging_tdd_gate.py:636-647`付近)に exit 3・バックアップ実パス・フック実体を残す旨の記載を確認 |
+| R-020 | OK | `pytest -k pc29` の `test_pc29_staging_write_failure_restores`(単一失敗、call_index 1〜5、_write_tmp/_replace 各)と `test_pc29_staging_persistent_failure_prints_manual_recovery`(二重失敗)を独立実行し全PASSED。docstring(`_staging_tdd_gate.py:675-685`)に exit 3・バックアップ実パス・フック実体を残す旨の記載を確認 |
 | R-021 | OK | `grep -c "ParseFile" .github/workflows/verify-hooks.yml` → 1(独立実測)。`pytest -k pc30` PASSED。verdictは統合前UNVERIFIABLEのまま残っていたため、本監査で再検証しPASSに更新済み |
 
 全21件(自動20件+manual 1件)のうち、自動20件は全てOK。manual 1件(R-018)は設計どおり
