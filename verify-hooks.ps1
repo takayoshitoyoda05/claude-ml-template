@@ -706,6 +706,295 @@ $PgFInv = "resources:`n  max_train_minutes: 120`n  max_epochs: 100`n  max_datase
 Test-PlanGate "plan_gate: blocks when train_minutes exceeds the resource limit" `
     "pipeline/20260726-vh-f" "20260726-vh-f.md" $PgFText $PgFInv 2
 
+# --- tdd: テスト改変ゲート(CLAUDE_TDD_GATE)。R-002〜R-012・R-016・R-017 ---
+# 実物は叩かず、一時ディレクトリの .claude\hooks\ に写しを置いて実行する
+# (パス解決がフック自身の配置基準のため、実物を叩くと実リポジトリの
+# .claude\checkpoints\ を汚す。PC-19 の番人)。写し元は2経路:
+# staging(_staging_tdd_gate.py --root --hooks-only)があればそれを適用し、
+# 無ければ追跡済み .claude\hooks\tdd_*.py を写す。どちらも無ければ SKIP する。
+$TddStaging = Join-Path (Get-Location) "_staging_tdd_gate.py"
+$TddTrackedGateHook = Join-Path (Get-Location) ".claude\hooks\tdd_gate.py"
+$TddTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("tdd-gate-test-" + [Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path (Join-Path $TddTmp ".claude\hooks") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $TddTmp ".claude\checkpoints") -Force | Out-Null
+$TddAvailable = $false
+# $ErrorActionPreference = "Stop" が有効なため、tdd 区間内の Move-Item/Copy-Item 等が
+# 途中で失敗しても Pop-Location・一時ディレクトリ削除・失敗集計への到達を保証するよう
+# 区間全体を try/finally で保護する(前例: SpecFixture 区間・Test-PlanGate)。
+try {
+if (Test-Path $TddStaging) {
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    uv run python $TddStaging --root $TddTmp --hooks-only *> $null
+    $TddStagingExit = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+    if ($TddStagingExit -eq 0) { $TddAvailable = $true }
+} elseif (Test-Path $TddTrackedGateHook) {
+    $TddSrcHooksDir = Join-Path (Get-Location) ".claude\hooks"
+    foreach ($name in @("tdd_red.py", "tdd_gate.py", "tdd_unlock.py")) {
+        Copy-Item (Join-Path $TddSrcHooksDir $name) (Join-Path $TddTmp ".claude\hooks\$name")
+    }
+    $TddAvailable = $true
+}
+
+if (-not $TddAvailable) {
+    Write-Host "SKIP: tdd テスト改変ゲート(staging も追跡済みフックも無いためスキップ)"
+} else {
+    $TddRed = Join-Path $TddTmp ".claude\hooks\tdd_red.py"
+    $TddGate = Join-Path $TddTmp ".claude\hooks\tdd_gate.py"
+    $TddUnlock = Join-Path $TddTmp ".claude\hooks\tdd_unlock.py"
+    $TddBlocksLog = Join-Path $TddTmp ".claude\checkpoints\tdd_gate_blocks.log"
+    $TddSentinel = Join-Path $TddTmp ".claude\checkpoints\tdd_red.json"
+    New-Item -ItemType Directory -Path (Join-Path $TddTmp "tests") -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $TddTmp "src") -Force | Out-Null
+    "def test_x():`n    assert False`n" | Write-Utf8NoBom -Path (Join-Path $TddTmp "tests\test_x.py") -NoNewline
+    "def test_y():`n    assert True`n" | Write-Utf8NoBom -Path (Join-Path $TddTmp "tests\test_y.py") -NoNewline
+    "x = 1`n" | Write-Utf8NoBom -Path (Join-Path $TddTmp "src\train.py") -NoNewline
+
+    function Set-TddCommand {
+        param([string]$NewCmd)
+        $pyScript = @'
+import json
+import sys
+
+path, newcmd = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as f:
+    data = json.load(f)
+data["test_command"] = newcmd
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(data, f)
+'@
+        $tmpPy = Join-Path $TddTmp "_set_tdd_command.py"
+        $pyScript | Write-Utf8NoBom -Path $tmpPy
+        uv run python $tmpPy $TddSentinel $NewCmd | Out-Null
+        Remove-Item $tmpPy -ErrorAction SilentlyContinue
+    }
+
+    function Test-TddGate {
+        param([string]$Description, [string]$JsonInput, [int]$ExpectedExit, [string]$GateEnv)
+        Push-Location $TddTmp
+        if ($GateEnv -eq "") {
+            $env:CLAUDE_TDD_GATE = ""
+        } else {
+            $env:CLAUDE_TDD_GATE = $GateEnv
+        }
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        $JsonInput | uv run python $TddGate *> $null
+        $ErrorActionPreference = $prevEAP
+        $actual = $LASTEXITCODE
+        Remove-Item Env:CLAUDE_TDD_GATE -ErrorAction SilentlyContinue
+        Pop-Location
+        if ($actual -eq $ExpectedExit) {
+            Write-Host "OK: $Description (exit $actual)"
+        } else {
+            Write-Host "NG: $Description (expected $ExpectedExit, got $actual)"
+            $script:failed++
+        }
+    }
+
+    # R-002: 失敗するコマンドで記録するとセンチネル・失敗ログができる
+    Push-Location $TddTmp
+    uv run python $TddRed --cmd 'uv run python -c "import sys; sys.exit(1)"' --files tests/test_x.py | Out-Null
+    Pop-Location
+    if (Test-Path $TddSentinel) {
+        Write-Host "OK: tdd_red: 失敗コマンドでセンチネルを記録する"
+    } else {
+        Write-Host "NG: tdd_red: 失敗コマンドでセンチネルを記録する"
+        $script:failed++
+    }
+
+    # R-003: 緑コマンドはセンチネルを作らない(既存センチネルは退避してから確認)
+    $TddSentinelBak = "$TddSentinel.bak"
+    Move-Item $TddSentinel $TddSentinelBak
+    Push-Location $TddTmp
+    uv run python $TddRed --cmd 'uv run python -c "import sys; sys.exit(0)"' --files tests/test_x.py | Out-Null
+    Pop-Location
+    if (-not (Test-Path $TddSentinel)) {
+        Write-Host "OK: tdd_red: 緑コマンドはセンチネルを作らない"
+    } else {
+        Write-Host "NG: tdd_red: 緑コマンドはセンチネルを作らない"
+        $script:failed++
+    }
+    Move-Item $TddSentinelBak $TddSentinel -Force
+
+    # R-004: --files 省略は非0終了
+    Push-Location $TddTmp
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    uv run python $TddRed --cmd 'uv run python -c "import sys; sys.exit(1)"' *> $null
+    $TddRedExit = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+    Pop-Location
+    if ($TddRedExit -ne 0) {
+        Write-Host "OK: tdd_red: --files 省略は非0終了"
+    } else {
+        Write-Host "NG: tdd_red: --files 省略は非0終了"
+        $script:failed++
+    }
+
+    # R-005: ゲート有効+記録済みテストファイル(file_path・notebook_path とも)はブロック
+    Test-TddGate "tdd_gate: recorded test file is blocked" '{"tool_input":{"file_path":"tests/test_x.py"}}' 2 "1"
+    Test-TddGate "tdd_gate: recorded test via notebook_path is blocked" '{"tool_input":{"notebook_path":"tests/test_x.py"}}' 2 "1"
+    # 過剰ブロック無し: 無関係ソース・記録に無いテストは通す
+    Test-TddGate "tdd_gate: unrelated source passes" '{"tool_input":{"file_path":"src/train.py"}}' 0 "1"
+    Test-TddGate "tdd_gate: unrecorded test file passes" '{"tool_input":{"file_path":"tests/test_y.py"}}' 0 "1"
+    # R-007: env off は常に素通り
+    Test-TddGate "tdd_gate: env empty string passes" '{"tool_input":{"file_path":"tests/test_x.py"}}' 0 ""
+    Test-TddGate "tdd_gate: env=0 passes" '{"tool_input":{"file_path":"tests/test_x.py"}}' 0 "0"
+    # R-006: 表記変形(絶対パス・冗長表記)でも判定不変
+    $TddAbsJson = '{"tool_input":{"file_path":"' + ($TddTmp -replace '\\', '/') + '/tests/test_x.py"}}'
+    Test-TddGate "tdd_gate: absolute path is blocked" $TddAbsJson 2 "1"
+    Test-TddGate "tdd_gate: redundant notation is blocked" '{"tool_input":{"file_path":"./tests/../tests/test_x.py"}}' 2 "1"
+    # symlink 迂回(既存の symlink ケースと同じ書式: 残骸検査つき)
+    $TddLinkPath = Join-Path $TddTmp "tests_link"
+    if ((Test-Path $TddLinkPath) -and -not ((Get-Item $TddLinkPath).LinkType)) {
+        Write-Host "NG: tdd_gate: tests_link の位置に symlink 以外のファイルが存在します(手動で退避してください)"
+        $script:failed++
+    } else {
+        Remove-Item $TddLinkPath -Force -ErrorAction SilentlyContinue
+        $TddLinkCreated = $false
+        try {
+            New-Item -ItemType SymbolicLink -Path $TddLinkPath -Target (Join-Path $TddTmp "tests") -ErrorAction Stop | Out-Null
+            $TddLinkCreated = $true
+        } catch {
+            $TddLinkCreated = $false
+        }
+        if ($TddLinkCreated) {
+            Test-TddGate "tdd_gate: symlinked path to recorded test is blocked" '{"tool_input":{"file_path":"tests_link/test_x.py"}}' 2 "1"
+            Remove-Item $TddLinkPath -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-Host "SKIP: tdd symlink 迂回テストをスキップします(symlink を作成できない環境)"
+        }
+    }
+
+    # R-009: 壊れたセンチネル(不正JSON)は fail-closed で無関係ソースも含め全編集ブロック
+    Copy-Item $TddSentinel $TddSentinelBak -Force
+    "{not json" | Write-Utf8NoBom -Path $TddSentinel -NoNewline
+    Test-TddGate "tdd_gate: broken sentinel (invalid json) blocks unrelated source too" '{"tool_input":{"file_path":"src/train.py"}}' 2 "1"
+    Push-Location $TddTmp
+    $env:CLAUDE_TDD_GATE = "1"
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $TddBrokenMsg = '{"tool_input":{"file_path":"src/train.py"}}' | uv run python $TddGate 2>&1
+    $ErrorActionPreference = $prevEAP
+    Remove-Item Env:CLAUDE_TDD_GATE -ErrorAction SilentlyContinue
+    Pop-Location
+    $TddBrokenMsgText = ($TddBrokenMsg | Out-String)
+    if ($TddBrokenMsgText -match "全編集を停止中" -and $TddBrokenMsgText -notmatch "Traceback") {
+        Write-Host "OK: tdd_gate: 壊れたセンチネルの案内文に脱出路が含まれ traceback が無い"
+    } else {
+        Write-Host "NG: tdd_gate: 壊れたセンチネルの案内文に脱出路が含まれ traceback が無い"
+        $script:failed++
+    }
+    Move-Item $TddSentinelBak $TddSentinel -Force
+
+    # R-010: blocks.log がブロックのたびに増える
+    $TddBeforeLines = 0
+    if (Test-Path $TddBlocksLog) { $TddBeforeLines = (Get-Content $TddBlocksLog).Count }
+    Push-Location $TddTmp
+    $env:CLAUDE_TDD_GATE = "1"
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    '{"tool_input":{"file_path":"tests/test_x.py"}}' | uv run python $TddGate *> $null
+    $ErrorActionPreference = $prevEAP
+    Remove-Item Env:CLAUDE_TDD_GATE -ErrorAction SilentlyContinue
+    Pop-Location
+    $TddAfterLines = (Get-Content $TddBlocksLog).Count
+    if ($TddAfterLines -eq ($TddBeforeLines + 1)) {
+        Write-Host "OK: tdd_gate: ブロックのたびに blocks.log が1行増える"
+    } else {
+        Write-Host "NG: tdd_gate: ブロックのたびに blocks.log が1行増える(before=$TddBeforeLines after=$TddAfterLines)"
+        $script:failed++
+    }
+
+    # R-011: 検証つき解除(赤のままは非0でセンチネル保持、緑になれば0で削除)
+    Push-Location $TddTmp
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    uv run python $TddUnlock *> $null
+    $TddUnlockExit = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+    Pop-Location
+    if ($TddUnlockExit -ne 0 -and (Test-Path $TddSentinel)) {
+        Write-Host "OK: tdd_unlock: 赤のままは非0終了でセンチネルを保持する"
+    } else {
+        Write-Host "NG: tdd_unlock: 赤のままは非0終了でセンチネルを保持する"
+        $script:failed++
+    }
+    Set-TddCommand 'uv run python -c "import sys; sys.exit(0)"'
+    Push-Location $TddTmp
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    uv run python $TddUnlock *> $null
+    $TddUnlockExit2 = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+    Pop-Location
+    if ($TddUnlockExit2 -eq 0 -and -not (Test-Path $TddSentinel)) {
+        Write-Host "OK: tdd_unlock: 緑になれば解除してセンチネルを削除する"
+    } else {
+        Write-Host "NG: tdd_unlock: 緑になれば解除してセンチネルを削除する"
+        $script:failed++
+    }
+
+    # 記録 cwd での解除(sub ディレクトリで記録し、リポジトリルートから解除しても
+    # 記録された cwd(sub)で再実行される)
+    $TddSubDir = Join-Path $TddTmp "sub"
+    New-Item -ItemType Directory -Path (Join-Path $TddSubDir "tests") -Force | Out-Null
+    "def test_rel():`n    assert False`n" | Write-Utf8NoBom -Path (Join-Path $TddSubDir "tests\test_rel.py") -NoNewline
+    Push-Location $TddSubDir
+    uv run python $TddRed --cmd 'uv run python -c "import sys; sys.exit(1)"' --files tests/test_rel.py | Out-Null
+    Pop-Location
+    # cmd.exe/sh どちらの shell=True でも解釈できるよう、cwd 依存の判定は
+    # basename 文字列処理ではなく相対パスの存在確認にする(record 時の
+    # ディレクトリでのみ tests/test_rel.py が解決できる)
+    Set-TddCommand 'uv run python -c "import os,sys; sys.exit(0 if os.path.exists(''tests/test_rel.py'') else 1)"'
+    Push-Location $TddTmp
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    uv run python $TddUnlock *> $null
+    $TddUnlockExit3 = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+    Pop-Location
+    if ($TddUnlockExit3 -eq 0 -and -not (Test-Path $TddSentinel)) {
+        Write-Host "OK: tdd_unlock: 記録された実行ディレクトリ(recorded_cwd)で再実行される"
+    } else {
+        Write-Host "NG: tdd_unlock: 記録された実行ディレクトリ(recorded_cwd)で再実行される"
+        $script:failed++
+    }
+
+    # サブディレクトリ起動でも同一センチネルを参照する(ルート直下にしか
+    # .claude\checkpoints\ が作られない)
+    $TddSrcSub = Join-Path $TddTmp "src_sub"
+    New-Item -ItemType Directory -Path $TddSrcSub -Force | Out-Null
+    Push-Location $TddSrcSub
+    uv run python $TddRed --cmd 'uv run python -c "import sys; sys.exit(1)"' --files ../tests/test_x.py | Out-Null
+    Pop-Location
+    if ((Test-Path $TddSentinel) -and -not (Test-Path (Join-Path $TddSrcSub ".claude"))) {
+        Write-Host "OK: tdd_red: サブディレクトリ起動でもリポジトリルート直下のセンチネルを参照する"
+    } else {
+        Write-Host "NG: tdd_red: サブディレクトリ起動でもリポジトリルート直下のセンチネルを参照する"
+        $script:failed++
+    }
+
+    # R-012: --rearm はセンチネルを削除し blocks.log に rearm を記録する
+    $TddBeforeLines2 = (Get-Content $TddBlocksLog).Count
+    Push-Location $TddTmp
+    uv run python $TddRed --rearm | Out-Null
+    Pop-Location
+    $TddAfterLines2 = (Get-Content $TddBlocksLog).Count
+    $TddLastLine = (Get-Content $TddBlocksLog)[-1]
+    if (-not (Test-Path $TddSentinel) -and ($TddAfterLines2 -eq ($TddBeforeLines2 + 1)) -and ($TddLastLine -match "rearm")) {
+        Write-Host "OK: tdd_red: --rearm はセンチネルを削除し rearm を記録する"
+    } else {
+        Write-Host "NG: tdd_red: --rearm はセンチネルを削除し rearm を記録する"
+        $script:failed++
+    }
+}
+} finally {
+    Remove-Item -Path $TddTmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host ""
 $env:CLAUDE_WORK_SCOPE = $SavedWorkScope
 if ($script:failed -gt 0) {
