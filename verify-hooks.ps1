@@ -718,6 +718,10 @@ $TddTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("tdd-gate-test-" + [Guid]
 New-Item -ItemType Directory -Path (Join-Path $TddTmp ".claude\hooks") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $TddTmp ".claude\checkpoints") -Force | Out-Null
 $TddAvailable = $false
+# $ErrorActionPreference = "Stop" が有効なため、tdd 区間内の Move-Item/Copy-Item 等が
+# 途中で失敗しても Pop-Location・一時ディレクトリ削除・失敗集計への到達を保証するよう
+# 区間全体を try/finally で保護する(前例: SpecFixture 区間・Test-PlanGate)。
+try {
 if (Test-Path $TddStaging) {
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
@@ -791,7 +795,7 @@ with open(path, "w", encoding="utf-8") as f:
 
     # R-002: 失敗するコマンドで記録するとセンチネル・失敗ログができる
     Push-Location $TddTmp
-    uv run python $TddRed --cmd 'python3 -c "import sys; sys.exit(1)"' --files tests/test_x.py | Out-Null
+    uv run python $TddRed --cmd 'uv run python -c "import sys; sys.exit(1)"' --files tests/test_x.py | Out-Null
     Pop-Location
     if (Test-Path $TddSentinel) {
         Write-Host "OK: tdd_red: 失敗コマンドでセンチネルを記録する"
@@ -804,7 +808,7 @@ with open(path, "w", encoding="utf-8") as f:
     $TddSentinelBak = "$TddSentinel.bak"
     Move-Item $TddSentinel $TddSentinelBak
     Push-Location $TddTmp
-    uv run python $TddRed --cmd 'python3 -c "import sys; sys.exit(0)"' --files tests/test_x.py | Out-Null
+    uv run python $TddRed --cmd 'uv run python -c "import sys; sys.exit(0)"' --files tests/test_x.py | Out-Null
     Pop-Location
     if (-not (Test-Path $TddSentinel)) {
         Write-Host "OK: tdd_red: 緑コマンドはセンチネルを作らない"
@@ -818,7 +822,7 @@ with open(path, "w", encoding="utf-8") as f:
     Push-Location $TddTmp
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    uv run python $TddRed --cmd 'python3 -c "import sys; sys.exit(1)"' *> $null
+    uv run python $TddRed --cmd 'uv run python -c "import sys; sys.exit(1)"' *> $null
     $TddRedExit = $LASTEXITCODE
     $ErrorActionPreference = $prevEAP
     Pop-Location
@@ -918,7 +922,7 @@ with open(path, "w", encoding="utf-8") as f:
         Write-Host "NG: tdd_unlock: 赤のままは非0終了でセンチネルを保持する"
         $script:failed++
     }
-    Set-TddCommand 'python3 -c "import sys; sys.exit(0)"'
+    Set-TddCommand 'uv run python -c "import sys; sys.exit(0)"'
     Push-Location $TddTmp
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
@@ -939,12 +943,12 @@ with open(path, "w", encoding="utf-8") as f:
     New-Item -ItemType Directory -Path (Join-Path $TddSubDir "tests") -Force | Out-Null
     "def test_rel():`n    assert False`n" | Write-Utf8NoBom -Path (Join-Path $TddSubDir "tests\test_rel.py") -NoNewline
     Push-Location $TddSubDir
-    uv run python $TddRed --cmd 'python3 -c "import sys; sys.exit(1)"' --files tests/test_rel.py | Out-Null
+    uv run python $TddRed --cmd 'uv run python -c "import sys; sys.exit(1)"' --files tests/test_rel.py | Out-Null
     Pop-Location
     # cmd.exe/sh どちらの shell=True でも解釈できるよう、cwd 依存の判定は
     # basename 文字列処理ではなく相対パスの存在確認にする(record 時の
     # ディレクトリでのみ tests/test_rel.py が解決できる)
-    Set-TddCommand 'python3 -c "import os,sys; sys.exit(0 if os.path.exists(''tests/test_rel.py'') else 1)"'
+    Set-TddCommand 'uv run python -c "import os,sys; sys.exit(0 if os.path.exists(''tests/test_rel.py'') else 1)"'
     Push-Location $TddTmp
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
@@ -964,7 +968,7 @@ with open(path, "w", encoding="utf-8") as f:
     $TddSrcSub = Join-Path $TddTmp "src_sub"
     New-Item -ItemType Directory -Path $TddSrcSub -Force | Out-Null
     Push-Location $TddSrcSub
-    uv run python $TddRed --cmd 'python3 -c "import sys; sys.exit(1)"' --files ../tests/test_x.py | Out-Null
+    uv run python $TddRed --cmd 'uv run python -c "import sys; sys.exit(1)"' --files ../tests/test_x.py | Out-Null
     Pop-Location
     if ((Test-Path $TddSentinel) -and -not (Test-Path (Join-Path $TddSrcSub ".claude"))) {
         Write-Host "OK: tdd_red: サブディレクトリ起動でもリポジトリルート直下のセンチネルを参照する"
@@ -987,7 +991,9 @@ with open(path, "w", encoding="utf-8") as f:
         $script:failed++
     }
 }
-Remove-Item -Path $TddTmp -Recurse -Force -ErrorAction SilentlyContinue
+} finally {
+    Remove-Item -Path $TddTmp -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host ""
 $env:CLAUDE_WORK_SCOPE = $SavedWorkScope
