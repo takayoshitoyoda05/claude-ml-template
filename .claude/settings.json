@@ -51,6 +51,10 @@
           {
             "type": "command",
             "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/state_gate.py"
+          },
+          {
+            "type": "command",
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/tdd_gate.py"
           }
         ]
       },

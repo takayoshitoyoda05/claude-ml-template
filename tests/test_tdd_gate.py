@@ -801,13 +801,33 @@ def _tree_manifest(root: Path) -> dict[str, tuple]:
     return manifest
 
 
+# staging が settings.json へ挿入するブロック(先頭のカンマは state_gate 直後のもの)。
+# 実リポジトリが適用済みでもサンドボックスは常に「未適用状態」を表すよう、
+# コピー後にこのブロックを取り除く(取り除かないと適用済み判定の SKIP 経路に入り、
+# 書き込み失敗注入のテストが注入位置に到達しない)
+_APPLIED_TDD_GATE_BLOCK = (
+    ",\n"
+    "          {\n"
+    '            "type": "command",\n'
+    '            "command": "uv run python \\"$CLAUDE_PROJECT_DIR\\"/.claude/hooks/tdd_gate.py"\n'
+    "          }"
+)
+
+
 def _sandbox_with_real_settings(tmp_path: Path) -> Path:
     root = tmp_path / "stage_sandbox"
     (root / ".claude" / "hooks").mkdir(parents=True)
     (root / ".claude" / "checkpoints").mkdir(parents=True)
-    shutil.copy(
-        REPO_ROOT / ".claude" / "settings.json", root / ".claude" / "settings.json"
-    )
+    settings_path = root / ".claude" / "settings.json"
+    text = (REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8")
+    if "tdd_gate.py" in text:
+        stripped = text.replace(_APPLIED_TDD_GATE_BLOCK, "", 1)
+        assert "tdd_gate.py" not in stripped, (
+            "適用済み settings.json から tdd_gate 登録を除去できなかった"
+            "(挿入書式が _APPLIED_TDD_GATE_BLOCK と一致しない)"
+        )
+        text = stripped
+    settings_path.write_text(text, encoding="utf-8")
     return root
 
 
