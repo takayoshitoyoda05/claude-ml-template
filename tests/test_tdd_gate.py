@@ -31,6 +31,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -95,6 +96,20 @@ def test_pc28_guardian_fails_when_neither_source_available(tmp_path: Path) -> No
             tmp_path / "dest",
             staging_path=tmp_path / "no_staging.py",
             tracked_hooks_dir=tmp_path / "no_hooks_dir",
+        )
+
+
+def test_pc28_guardian_real_checkout_has_at_least_one_source() -> None:
+    """PC-28(実環境番人): 実チェックアウトの STAGING_PATH / TRACKED_HOOKS_DIR の
+
+    少なくとも一方が存在することを検査する。偽パスだけを検査する上のテストでは
+    クリーン checkout(staging 退避)で全 skip が起きる偽陰性を検知できないため、
+    実パスを直接検査する(レビュー指摘: PC-28 番人の無効化)。
+    """
+    if not (STAGING_PATH.exists() or (TRACKED_HOOKS_DIR / "tdd_gate.py").exists()):
+        pytest.fail(
+            "_staging_tdd_gate.py も追跡済み .claude/hooks/tdd_gate.py も"
+            "見つかりません(実チェックアウトでの偽陰性防止の番人。PC-28)。"
         )
 
 
@@ -316,6 +331,11 @@ def test_pc6_gate_no_overblocking(sandbox: Path) -> None:
     malformed = run_gate(sandbox, tool_input=None, stdin_override="not json")
     assert malformed.returncode == 0
 
+    # PC-6(d)相当: file_path が非文字列(int)でも例外で落ちず exit 0(対象なし扱い)
+    nonstring_path = run_gate(sandbox, {"file_path": 12345})
+    assert nonstring_path.returncode == 0
+    assert "Traceback" not in nonstring_path.stderr
+
 
 def test_pc7_gate_path_identity(sandbox: Path) -> None:
     """PC-7: 実体が同一なら絶対/相対/symlink/冗長表記のいずれでも判定不変。
@@ -417,6 +437,24 @@ _BROKEN_SENTINEL_STATES: dict[str, str] = {
             "log_path": "x",
         }
     ),
+    "test_files_relative_element": json.dumps(
+        {
+            "test_command": "x",
+            "test_files": ["relative/dir/test_x.py"],
+            "recorded_cwd": "/tmp",
+            "recorded_at": "now",
+            "log_path": "x",
+        }
+    ),
+    "empty_test_command": json.dumps(
+        {
+            "test_command": "   ",
+            "test_files": ["/tmp/test_x.py"],
+            "recorded_cwd": "/tmp",
+            "recorded_at": "now",
+            "log_path": "x",
+        }
+    ),
 }
 
 _GATE_INPUTS: list[dict[str, str]] = [
@@ -430,7 +468,7 @@ _GATE_INPUTS: list[dict[str, str]] = [
 def test_pc10_gate_broken_sentinel_is_fail_closed(
     sandbox: Path, state_label: str
 ) -> None:
-    """PC-10: 壊れたセンチネルの8状態は、どの入力でも exit 2(全編集ブロック)。
+    """PC-10: 壊れたセンチネルの10状態は、どの入力でも exit 2(全編集ブロック)。
 
     traceback を出さず、脱出路(tdd_red.py --rearm 等)を案内する。
     """
@@ -497,6 +535,55 @@ def test_pc12_unlock_requires_green(sandbox: Path) -> None:
     now_green = run_unlock(sandbox)
     assert now_green.returncode == 0, now_green.stderr
     assert not sentinel_path(sandbox).exists()
+
+
+def test_pc12_unlock_toctou_preserves_reappeared_sentinel(sandbox: Path) -> None:
+    """R-011 TOCTOU: テストコマンド実行中に別プロセスがセンチネルを再記録したら、
+
+    unlock はそれを削除せず非0終了する(実行前に読んだバイト列と、成功後の
+    再読込を比較し、一致する場合のみ削除する。レビュー指摘: TOCTOU で
+    実行中の Red 再記録が消される)。
+
+    記録コマンドは、記録時(1回目の呼び出し)は非0で終わり、unlock の再実行
+    (2回目の呼び出し)では2秒かけて緑になるよう、マーカーファイルで呼び出し回数を
+    区別する(tdd_red.py は記録時に一度コマンドを実行して赤を確認するため)。
+    """
+    (sandbox / "_toctou_cmd.py").write_text(
+        "import os, sys, time\n"
+        "marker = '_toctou_marker'\n"
+        "if not os.path.exists(marker):\n"
+        "    open(marker, 'w').close()\n"
+        "    sys.exit(1)\n"
+        "time.sleep(2)\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    record_red(sandbox, ["tests/test_x.py"], cmd="python3 _toctou_cmd.py")
+    hook = sandbox / ".claude" / "hooks" / "tdd_unlock.py"
+    proc = subprocess.Popen(
+        [sys.executable, str(hook)],
+        cwd=str(sandbox),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=_base_env(),
+    )
+    time.sleep(0.5)
+    reappeared = json.dumps(
+        {
+            "test_command": 'python3 -c "import sys; sys.exit(1)"',
+            "test_files": [str((sandbox / "tests" / "test_y.py").resolve())],
+            "recorded_cwd": str(sandbox.resolve()),
+            "recorded_at": "later",
+            "log_path": "x",
+        }
+    )
+    sentinel_path(sandbox).write_text(reappeared, encoding="utf-8")
+    _, stderr = proc.communicate(timeout=_SUBPROCESS_TIMEOUT)
+
+    assert proc.returncode != 0
+    assert sentinel_path(sandbox).read_text(encoding="utf-8") == reappeared
+    assert "再記録" in stderr
 
 
 def test_pc21_unlock_preserves_recorded_cwd(sandbox: Path) -> None:
@@ -590,7 +677,7 @@ def test_pc21_unlock_preserves_recorded_cwd(sandbox: Path) -> None:
 def test_pc21_unlock_broken_sentinel_does_not_execute_command(
     sandbox: Path, state_label: str
 ) -> None:
-    """PC-21(補足): unlock も PC-10 と同じ8状態でコマンド未実行・非0・センチネル保持。"""
+    """PC-21(補足): unlock も PC-10 と同じ10状態でコマンド未実行・非0・センチネル保持。"""
     content = _BROKEN_SENTINEL_STATES[state_label]
     sentinel_path(sandbox).write_text(content, encoding="utf-8")
     result = run_unlock(sandbox)
@@ -931,7 +1018,7 @@ def _load_staging_module():
 
 @pytestmark_staging
 @pytest.mark.parametrize("wrapper_name", ["_write_tmp", "_replace"])
-@pytest.mark.parametrize("call_index", [1, 2, 3, 4])
+@pytest.mark.parametrize("call_index", [1, 2, 3, 4, 5])
 def test_pc29_staging_write_failure_restores(
     tmp_path: Path, wrapper_name: str, call_index: int
 ) -> None:
@@ -939,8 +1026,10 @@ def test_pc29_staging_write_failure_restores(
     注入しても、非0終了・適用前後のツリーマニフェスト一致・一時ファイル残骸0件。
 
     apply(root) を in-process で呼ぶため importlib でモジュールを読み込む
-    (計画: PC-29 の決定論的失敗注入)。全4回の書き込み(hooks 3本 + settings.json)
-    のうち、指定した call_index 回目でラッパーが実処理後に例外を送出する。
+    (計画: PC-29 の決定論的失敗注入)。全5回の書き込み(hooks 3本 + settings.json の
+    バックアップ + settings.json 本体)のうち、指定した call_index 回目でラッパーが
+    実処理後に例外を送出する(バックアップからの復元が正常に働くため、単発の
+    失敗はすべて適用前状態への完全復元で終わる。レビュー指摘: R-020 二重失敗)。
     """
     module = _load_staging_module()
     root = _sandbox_with_real_settings(tmp_path)
@@ -963,6 +1052,50 @@ def test_pc29_staging_write_failure_restores(
     assert rc != 0
     assert before == after
     assert _count_orphan_tmp_files(root) == 0
+
+
+@pytestmark_staging
+def test_pc29_staging_persistent_failure_prints_manual_recovery(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PC-29(持続的失敗): settings.json 置換が完了した直後に失敗し、その復元
+    (バックアップからの書き戻し)も失敗する場合、自動復元を諦めて非0(3)で
+    終了し、バックアップの実パスと手動復旧手順(バックアップからの書き戻し /
+    git checkout)を stderr に出す(レビュー指摘: R-020 二重失敗の残留)。
+
+    復元側の失敗は「実処理未完了のまま」を模す(`original()` を呼ばない)ため、
+    settings.json は tdd_gate.py 登録済みのまま残り、バックアップファイルも
+    削除されずに残る(適用前状態への完全復元は不可能なケース)。
+    """
+    module = _load_staging_module()
+    root = _sandbox_with_real_settings(tmp_path)
+
+    original_replace = module._replace
+    call_count = {"n": 0}
+
+    def fake_replace(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 5:
+            # settings.json 本体の置換: 実処理を完了させてから例外を送出する
+            original_replace(*args, **kwargs)
+            raise OSError("injected: settings replace failed after completing")
+        if call_count["n"] == 6:
+            # バックアップからの復元呼び出し: 実処理そのものを行わせず失敗させる
+            # (持続的な書き込み不能を模す)
+            raise OSError("injected: restore replace failed persistently")
+        return original_replace(*args, **kwargs)
+
+    module._replace = fake_replace
+    rc = module.apply(root)
+    captured = capsys.readouterr()
+
+    assert rc == 3
+    backup_path = root / ".claude" / "settings.json.tdd_gate_backup"
+    assert backup_path.exists()
+    assert str(backup_path) in captured.err
+    assert "git checkout" in captured.err
+    for name in ("tdd_red.py", "tdd_gate.py", "tdd_unlock.py"):
+        assert (root / ".claude" / "hooks" / name).exists()
 
 
 # --------------------------------------------------------------------------
