@@ -930,7 +930,7 @@ Anthropic公式の「Prompting Claude Fable 5」ガイドに基づき、Fable 5�
 
 プロンプトの「お願い」と違い、ツール呼び出しのたびに確定的に実行されるガード
 (ただし全経路を塞ぐものではない。守備範囲と限界は 3.6 節)。
-`.claude/settings.json` で配線され、全て `uv run python` 経由で OS を問わず動く。
+`.claude/settings.json` で配線され、全て `uv run python` 経由で OS を問わず動く(tdd_gate.py のみ既定offの実験フックで、`_staging_tdd_gate.py` の適用後に配線される)。
 
 | フック | イベント | 役割 |
 |---|---|---|
