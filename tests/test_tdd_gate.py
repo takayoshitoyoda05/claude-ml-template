@@ -800,11 +800,15 @@ def test_review_real_settings_json_wires_tdd_gate() -> None:
     data = json.loads(
         (REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8")
     )
-    entry = next(
+    matching = [
         e
         for e in data["hooks"]["PreToolUse"]
         if e.get("matcher") == "Edit|Write|NotebookEdit"
-    )
+    ]
+    assert (
+        len(matching) == 1
+    )  # 同一 matcher の重複登録は staging の前検証と同じく不許可
+    entry = matching[0]
     commands = [h["command"] for h in entry["hooks"]]
     assert [c.split("/")[-1] for c in commands] == [
         "guard_scope.py",
